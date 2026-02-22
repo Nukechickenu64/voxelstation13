@@ -4,6 +4,8 @@
 #include "render/shaders/highlight_vert_spv.h"
 #include "render/shaders/highlight_frag_spv.h"
 #include "core/world.h"
+#include "data/voxel_registry.h"
+#include "stb_image.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -122,7 +124,7 @@ bool Renderer::create_pipeline()
     fi.entrypoint         = "main";
     fi.format             = SDL_GPU_SHADERFORMAT_SPIRV;
     fi.stage              = SDL_GPU_SHADERSTAGE_FRAGMENT;
-    fi.num_uniform_buffers = 0;
+    fi.num_samplers       = 1;   // slot 0 = tile texture array (set=0, binding=0)
 
     m_frag_shader = SDL_CreateGPUShader(m_gpu, &fi);
     if (!m_frag_shader) {
@@ -130,17 +132,18 @@ bool Renderer::create_pipeline()
         return false;
     }
 
-    // ── Vertex layout: pos(3f) + normal(3f), stride 24 ───────────────────────
+    // ── Vertex layout: pos(3f) + normal(3f) + uv(2f) + texIndex(1f), stride 36 ─────
     SDL_GPUVertexBufferDescription vbuf_desc{};
     vbuf_desc.slot              = 0;
-    vbuf_desc.pitch             = 32;   // 8 floats × 4 bytes: pos(3f)+normal(3f)+uv(2f)
+    vbuf_desc.pitch             = 36;   // 9 floats × 4 bytes
     vbuf_desc.input_rate        = SDL_GPU_VERTEXINPUTRATE_VERTEX;
     vbuf_desc.instance_step_rate = 0;
 
-    SDL_GPUVertexAttribute vattrs[3]{};
+    SDL_GPUVertexAttribute vattrs[4]{};
     vattrs[0] = { 0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,  0 }; // location 0 = pos
     vattrs[1] = { 1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, 12 }; // location 1 = normal
     vattrs[2] = { 2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, 24 }; // location 2 = uv
+    vattrs[3] = { 3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT,  32 }; // location 3 = texIndex
 
     // ── Colour target format (matches the swapchain) ──────────────────────────
     SDL_GPUColorTargetDescription ctd{};
@@ -158,7 +161,7 @@ bool Renderer::create_pipeline()
     pci.vertex_input_state.vertex_buffer_descriptions = &vbuf_desc;
     pci.vertex_input_state.num_vertex_buffers         = 1;
     pci.vertex_input_state.vertex_attributes          = vattrs;
-    pci.vertex_input_state.num_vertex_attributes      = 3;
+    pci.vertex_input_state.num_vertex_attributes      = 4;
 
     pci.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
 
@@ -205,6 +208,8 @@ void Renderer::shutdown()
         if (m_highlight_ibuf)     { SDL_ReleaseGPUBuffer(m_gpu, m_highlight_ibuf);               m_highlight_ibuf     = nullptr; }
         if (m_vert_shader)        { SDL_ReleaseGPUShader(m_gpu, m_vert_shader);                  m_vert_shader        = nullptr; }
         if (m_frag_shader)        { SDL_ReleaseGPUShader(m_gpu, m_frag_shader);                  m_frag_shader        = nullptr; }
+        if (m_tile_array)         { SDL_ReleaseGPUTexture(m_gpu, m_tile_array);                  m_tile_array         = nullptr; }
+        if (m_tile_sampler)       { SDL_ReleaseGPUSampler(m_gpu, m_tile_sampler);                m_tile_sampler       = nullptr; }
         if (m_depth_tex)          { SDL_ReleaseGPUTexture(m_gpu, m_depth_tex);                   m_depth_tex          = nullptr; }
 
         if (m_window) SDL_ReleaseWindowFromGPUDevice(m_gpu, m_window);
@@ -296,6 +301,12 @@ void Renderer::draw_world(const World& /*world*/,
     m_current_mvp = view_proj;  // save plain VP for the highlight pass (world-space verts)
 
     SDL_BindGPUGraphicsPipeline(m_render_pass, m_world_pipeline);
+
+    // Bind tile texture array to fragment sampler slot 0
+    if (m_tile_array && m_tile_sampler) {
+        SDL_GPUTextureSamplerBinding tsb{ m_tile_array, m_tile_sampler };
+        SDL_BindGPUFragmentSamplers(m_render_pass, 0, &tsb, 1);
+    }
 
     int drawn = 0;
     // ── Draw each uploaded GPU mesh (frustum-culled) ──────────────────────────
@@ -438,6 +449,143 @@ void Renderer::free_mesh(glm::ivec3 chunk_pos)
     auto it = m_gpu_meshes.find(chunk_pos);
     if (it != m_gpu_meshes.end()) { release_gpu_mesh(it->second); m_gpu_meshes.erase(it); }
     m_meshes.erase(chunk_pos);
+}
+
+// ── Tile texture array ─────────────────────────────────────────────────────────────────
+
+bool Renderer::load_tile_textures(const VoxelRegistry& reg, const char* texture_dir)
+{
+    // Build a list of texture paths indexed by type_id.
+    // type_id 0 = empty (never rendered) – use fallback.
+    const auto& all = reg.all();  // unordered_map<uint16_t, VoxelTypeDef>
+
+    // Find max type_id so we know the array size
+    uint32_t max_id = 0;
+    for (const auto& [id, def] : all)
+        if (id > max_id) max_id = id;
+
+    const uint32_t num_layers = max_id + 1;  // layers 0..max_id
+    const uint32_t TEX_W      = 32;
+    const uint32_t TEX_H      = 32;
+    const uint32_t LAYER_BYTES = TEX_W * TEX_H * 4;  // RGBA8
+
+    // Allocate CPU buffer: one RGBA layer per slot
+    std::vector<uint8_t> pixels(num_layers * LAYER_BYTES, 0xFF);  // default white
+
+    // Fallback texture path
+    std::string fallback_path = std::string(texture_dir) + "/tiles/fallback.png";
+
+    auto load_layer = [&](uint32_t layer, const std::string& path) {
+        int w, h, ch;
+        unsigned char* data = stbi_load(path.c_str(), &w, &h, &ch, 4);
+        if (!data) {
+            SDL_Log("load_tile_textures: stbi_load failed for %s: %s", path.c_str(), stbi_failure_reason());
+            return;
+        }
+        uint8_t* dst = pixels.data() + layer * LAYER_BYTES;
+        if (w == (int)TEX_W && h == (int)TEX_H) {
+            std::memcpy(dst, data, LAYER_BYTES);
+        } else {
+            // Scale down / pad by nearest-neighbor to TEX_W x TEX_H
+            for (uint32_t py = 0; py < TEX_H; ++py)
+            for (uint32_t px = 0; px < TEX_W; ++px) {
+                int sx = (int)(px * w / TEX_W);
+                int sy = (int)(py * h / TEX_H);
+                const unsigned char* src_px = data + (sy * w + sx) * 4;
+                uint8_t* d = dst + (py * TEX_W + px) * 4;
+                d[0] = src_px[0]; d[1] = src_px[1];
+                d[2] = src_px[2]; d[3] = src_px[3];
+            }
+        }
+        stbi_image_free(data);
+    };
+
+    // Layer 0 = fallback (type_id 0 = empty/unset, never rendered)
+    load_layer(0, fallback_path);
+
+    // Load a texture for each registered voxel type
+    for (const auto& [id, def] : all) {
+        if (def.icon.empty()) {
+            load_layer(id, fallback_path);
+        } else {
+            std::string path = std::string(texture_dir) + "/" + def.icon + ".png";
+            load_layer(id, path);
+        }
+    }
+
+    // ── Create GPU 2D array texture ───────────────────────────────────────────
+    SDL_GPUTextureCreateInfo tci{};
+    tci.type                    = SDL_GPU_TEXTURETYPE_2D_ARRAY;
+    tci.format                  = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+    tci.usage                   = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    tci.width                   = TEX_W;
+    tci.height                  = TEX_H;
+    tci.layer_count_or_depth    = num_layers;
+    tci.num_levels              = 1;
+    tci.sample_count            = SDL_GPU_SAMPLECOUNT_1;
+    m_tile_array = SDL_CreateGPUTexture(m_gpu, &tci);
+    if (!m_tile_array) {
+        SDL_Log("load_tile_textures: SDL_CreateGPUTexture failed: %s", SDL_GetError());
+        return false;
+    }
+
+    // ── Upload via staging buffer ─────────────────────────────────────────────
+    const Uint32 total_bytes = (Uint32)pixels.size();
+    SDL_GPUTransferBufferCreateInfo tbci{};
+    tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    tbci.size  = total_bytes;
+    auto* tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &tbci);
+    if (!tbuf) {
+        SDL_Log("load_tile_textures: SDL_CreateGPUTransferBuffer failed: %s", SDL_GetError());
+        return false;
+    }
+    auto* ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
+    std::memcpy(ptr, pixels.data(), total_bytes);
+    SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
+
+    auto* cmd       = SDL_AcquireGPUCommandBuffer(m_gpu);
+    auto* copy_pass = SDL_BeginGPUCopyPass(cmd);
+
+    for (uint32_t layer = 0; layer < num_layers; ++layer) {
+        SDL_GPUTextureTransferInfo src{};
+        src.transfer_buffer = tbuf;
+        src.offset          = layer * LAYER_BYTES;
+        src.pixels_per_row  = TEX_W;
+        src.rows_per_layer  = TEX_H;
+
+        SDL_GPUTextureRegion dst{};
+        dst.texture   = m_tile_array;
+        dst.mip_level = 0;
+        dst.layer     = layer;
+        dst.x = dst.y = dst.z = 0;
+        dst.w = TEX_W;
+        dst.h = TEX_H;
+        dst.d = 1;
+
+        SDL_UploadToGPUTexture(copy_pass, &src, &dst, false);
+    }
+
+    SDL_EndGPUCopyPass(copy_pass);
+    SDL_SubmitGPUCommandBuffer(cmd);
+    SDL_ReleaseGPUTransferBuffer(m_gpu, tbuf);
+
+    // ── Create sampler (nearest / repeat for pixel-art look) ──────────────────
+    SDL_GPUSamplerCreateInfo sci{};
+    sci.min_filter      = SDL_GPU_FILTER_NEAREST;
+    sci.mag_filter      = SDL_GPU_FILTER_NEAREST;
+    sci.mipmap_mode     = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+    sci.address_mode_u  = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+    sci.address_mode_v  = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+    sci.address_mode_w  = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+    m_tile_sampler = SDL_CreateGPUSampler(m_gpu, &sci);
+    if (!m_tile_sampler) {
+        SDL_Log("load_tile_textures: SDL_CreateGPUSampler failed: %s", SDL_GetError());
+        return false;
+    }
+
+    SDL_Log("load_tile_textures: loaded %u layers (%ux%u each)",
+            num_layers, TEX_W, TEX_H);
+    return true;
 }
 
 // ── Face highlight ────────────────────────────────────────────────────────────

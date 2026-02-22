@@ -18,6 +18,14 @@ FetchContent_MakeAvailable(glm)
 # SDL3 — system installed
 find_package(SDL3 REQUIRED CONFIG)
 
+# stb — header-only image loading
+FetchContent_Declare(stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(stb)
+
 # ── Shader generation (Python SPIRV assembler) ────────────────────────────────
 find_package(Python3 QUIET)
 if(Python3_FOUND)
@@ -88,6 +96,7 @@ set(SRC_UI
 # ── Executable ────────────────────────────────────────────────────────────────
 add_executable(vs13
     src/main.cpp
+    src/stb_impl.cpp
     ${SRC_CORE}
     ${SRC_RENDER}
     ${SRC_SIM}
@@ -106,6 +115,7 @@ endif()
 target_include_directories(vs13 PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/includes
+    ${stb_SOURCE_DIR}
 )
 
 target_link_libraries(vs13 PRIVATE

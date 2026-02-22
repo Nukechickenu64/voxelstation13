@@ -1,5 +1,6 @@
 #pragma once
 #include "core/world.h"
+#include "data/voxel_registry.h"
 #include <SDL3/SDL.h>
 #include <glm/glm.hpp>
 #include <vector>
@@ -34,6 +35,10 @@ public:
     void draw_viewmodel(uint16_t item_type_id);
     void end_frame();
 
+    // Load tile textures from disk and upload a GPU 2D-array texture.
+    // Must be called after init(), before the first draw_world().
+    bool load_tile_textures(const VoxelRegistry& reg, const char* texture_dir);
+
     // CPU mesh management
     ChunkMesh& get_or_create_mesh(glm::ivec3 chunk_pos);
     void       upload_mesh(ChunkMesh& mesh);   // copies to GPU
@@ -58,6 +63,8 @@ private:
     SDL_GPUShader*           m_frag_shader         = nullptr;
     SDL_GPUTexture*          m_depth_tex           = nullptr;
     SDL_GPUTextureFormat     m_depth_fmt           = SDL_GPU_TEXTUREFORMAT_INVALID;
+    SDL_GPUTexture*          m_tile_array          = nullptr;  // 2D array of tile textures
+    SDL_GPUSampler*          m_tile_sampler        = nullptr;
 
     // ── Highlight pipeline ────────────────────────────────────────────────────
     SDL_GPUGraphicsPipeline* m_highlight_pipeline  = nullptr;

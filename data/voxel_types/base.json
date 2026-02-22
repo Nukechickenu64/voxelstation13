@@ -58,7 +58,7 @@
   {
     "id":    "light_tube",
     "name":  "Light Tube",
-    "icon":  "tiles/light",
+    "icon":   "tiles/light_tube",
     "flags": [],
     "health": 30,
     "emit_light": 14,

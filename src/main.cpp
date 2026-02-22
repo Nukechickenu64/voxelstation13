@@ -73,6 +73,7 @@ int main(int /*argc*/, char* /*argv*/[])
         SDL_Log("Renderer init failed.");
         return 1;
     }
+    renderer.load_tile_textures(voxel_reg, "textures");
 
     UIRenderer ui_renderer(renderer.gpu());
     if (!ui_renderer.init(renderer.window(), renderer.width(), renderer.height())) {
@@ -120,7 +121,8 @@ int main(int /*argc*/, char* /*argv*/[])
         // Resolve voxel type IDs (fall back to 1/2 when data not loaded)
         uint16_t floor_id = voxel_reg.id_of("floor");
         if (floor_id == 0) floor_id = 1;
-        uint16_t wall_id = voxel_reg.id_of("wall");
+        uint16_t wall_id = voxel_reg.id_of("reinforced_wall");
+        if (wall_id == 0) wall_id = voxel_reg.id_of("wall");
         if (wall_id == 0) wall_id = 2;
 
         Voxel floor_voxel;

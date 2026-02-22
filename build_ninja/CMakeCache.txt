@@ -296,11 +296,18 @@ FETCHCONTENT_QUIET:BOOL=ON
 // for glm
 FETCHCONTENT_SOURCE_DIR_GLM:PATH=
 
+//When not empty, overrides where to find pre-populated content
+// for stb
+FETCHCONTENT_SOURCE_DIR_STB:PATH=
+
 //Enables UPDATE_DISCONNECTED behavior for all content population
 FETCHCONTENT_UPDATES_DISCONNECTED:BOOL=OFF
 
 //Enables UPDATE_DISCONNECTED behavior just for population of glm
 FETCHCONTENT_UPDATES_DISCONNECTED_GLM:BOOL=OFF
+
+//Enables UPDATE_DISCONNECTED behavior just for population of stb
+FETCHCONTENT_UPDATES_DISCONNECTED_STB:BOOL=OFF
 
 //Git command line client
 GIT_EXECUTABLE:FILEPATH=C:/devkitPro/msys2/usr/bin/git.exe
