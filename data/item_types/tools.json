@@ -3,8 +3,9 @@
     "id":       "wrench",
     "name":     "Wrench",
     "icon":     "items/wrench",
-    "tags":     ["tool", "wrench"],
+    "tags":     ["tool", "wrench", "small"],
     "weight":   0.4,
+    "volume":   1.2,
     "stack_max":1,
     "verbs": [
       { "name": "Wrench",  "range": 1.5, "handler": "verb_wrench"  },
@@ -16,8 +17,9 @@
     "id":       "screwdriver",
     "name":     "Screwdriver",
     "icon":     "items/screwdriver",
-    "tags":     ["tool", "screwdriver"],
+    "tags":     ["tool", "screwdriver", "small"],
     "weight":   0.2,
+    "volume":   0.8,
     "stack_max":1,
     "verbs": [
       { "name": "Screwdrive", "range": 1.5, "handler": "verb_screwdrive" },
@@ -32,6 +34,7 @@
     "icon":     "items/crowbar",
     "tags":     ["tool", "crowbar"],
     "weight":   0.9,
+    "volume":   3.0,
     "stack_max":1,
     "verbs": [
       { "name": "Pry",     "range": 1.5, "handler": "verb_pry"     },
@@ -44,8 +47,9 @@
     "id":       "wirecutters",
     "name":     "Wirecutters",
     "icon":     "items/wirecutters",
-    "tags":     ["tool", "wirecutters"],
+    "tags":     ["tool", "wirecutters", "small"],
     "weight":   0.3,
+    "volume":   1.0,
     "stack_max":1,
     "verbs": [
       { "name": "Cut wire", "range": 1.5, "handler": "verb_cut_wire" },
@@ -54,13 +58,15 @@
     ]
   },
   {
-    "id":          "toolbox",
-    "name":        "Toolbox",
-    "icon":        "items/toolbox",
-    "tags":        ["bag"],
-    "weight":      2.0,
-    "stack_max":   1,
+    "id":           "toolbox",
+    "name":         "Toolbox",
+    "icon":         "items/toolbox",
+    "tags":         ["bag"],
+    "weight":       2.0,
+    "volume":       8.0,
+    "stack_max":    1,
     "is_container": true,
+    "container_volume": 20.0,
     "verbs": [
       { "name": "Hit",     "range": 1.2, "handler": "verb_hit"     },
       { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
@@ -74,6 +80,7 @@
     "icon":     "items/stun_baton",
     "tags":     ["weapon"],
     "weight":   0.7,
+    "volume":   2.5,
     "stack_max":1,
     "verbs": [
       { "name": "Hit",     "range": 1.0, "handler": "verb_stun"    },
@@ -82,12 +89,14 @@
     ]
   },
   {
-    "id":       "id_card",
-    "name":     "ID Card",
-    "icon":     "items/id_card",
-    "tags":     ["id_card"],
-    "weight":   0.02,
-    "stack_max":1,
+    "id":         "id_card",
+    "name":       "ID Card",
+    "icon":       "items/id_card",
+    "tags":       ["id_card", "small"],
+    "weight":     0.02,
+    "volume":     0.1,
+    "stack_max":  1,
+    "equip_slot": "id_slot",
     "verbs": [
       { "name": "Show",    "range": 2.0, "handler": "verb_show_id" },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }

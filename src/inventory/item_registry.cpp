@@ -45,12 +45,15 @@ bool ItemRegistry::load_from_json(const nlohmann::json& j, const std::string& sr
 {
     try {
         ItemDef def;
-        def.id        = j.at("id").get<std::string>();
-        def.name      = j.at("name").get<std::string>();
-        def.icon      = j.value("icon", "");
-        def.weight    = j.value("weight", 0.1f);
-        def.stack_max = j.value("stack_max", 1);
-        def.is_container = j.value("is_container", false);
+        def.id               = j.at("id").get<std::string>();
+        def.name             = j.at("name").get<std::string>();
+        def.icon             = j.value("icon", "");
+        def.weight           = j.value("weight", 0.1f);
+        def.volume           = j.value("volume", 0.5f);
+        def.stack_max        = j.value("stack_max", 1);
+        def.is_container     = j.value("is_container", false);
+        def.container_volume = j.value("container_volume", 0.f);
+        def.equip_slot       = j.value("equip_slot", "");
 
         if (j.contains("tags"))
             for (const auto& t : j["tags"])

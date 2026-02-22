@@ -23,6 +23,7 @@ struct CharacterControllerComponent {
     bool  on_ground   = false;
     bool  crouching   = false;
     bool  sprinting   = false;
+    bool  zero_g      = false;  // true when player is in vacuum / space
 };
 
 // Kinematic character physics and projectile movement.

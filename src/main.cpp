@@ -31,26 +31,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 
-// ── Hotbar inventory helper ───────────────────────────────────────────────────
-static std::vector<InventorySlot> make_human_slots()
-{
-    return {
-        {"head",    {"hat","helmet","mask"},   std::nullopt, {}, false},
-        {"eyes",    {"glasses","goggles"},      std::nullopt, {}, false},
-        {"ears",    {"headset","earmuffs"},     std::nullopt, {}, false},
-        {"mask",    {"mask","respirator"},      std::nullopt, {}, false},
-        {"uniform", {"uniform","jumpsuit"},     std::nullopt, {}, false},
-        {"suit",    {"suit","hardsuit"},        std::nullopt, {}, false},
-        {"gloves",  {"gloves"},                 std::nullopt, {}, false},
-        {"boots",   {"boots"},                  std::nullopt, {}, false},
-        {"back",    {"bag","tank"},             std::nullopt, {}, false},
-        {"belt",    {"belt","holster"},         std::nullopt, {}, false},
-        {"l_hand",  {"*"},                      std::nullopt, {}, false},
-        {"r_hand",  {"*"},                      std::nullopt, {}, false},
-        {"id_card", {"id_card"},                std::nullopt, {}, false},
-        {"pda",     {"pda"},                    std::nullopt, {}, false},
-    };
-}
+// Player inventory is now built by make_player_inventory() in inventory.cpp
 
 // ────────────────────────────────────────────────────────────────────────────
 int main(int /*argc*/, char* /*argv*/[])
@@ -119,7 +100,7 @@ int main(int /*argc*/, char* /*argv*/[])
     ContextMenu    ctx_menu(ui_renderer);
 
     // ── 11. Player inventory ──────────────────────────────────────────────────
-    Inventory player_inv(make_human_slots());
+    Inventory player_inv = make_player_inventory();
 
     // ── 11b. World item system ────────────────────────────────────────────────
     WorldItemSystem world_items(server.world(), server.entities());
@@ -147,16 +128,34 @@ int main(int /*argc*/, char* /*argv*/[])
         constexpr int WALL_TOP  =  4;  // walls fill y = 1 .. WALL_TOP
         constexpr int CEILING_Y =  5;
 
+        // Airlock + space constants
+        constexpr int LOCK_X_LO  = -1;  // inner door gap: x = -1..1
+        constexpr int LOCK_X_HI  =  1;
+        constexpr int LOCK_DOOR_TOP = 3; // door opening height y=1..3
+        constexpr int LOCK_Z_IN  =  ROOM_MAX;      // z=8  – inner wall (station side)
+        constexpr int LOCK_Z_OUT = ROOM_MAX + 4;   // z=12 – outer wall (space side)
+        constexpr int LOCK_WALL_LO = LOCK_X_LO - 1;  // x=-2
+        constexpr int LOCK_WALL_HI = LOCK_X_HI + 1;  // x=2
+        constexpr int SPACE_FAR  = ROOM_MAX + 22;  // z=30 – end of space platform
+
+        uint16_t plating_id = voxel_reg.id_of("floor_plating");
+        if (plating_id == 0) plating_id = floor_id;
+        Voxel plating_voxel;
+        plating_voxel.type_id = plating_id;
+        plating_voxel.flags   = VFLAG_SOLID | VFLAG_OPAQUE;
+
         // Floor (y = 0)
         for (int x = ROOM_MIN; x <= ROOM_MAX; ++x)
             for (int z = ROOM_MIN; z <= ROOM_MAX; ++z)
                 server.world().set_voxel({x, 0, z}, floor_voxel);
 
-        // Perimeter walls (y = 1 .. WALL_TOP)
+        // Perimeter walls (y = 1 .. WALL_TOP) — with airlock gap in +Z wall
         for (int i = ROOM_MIN; i <= ROOM_MAX; ++i) {
             for (int y = 1; y <= WALL_TOP; ++y) {
                 server.world().set_voxel({ i,       y, ROOM_MIN}, wall_voxel);
-                server.world().set_voxel({ i,       y, ROOM_MAX}, wall_voxel);
+                // +Z wall: leave gap at x=LOCK_X_LO..LOCK_X_HI, y=1..LOCK_DOOR_TOP
+                if (i < LOCK_X_LO || i > LOCK_X_HI || y > LOCK_DOOR_TOP)
+                    server.world().set_voxel({ i, y, ROOM_MAX}, wall_voxel);
                 server.world().set_voxel({ROOM_MIN, y,  i      }, wall_voxel);
                 server.world().set_voxel({ROOM_MAX, y,  i      }, wall_voxel);
             }
@@ -174,6 +173,42 @@ int main(int /*argc*/, char* /*argv*/[])
             server.world().set_voxel({-PIL, y,  PIL}, wall_voxel);
             server.world().set_voxel({ PIL, y, -PIL}, wall_voxel);
             server.world().set_voxel({-PIL, y, -PIL}, wall_voxel);
+        }
+
+        // ── Airlock vestibule (z = ROOM_MAX+1 .. LOCK_Z_OUT-1) ────────────────
+        // Floor
+        for (int x = LOCK_WALL_LO; x <= LOCK_WALL_HI; ++x)
+            for (int z = LOCK_Z_IN + 1; z < LOCK_Z_OUT; ++z)
+                server.world().set_voxel({x, 0, z}, plating_voxel);
+
+        // Side walls x=LOCK_WALL_LO and x=LOCK_WALL_HI
+        for (int z = LOCK_Z_IN + 1; z <= LOCK_Z_OUT; ++z)
+            for (int y = 1; y <= WALL_TOP; ++y) {
+                server.world().set_voxel({LOCK_WALL_LO, y, z}, wall_voxel);
+                server.world().set_voxel({LOCK_WALL_HI, y, z}, wall_voxel);
+            }
+
+        // Outer wall at LOCK_Z_OUT — with matching door gap at center
+        for (int x = LOCK_WALL_LO; x <= LOCK_WALL_HI; ++x)
+            for (int y = 1; y <= WALL_TOP; ++y)
+                if (x < LOCK_X_LO || x > LOCK_X_HI || y > LOCK_DOOR_TOP)
+                    server.world().set_voxel({x, y, LOCK_Z_OUT}, wall_voxel);
+
+        // Ceiling over airlock
+        for (int x = LOCK_WALL_LO; x <= LOCK_WALL_HI; ++x)
+            for (int z = LOCK_Z_IN + 1; z <= LOCK_Z_OUT; ++z)
+                server.world().set_voxel({x, CEILING_Y, z}, wall_voxel);
+
+        // ── Space platform (z = LOCK_Z_OUT+1 .. SPACE_FAR) ───────────────────
+        // Open to the void — no ceiling, no side walls
+        for (int x = LOCK_WALL_LO; x <= LOCK_WALL_HI; ++x)
+            for (int z = LOCK_Z_OUT + 1; z <= SPACE_FAR; ++z)
+                server.world().set_voxel({x, 0, z}, plating_voxel);
+
+        // Handrail stubs at the start of the space platform (first 2 blocks)
+        for (int y = 1; y <= 2; ++y) {
+            server.world().set_voxel({LOCK_WALL_LO, y, LOCK_Z_OUT + 1}, wall_voxel);
+            server.world().set_voxel({LOCK_WALL_HI, y, LOCK_Z_OUT + 1}, wall_voxel);
         }
 
         // Place the player above the floor so they aren't embedded in it
@@ -295,6 +330,21 @@ int main(int /*argc*/, char* /*argv*/[])
             // Server tick (applies pending inputs, steps physics + simulations)
             server.tick(dt);
             client.tick(dt);
+
+            // Toggle zero-G when player crosses the airlock outer door (z > 12)
+            if (player != NULL_ENTITY) {
+                auto* cc2 = server.entities().get_component<CharacterControllerComponent>(player);
+                auto* tr2 = server.entities().get_component<TransformComponent>(player);
+                if (cc2 && tr2) {
+                    bool in_space = (tr2->pos.z > 12.f);
+                    if (in_space != cc2->zero_g) {
+                        cc2->zero_g = in_space;
+                        SDL_Log("Airlock: player %s space (zero_g=%s)",
+                                in_space ? "entered" : "left",
+                                in_space ? "on" : "off");
+                    }
+                }
+            }
 
             // Sync camera to physics-driven player position
             if (player != NULL_ENTITY) {
@@ -502,6 +552,7 @@ int main(int /*argc*/, char* /*argv*/[])
             renderer.queue_world_items(server.entities(), hovered_item_entity,
                                        cam_pos, cam_yaw, cam_pitch);
             renderer.queue_mobs(server.entities(), cam_pos, cam_yaw);
+            renderer.queue_earth_background(cam_pos, cam_yaw, cam_pitch);
 
             renderer.begin_frame(alpha);
 
@@ -544,12 +595,13 @@ int main(int /*argc*/, char* /*argv*/[])
                 bool lmb_released = input.is_released(Action::PrimaryInteract);
                 bool rmb_pressed  = input.is_pressed (Action::SecondaryInteract);
 
+                bool shift_held = input.is_held(Action::Sprint);
                 auto interaction = inv_panel.draw(
-                    player_inv, cursor, lmb_down, lmb_released, ov_alpha);
+                    player_inv, cursor, lmb_down, lmb_released, shift_held, ov_alpha);
 
                 if (interaction.type == PanelInteraction::Type::RightClick) {
                     // Build verb list for the item in that slot
-                    const auto* slot = player_inv.find_slot(interaction.slot_id);
+                    const auto* slot = player_inv.find_slot_deep(interaction.slot_id);
                     if (slot && slot->item && slot->item->def) {
                         std::vector<ContextEntry> entries;
                         for (const auto& verb : slot->item->def->verbs) {

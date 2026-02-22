@@ -13,14 +13,18 @@ struct ItemVerb {
 };
 
 struct ItemDef {
-    std::string            id;
-    std::string            name;
-    std::string            icon;     // path in textures/items/
+    std::string              id;
+    std::string              name;
+    std::string              icon;       // path in textures/items/
     std::vector<std::string> tags;
-    float                  weight   = 0.1f;
-    int                    stack_max= 1;
-    bool                   is_container = false;
-    std::vector<ItemVerb>  verbs;
+    float                    weight           = 0.1f;   // kg
+    float                    volume           = 0.5f;   // litres (Stationeers-style)
+    int                      stack_max        = 1;
+    bool                     is_container     = false;
+    float                    container_volume = 0.f;    // litres capacity when container
+    // Which equipment slot this auto-equips to ("" = hand/general)
+    std::string              equip_slot;
+    std::vector<ItemVerb>    verbs;
 };
 
 struct ItemStack {
@@ -32,10 +36,22 @@ struct ItemStack {
 };
 
 // ── Inventory slot ────────────────────────────────────────────────────────────
+enum class SlotCategory {
+    General,    // hands, pockets — accept anything small
+    Equipment,  // typed equipment slots (head, suit, etc.)
+    BeltTool,   // sub-slots on a worn toolbelt
+    Container,  // virtual sub-slots inside an open bag
+};
+
 struct InventorySlot {
-    std::string             id;
+    std::string              id;
+    std::string              display_name;  // shown in UI (e.g. "Head")
     std::vector<std::string> accepts_tags;  // "*" = anything
+    SlotCategory             category  = SlotCategory::General;
     std::optional<ItemStack> item;
+
+    // Volume limit when this slot acts as a container (0 = unlimited)
+    float   volume_capacity = 0.f;
 
     // For container items: child slots are stored here when opened
     std::vector<InventorySlot> children;
@@ -52,17 +68,30 @@ public:
     InventorySlot*       find_slot(const std::string& id);
     const InventorySlot* find_slot(const std::string& id) const;
 
+    // Recursively search slots and all open container children
+    InventorySlot*       find_slot_deep(const std::string& id);
+
     // Try to place a stack into a specific slot; returns false on failure
     bool put(const std::string& slot_id, ItemStack stack);
 
     // Remove item from slot (returns it so caller can drop it)
     std::optional<ItemStack> take(const std::string& slot_id);
 
-    // Swap two slots' contents
+    // Swap two slots' contents (works across top-level slots)
     void swap(const std::string& a, const std::string& b);
+
+    // Split count items from src into target slot; returns false on failure
+    bool split(const std::string& src_slot, const std::string& dst_slot, int count);
 
     // Returns first slot that accepts and is empty, else nullptr
     InventorySlot* find_empty_accepting(const ItemDef& def);
+
+    // Auto-equip: try equip_slot first, then find_empty_accepting
+    bool           auto_equip(ItemStack stack);
+
+    // Aggregate stats
+    float total_weight()  const; // sum of all held item weights * count
+    float total_volume()  const; // sum of all held item volumes * count
 
     const std::vector<InventorySlot>& slots() const { return m_slots; }
     std::vector<InventorySlot>&       slots()       { return m_slots; }
@@ -75,4 +104,12 @@ public:
 private:
     std::vector<InventorySlot> m_slots;
     std::string m_active_hand = "r_hand";
+
+    // Helpers used by find_slot_deep / split
+    static InventorySlot* find_in_list(std::vector<InventorySlot>& list,
+                                        const std::string& id);
 };
+
+// ── Factory ───────────────────────────────────────────────────────────────────
+// Build the standard Stationeers-style player inventory.
+Inventory make_player_inventory();

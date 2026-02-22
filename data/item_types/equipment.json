@@ -1,0 +1,289 @@
+[
+  {
+    "id":           "hardsuit",
+    "name":         "Hardsuit",
+    "icon":         "items/hardsuit",
+    "tags":         ["suit", "hardsuit"],
+    "weight":       12.0,
+    "volume":       18.0,
+    "stack_max":    1,
+    "equip_slot":   "suit",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Remove",  "range": 1.0, "handler": "verb_remove"  },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "hardsuit_helmet",
+    "name":         "Hardsuit Helmet",
+    "icon":         "items/hardsuit_helmet",
+    "tags":         ["helmet", "head"],
+    "weight":       3.5,
+    "volume":       8.0,
+    "stack_max":    1,
+    "equip_slot":   "head",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Remove",  "range": 1.0, "handler": "verb_remove"  },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "mining_helmet",
+    "name":         "Mining Helmet",
+    "icon":         "items/mining_helmet",
+    "tags":         ["helmet", "head", "hat"],
+    "weight":       0.8,
+    "volume":       3.0,
+    "stack_max":    1,
+    "equip_slot":   "head",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Toggle Light", "range": 1.0, "handler": "verb_toggle_light" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "welding_helmet",
+    "name":         "Welding Helmet",
+    "icon":         "items/welding_helmet",
+    "tags":         ["helmet", "head", "hat"],
+    "weight":       1.2,
+    "volume":       4.0,
+    "stack_max":    1,
+    "equip_slot":   "head",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Flip Visor", "range": 1.0, "handler": "verb_flip_visor" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "jetpack",
+    "name":         "Jetpack",
+    "icon":         "items/jetpack",
+    "tags":         ["back", "jetpack"],
+    "weight":       8.0,
+    "volume":       16.0,
+    "stack_max":    1,
+    "equip_slot":   "back",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Toggle",  "range": 1.0, "handler": "verb_toggle_jetpack" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "oxygen_tank",
+    "name":         "Oxygen Tank",
+    "icon":         "items/oxygen_tank",
+    "tags":         ["back", "tank"],
+    "weight":       5.5,
+    "volume":       12.0,
+    "stack_max":    1,
+    "equip_slot":   "back",
+    "verbs": [
+      { "name": "Wear",     "range": 1.0, "handler": "verb_wear"        },
+      { "name": "Examine",  "range": 99,  "handler": "verb_examine"     },
+      { "name": "Check Pressure", "range": 1.5, "handler": "verb_check_pressure" }
+    ]
+  },
+  {
+    "id":           "backpack",
+    "name":         "Backpack",
+    "icon":         "items/backpack",
+    "tags":         ["back", "backpack", "bag"],
+    "weight":       1.5,
+    "volume":       4.0,
+    "stack_max":    1,
+    "is_container": true,
+    "container_volume": 40.0,
+    "equip_slot":   "back",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "toolbelt",
+    "name":         "Toolbelt",
+    "icon":         "items/toolbelt",
+    "tags":         ["belt", "toolbelt"],
+    "weight":       0.6,
+    "volume":       3.0,
+    "stack_max":    1,
+    "equip_slot":   "belt",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "insulated_gloves",
+    "name":         "Insulated Gloves",
+    "icon":         "items/insulated_gloves",
+    "tags":         ["gloves"],
+    "weight":       0.25,
+    "volume":       1.0,
+    "stack_max":    1,
+    "equip_slot":   "gloves",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "rubber_gloves",
+    "name":         "Rubber Gloves",
+    "icon":         "items/rubber_gloves",
+    "tags":         ["gloves"],
+    "weight":       0.15,
+    "volume":       0.8,
+    "stack_max":    1,
+    "equip_slot":   "gloves",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "magboots",
+    "name":         "Magboots",
+    "icon":         "items/magboots",
+    "tags":         ["shoes", "boots"],
+    "weight":       2.0,
+    "volume":       4.0,
+    "stack_max":    1,
+    "equip_slot":   "shoes",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Toggle Magnets", "range": 1.0, "handler": "verb_toggle_magnets" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "boots",
+    "name":         "Boots",
+    "icon":         "items/boots",
+    "tags":         ["shoes", "boots"],
+    "weight":       0.8,
+    "volume":       3.0,
+    "stack_max":    1,
+    "equip_slot":   "shoes",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "headset",
+    "name":         "Headset",
+    "icon":         "items/headset",
+    "tags":         ["headset", "ears"],
+    "weight":       0.1,
+    "volume":       0.4,
+    "stack_max":    1,
+    "equip_slot":   "ears",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Set Channel", "range": 1.0, "handler": "verb_set_channel" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "gas_mask",
+    "name":         "Gas Mask",
+    "icon":         "items/gas_mask",
+    "tags":         ["mask", "gas_mask"],
+    "weight":       0.5,
+    "volume":       2.0,
+    "stack_max":    1,
+    "equip_slot":   "mask",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "sunglasses",
+    "name":         "Sunglasses",
+    "icon":         "items/sunglasses",
+    "tags":         ["glasses", "visor"],
+    "weight":       0.05,
+    "volume":       0.3,
+    "stack_max":    1,
+    "equip_slot":   "glasses",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "welding_goggles",
+    "name":         "Welding Goggles",
+    "icon":         "items/welding_goggles",
+    "tags":         ["glasses", "visor"],
+    "weight":       0.2,
+    "volume":       0.6,
+    "stack_max":    1,
+    "equip_slot":   "glasses",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "flashlight",
+    "name":         "Flashlight",
+    "icon":         "items/flashlight",
+    "tags":         ["small", "tool"],
+    "weight":       0.3,
+    "volume":       1.0,
+    "stack_max":    1,
+    "verbs": [
+      { "name": "Toggle",  "range": 1.0, "handler": "verb_toggle_light" },
+      { "name": "Hit",     "range": 0.8, "handler": "verb_hit"          },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"        },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"      }
+    ]
+  },
+  {
+    "id":           "cable_coil",
+    "name":         "Cable Coil",
+    "icon":         "items/cable_coil",
+    "tags":         ["small", "cable"],
+    "weight":       0.1,
+    "volume":       0.5,
+    "stack_max":    30,
+    "verbs": [
+      { "name": "Cut",     "range": 1.2, "handler": "verb_cut_cable" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"   }
+    ]
+  },
+  {
+    "id":           "metal_sheet",
+    "name":         "Metal Sheet",
+    "icon":         "items/metal_sheet",
+    "tags":         ["small", "material", "metal"],
+    "weight":       0.5,
+    "volume":       1.5,
+    "stack_max":    50,
+    "verbs": [
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "glass_sheet",
+    "name":         "Glass Sheet",
+    "icon":         "items/glass_sheet",
+    "tags":         ["small", "material", "glass"],
+    "weight":       0.4,
+    "volume":       1.2,
+    "stack_max":    50,
+    "verbs": [
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  }
+]

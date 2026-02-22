@@ -16,6 +16,7 @@
 #include <glm/gtx/hash.hpp>
 
 #include <cstring>
+#include <cstdio>
 #include <cmath>
 #include <filesystem>
 #include <cctype>
@@ -65,6 +66,8 @@ bool Renderer::init(const char* title, int width, int height)
     if (!create_highlight_pipeline())  return false;
     if (!create_item_pipeline())       return false;
     if (!create_mob_buffers())         return false;
+    if (!create_sky_pipeline())        return false;
+    load_earth_gif("textures/decoration/earthspin.gif");  // non-fatal if missing
 
     return true;
 }
@@ -228,6 +231,11 @@ void Renderer::shutdown()
         if (m_item_tex_array)     { SDL_ReleaseGPUTexture(m_gpu, m_item_tex_array);              m_item_tex_array     = nullptr; }
         if (m_item_sampler)       { SDL_ReleaseGPUSampler(m_gpu, m_item_sampler);                m_item_sampler       = nullptr; }
         if (m_depth_tex)          { SDL_ReleaseGPUTexture(m_gpu, m_depth_tex);                   m_depth_tex          = nullptr; }
+        if (m_sky_pipeline)       { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_sky_pipeline);       m_sky_pipeline       = nullptr; }
+        if (m_sky_vbuf)           { SDL_ReleaseGPUBuffer(m_gpu, m_sky_vbuf);                     m_sky_vbuf           = nullptr; }
+        if (m_sky_ibuf)           { SDL_ReleaseGPUBuffer(m_gpu, m_sky_ibuf);                     m_sky_ibuf           = nullptr; }
+        if (m_earth_tex_array)    { SDL_ReleaseGPUTexture(m_gpu, m_earth_tex_array);             m_earth_tex_array    = nullptr; }
+        if (m_earth_sampler)      { SDL_ReleaseGPUSampler(m_gpu, m_earth_sampler);               m_earth_sampler      = nullptr; }
 
         if (m_window) SDL_ReleaseWindowFromGPUDevice(m_gpu, m_window);
         SDL_DestroyGPUDevice(m_gpu);
@@ -278,10 +286,13 @@ void Renderer::begin_frame(double /*alpha*/)
     upload_item_geometry();
     upload_mob_geometry();
 
+    // ── Upload pending sky/earth geometry (copy pass before render pass) ──────
+    upload_sky_geometry();
+
     // ── Begin render pass ─────────────────────────────────────────────────────
     SDL_GPUColorTargetInfo color_info{};
     color_info.texture     = m_swapchain_tex;
-    color_info.clear_color = { 0.53f, 0.81f, 0.98f, 1.0f };  // sky blue
+    color_info.clear_color = { 0.0f, 0.0f, 0.02f, 1.0f };  // deep space black
     color_info.load_op     = SDL_GPU_LOADOP_CLEAR;
     color_info.store_op    = SDL_GPU_STOREOP_STORE;
 
@@ -318,6 +329,9 @@ void Renderer::draw_world(const World& /*world*/,
     // No manual Y-flip: SDL3 GPU handles Vulkan clip-space internally
     glm::mat4 view_proj = proj * view;
     m_current_mvp = view_proj;  // save plain VP for the highlight pass (world-space verts)
+
+    // ── Draw Earth / space background first (no depth, always behind everything) ──
+    draw_space_background();
 
     SDL_BindGPUGraphicsPipeline(m_render_pass, m_world_pipeline);
 
@@ -1528,4 +1542,362 @@ void Renderer::draw_mobs()
     SDL_DrawGPUIndexedPrimitives(m_render_pass,
                                   static_cast<uint32_t>(m_mob_indices.size()),
                                   1, 0, 0, 0);
+}
+
+// ── Space background (animated Earth orbit) ───────────────────────────────────
+
+bool Renderer::create_sky_pipeline()
+{
+    // Pre-allocate GPU buffers for one Earth quad (4 verts, 6 indices).
+    SDL_GPUBufferCreateInfo vbi{};
+    vbi.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+    vbi.size  = 4 * sizeof(ItemVert);
+    m_sky_vbuf = SDL_CreateGPUBuffer(m_gpu, &vbi);
+
+    SDL_GPUBufferCreateInfo ibi{};
+    ibi.usage = SDL_GPU_BUFFERUSAGE_INDEX;
+    ibi.size  = 6 * sizeof(uint32_t);
+    m_sky_ibuf = SDL_CreateGPUBuffer(m_gpu, &ibi);
+
+    if (!m_sky_vbuf || !m_sky_ibuf) {
+        SDL_Log("create_sky_pipeline: buffer alloc failed: %s", SDL_GetError());
+        return false;
+    }
+
+    // ── Upload static index buffer once ───────────────────────────────────────
+    static const uint32_t k_idx[6] = {0, 1, 2, 0, 2, 3};
+    {
+        SDL_GPUTransferBufferCreateInfo tbci{};
+        tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        tbci.size  = sizeof(k_idx);
+        auto* tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &tbci);
+        if (tbuf) {
+            auto* ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
+            std::memcpy(ptr, k_idx, sizeof(k_idx));
+            SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
+            auto* cmd  = SDL_AcquireGPUCommandBuffer(m_gpu);
+            auto* cp   = SDL_BeginGPUCopyPass(cmd);
+            SDL_GPUTransferBufferLocation src{ tbuf, 0 };
+            SDL_GPUBufferRegion           dst{ m_sky_ibuf, 0, sizeof(k_idx) };
+            SDL_UploadToGPUBuffer(cp, &src, &dst, false);
+            SDL_EndGPUCopyPass(cp);
+            SDL_SubmitGPUCommandBuffer(cmd);
+            SDL_ReleaseGPUTransferBuffer(m_gpu, tbuf);
+        }
+    }
+
+    // ── Shaders: reuse item vert + frag (textured quad, 2D-array sampler) ─────
+    SDL_GPUShaderCreateInfo vi{};
+    vi.code               = reinterpret_cast<const Uint8*>(k_item_vert_spv);
+    vi.code_size          = k_item_vert_spv_size;
+    vi.entrypoint         = "main";
+    vi.format             = SDL_GPU_SHADERFORMAT_SPIRV;
+    vi.stage              = SDL_GPU_SHADERSTAGE_VERTEX;
+    vi.num_uniform_buffers = 1;
+    auto* sk_vert = SDL_CreateGPUShader(m_gpu, &vi);
+    if (!sk_vert) { SDL_Log("sky vert shader: %s", SDL_GetError()); return false; }
+
+    SDL_GPUShaderCreateInfo fi{};
+    fi.code         = reinterpret_cast<const Uint8*>(k_item_frag_spv);
+    fi.code_size    = k_item_frag_spv_size;
+    fi.entrypoint   = "main";
+    fi.format       = SDL_GPU_SHADERFORMAT_SPIRV;
+    fi.stage        = SDL_GPU_SHADERSTAGE_FRAGMENT;
+    fi.num_samplers = 1;
+    auto* sk_frag = SDL_CreateGPUShader(m_gpu, &fi);
+    if (!sk_frag) {
+        SDL_ReleaseGPUShader(m_gpu, sk_vert);
+        SDL_Log("sky frag shader: %s", SDL_GetError());
+        return false;
+    }
+
+    // ── Vertex layout: same as ItemVert ───────────────────────────────────────
+    SDL_GPUVertexBufferDescription vbuf_desc{};
+    vbuf_desc.slot               = 0;
+    vbuf_desc.pitch              = sizeof(ItemVert);
+    vbuf_desc.input_rate         = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+    vbuf_desc.instance_step_rate = 0;
+
+    SDL_GPUVertexAttribute vattrs[4]{};
+    vattrs[0] = { 0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,  0  }; // pos
+    vattrs[1] = { 1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, 12  }; // color
+    vattrs[2] = { 2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, 28  }; // uv
+    vattrs[3] = { 3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT,  36  }; // texIdx
+
+    SDL_GPUColorTargetDescription ctd{};
+    ctd.format = SDL_GetGPUSwapchainTextureFormat(m_gpu, m_window);
+    if (ctd.format == SDL_GPU_TEXTUREFORMAT_INVALID) {
+        SDL_ReleaseGPUShader(m_gpu, sk_vert);
+        SDL_ReleaseGPUShader(m_gpu, sk_frag);
+        SDL_Log("create_sky_pipeline: invalid swapchain format");
+        return false;
+    }
+
+    SDL_GPUGraphicsPipelineCreateInfo pci{};
+    pci.vertex_shader   = sk_vert;
+    pci.fragment_shader = sk_frag;
+    pci.vertex_input_state.vertex_buffer_descriptions = &vbuf_desc;
+    pci.vertex_input_state.num_vertex_buffers         = 1;
+    pci.vertex_input_state.vertex_attributes          = vattrs;
+    pci.vertex_input_state.num_vertex_attributes      = 4;
+    pci.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+    pci.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+    pci.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+    // No depth test or write: always renders as a background layer.
+    pci.depth_stencil_state.enable_depth_test  = false;
+    pci.depth_stencil_state.enable_depth_write = false;
+    pci.target_info.color_target_descriptions  = &ctd;
+    pci.target_info.num_color_targets          = 1;
+    pci.target_info.has_depth_stencil_target   = true;
+    pci.target_info.depth_stencil_format       = m_depth_fmt;
+
+    m_sky_pipeline = SDL_CreateGPUGraphicsPipeline(m_gpu, &pci);
+    SDL_ReleaseGPUShader(m_gpu, sk_vert);
+    SDL_ReleaseGPUShader(m_gpu, sk_frag);
+    if (!m_sky_pipeline) {
+        SDL_Log("sky pipeline failed: %s", SDL_GetError());
+        return false;
+    }
+    SDL_Log("Renderer: sky pipeline created");
+    return true;
+}
+
+bool Renderer::load_earth_gif(const char* path)
+{
+    // Read the entire GIF file into memory.
+    FILE* f = std::fopen(path, "rb");
+    if (!f) {
+        SDL_Log("load_earth_gif: cannot open '%s' (non-fatal)", path);
+        return false;
+    }
+    std::fseek(f, 0, SEEK_END);
+    long fsize = std::ftell(f);
+    std::rewind(f);
+    if (fsize <= 0) { std::fclose(f); return false; }
+
+    std::vector<uint8_t> buf(static_cast<size_t>(fsize));
+    std::fread(buf.data(), 1, buf.size(), f);
+    std::fclose(f);
+
+    // Decode all frames via stb_image.
+    int w = 0, h = 0, frame_count = 0, comp = 0;
+    int* delays_raw = nullptr;
+    stbi_uc* pixels = stbi_load_gif_from_memory(
+        buf.data(), static_cast<int>(buf.size()),
+        &delays_raw, &w, &h, &frame_count, &comp, 4);
+
+    if (!pixels || frame_count <= 0 || w <= 0 || h <= 0) {
+        SDL_Log("load_earth_gif: stbi_load_gif_from_memory failed for '%s': %s",
+                path, stbi_failure_reason());
+        if (pixels) stbi_image_free(pixels);
+        if (delays_raw) stbi_image_free(delays_raw);
+        return false;
+    }
+
+    m_earth_num_frames = static_cast<uint32_t>(frame_count);
+    m_earth_delays.resize(frame_count);
+    for (int i = 0; i < frame_count; ++i)
+        m_earth_delays[i] = (delays_raw && delays_raw[i] > 0) ? delays_raw[i] : 100;
+    if (delays_raw) stbi_image_free(delays_raw);
+
+    // ── Create GPU 2D-array texture (one layer per frame) ────────────────────
+    SDL_GPUTextureCreateInfo tci{};
+    tci.type                 = SDL_GPU_TEXTURETYPE_2D_ARRAY;
+    tci.format               = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+    tci.usage                = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    tci.width                = static_cast<Uint32>(w);
+    tci.height               = static_cast<Uint32>(h);
+    tci.layer_count_or_depth = m_earth_num_frames;
+    tci.num_levels           = 1;
+    tci.sample_count         = SDL_GPU_SAMPLECOUNT_1;
+    m_earth_tex_array = SDL_CreateGPUTexture(m_gpu, &tci);
+    if (!m_earth_tex_array) {
+        SDL_Log("load_earth_gif: SDL_CreateGPUTexture failed: %s", SDL_GetError());
+        stbi_image_free(pixels);
+        return false;
+    }
+
+    // ── Upload all frames via staging buffer ──────────────────────────────────
+    const Uint32 layer_bytes  = static_cast<Uint32>(w * h * 4);
+    const Uint32 total_bytes  = layer_bytes * m_earth_num_frames;
+
+    SDL_GPUTransferBufferCreateInfo tbci{};
+    tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    tbci.size  = total_bytes;
+    auto* tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &tbci);
+    if (!tbuf) {
+        SDL_Log("load_earth_gif: transfer buffer failed");
+        stbi_image_free(pixels);
+        return false;
+    }
+    auto* ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
+    std::memcpy(ptr, pixels, total_bytes);
+    SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
+    stbi_image_free(pixels);
+
+    auto* cmd       = SDL_AcquireGPUCommandBuffer(m_gpu);
+    auto* copy_pass = SDL_BeginGPUCopyPass(cmd);
+    for (uint32_t frame = 0; frame < m_earth_num_frames; ++frame) {
+        SDL_GPUTextureTransferInfo src{};
+        src.transfer_buffer = tbuf;
+        src.offset          = frame * layer_bytes;
+        src.pixels_per_row  = static_cast<Uint32>(w);
+        src.rows_per_layer  = static_cast<Uint32>(h);
+        SDL_GPUTextureRegion dst{};
+        dst.texture   = m_earth_tex_array;
+        dst.mip_level = 0;
+        dst.layer     = frame;
+        dst.x = dst.y = dst.z = 0;
+        dst.w = static_cast<Uint32>(w);
+        dst.h = static_cast<Uint32>(h);
+        dst.d = 1;
+        SDL_UploadToGPUTexture(copy_pass, &src, &dst, false);
+    }
+    SDL_EndGPUCopyPass(copy_pass);
+    SDL_SubmitGPUCommandBuffer(cmd);
+    SDL_ReleaseGPUTransferBuffer(m_gpu, tbuf);
+
+    // ── Create sampler (bilinear for smooth planet look) ─────────────────────
+    SDL_GPUSamplerCreateInfo sci{};
+    sci.min_filter      = SDL_GPU_FILTER_LINEAR;
+    sci.mag_filter      = SDL_GPU_FILTER_LINEAR;
+    sci.mipmap_mode     = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+    sci.address_mode_u  = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+    sci.address_mode_v  = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+    sci.address_mode_w  = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+    m_earth_sampler = SDL_CreateGPUSampler(m_gpu, &sci);
+    if (!m_earth_sampler) {
+        SDL_Log("load_earth_gif: SDL_CreateGPUSampler failed: %s", SDL_GetError());
+        return false;
+    }
+
+    SDL_Log("load_earth_gif: loaded %u frames (%dx%d) from '%s'",
+            m_earth_num_frames, w, h, path);
+    return true;
+}
+
+void Renderer::queue_earth_background(glm::vec3 /*cam_pos*/, float yaw, float pitch)
+{
+    m_sky_pending = false;
+    if (!m_earth_tex_array || m_earth_num_frames == 0 || !m_sky_vbuf) return;
+
+    // ── Advance animation frame based on elapsed wall time ───────────────────
+    static uint32_t s_last_ticks = 0;
+    uint32_t now = SDL_GetTicks();
+    if (s_last_ticks == 0) s_last_ticks = now;
+    uint32_t delta_ms = now - s_last_ticks;
+    s_last_ticks = now;
+
+    m_earth_accum_ms += delta_ms;
+    int delay = (m_earth_frame < m_earth_delays.size())
+                    ? m_earth_delays[m_earth_frame] : 100;
+    if (delay <= 0) delay = 100;
+    while (m_earth_accum_ms >= static_cast<uint32_t>(delay)) {
+        m_earth_accum_ms -= static_cast<uint32_t>(delay);
+        m_earth_frame = (m_earth_frame + 1) % m_earth_num_frames;
+        delay = (m_earth_frame < m_earth_delays.size())
+                    ? m_earth_delays[m_earth_frame] : 100;
+        if (delay <= 0) delay = 100;
+    }
+
+    // ── Skybox-style rotation-only view-projection ────────────────────────────
+    // Strip player translation: eye is fixed at origin so the Earth always
+    // appears at the same screen direction regardless of world position.
+    // This is pure client-side / cosmetic rendering – it never interacts with
+    // any game geometry or depth values.
+    float yaw_r   = glm::radians(yaw);
+    float pitch_r = glm::radians(pitch);
+    glm::vec3 forward = {
+        std::cos(pitch_r) * std::sin(yaw_r),
+        std::sin(pitch_r),
+       -std::cos(pitch_r) * std::cos(yaw_r)
+    };
+    // lookAt with eye at origin: pure rotation, no translation
+    glm::mat4 sky_view = glm::lookAt(glm::vec3(0.f), forward, {0.f, 1.f, 0.f});
+    float aspect = (m_height > 0) ? float(m_width) / float(m_height) : 1.f;
+    glm::mat4 sky_proj = glm::perspective(glm::radians(90.f), aspect, 0.1f, 1000.f);
+    m_sky_mvp = sky_proj * sky_view;
+
+    // ── Earth quad in skybox space ────────────────────────────────────────────
+    // Fixed angular direction: slightly below and behind the forward axis so the
+    // planet stays visible while orbiting (look down-forward to see it fill view).
+    // DIST and HALF together determine apparent angular size:
+    //   half-angle = atan(HALF / DIST).  At 90 deg FOV the screen half-height
+    //   covers atan(1) = 45 deg, so HALF/DIST = 0.95 fills ~95% of the viewport.
+    static constexpr float DIST      = 100.f;
+    static constexpr float HALF      = 95.f;   // fills ~95% of viewport half-height
+    // Earth sits slightly below the horizon in skybox space
+    const glm::vec3 EARTH_DIR = glm::normalize(glm::vec3(0.f, -0.45f, -1.f));
+    const glm::vec3 EARTH_CENTER = EARTH_DIR * DIST;
+
+    // Build a stable up/right basis for the quad that doesn't depend on
+    // camera orientation (we want the planet to appear upright)
+    const glm::vec3 world_up = {0.f, 1.f, 0.f};
+    glm::vec3 right, earth_up;
+    float dot_up = std::abs(glm::dot(EARTH_DIR, world_up));
+    if (dot_up < 0.99f)
+        right = glm::normalize(glm::cross(EARTH_DIR, world_up));
+    else
+        right = {1.f, 0.f, 0.f};
+    earth_up = glm::normalize(glm::cross(right, EARTH_DIR));
+
+    glm::vec3 corners[4] = {
+        EARTH_CENTER + (-right - earth_up) * HALF,  // bottom-left
+        EARTH_CENTER + ( right - earth_up) * HALF,  // bottom-right
+        EARTH_CENTER + ( right + earth_up) * HALF,  // top-right
+        EARTH_CENTER + (-right + earth_up) * HALF,  // top-left
+    };
+
+    static const float k_uv[4][2] = {{0.f,1.f},{1.f,1.f},{1.f,0.f},{0.f,0.f}};
+    float texIdx = static_cast<float>(m_earth_frame);
+    for (int i = 0; i < 4; ++i) {
+        m_sky_verts[i] = { corners[i].x, corners[i].y, corners[i].z,
+                           1.f, 1.f, 1.f, 1.f,
+                           k_uv[i][0], k_uv[i][1],
+                           texIdx };
+    }
+    m_sky_pending = true;
+}
+
+void Renderer::upload_sky_geometry()
+{
+    if (!m_sky_pending || !m_sky_vbuf || !m_cmd_buf) return;
+
+    const Uint32 vsize = 4 * sizeof(ItemVert);
+
+    SDL_GPUTransferBufferCreateInfo tbci{};
+    tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    tbci.size  = vsize;
+    auto* tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &tbci);
+    if (!tbuf) return;
+
+    auto* ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
+    std::memcpy(ptr, m_sky_verts, vsize);
+    SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
+
+    auto* copy_pass = SDL_BeginGPUCopyPass(m_cmd_buf);
+    SDL_GPUTransferBufferLocation sv{ tbuf, 0 };
+    SDL_GPUBufferRegion           dv{ m_sky_vbuf, 0, vsize };
+    SDL_UploadToGPUBuffer(copy_pass, &sv, &dv, false);
+    SDL_EndGPUCopyPass(copy_pass);
+    SDL_ReleaseGPUTransferBuffer(m_gpu, tbuf);
+}
+
+void Renderer::draw_space_background()
+{
+    if (!m_sky_pending || !m_sky_pipeline || !m_earth_tex_array ||
+        !m_earth_sampler || !m_sky_vbuf || !m_sky_ibuf ||
+        !m_render_pass || !m_cmd_buf) return;
+
+    SDL_BindGPUGraphicsPipeline(m_render_pass, m_sky_pipeline);
+    // Use the rotation-only sky MVP: Earth is locked to camera direction,
+    // never affected by player world-space translation (pure client-side render).
+    SDL_PushGPUVertexUniformData(m_cmd_buf, 0, &m_sky_mvp[0][0], sizeof(glm::mat4));
+    SDL_GPUTextureSamplerBinding tsb{ m_earth_tex_array, m_earth_sampler };
+    SDL_BindGPUFragmentSamplers(m_render_pass, 0, &tsb, 1);
+    SDL_GPUBufferBinding vb{ m_sky_vbuf, 0 };
+    SDL_GPUBufferBinding ib{ m_sky_ibuf, 0 };
+    SDL_BindGPUVertexBuffers(m_render_pass, 0, &vb, 1);
+    SDL_BindGPUIndexBuffer(m_render_pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+    SDL_DrawGPUIndexedPrimitives(m_render_pass, 6, 1, 0, 0, 0);
 }

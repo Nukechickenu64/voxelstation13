@@ -18,8 +18,9 @@ void PhysicsSystem::tick(double dt)
         // Save previous position for interpolation
         tr.prev_pos = tr.pos;
 
-        // Apply gravity to non-grounded entities
-        if (!cc || !cc->on_ground)
+        // Apply gravity to non-grounded entities (skip in zero-G / space)
+        bool in_zero_g = cc && cc->zero_g;
+        if (!in_zero_g && (!cc || !cc->on_ground))
             vel->linear.y += GRAVITY * static_cast<float>(dt);
 
         glm::vec3 delta = vel->linear * static_cast<float>(dt);
@@ -42,6 +43,9 @@ void PhysicsSystem::tick(double dt)
             // Dampen horizontal velocity (friction)
             vel->linear.x *= 0.85f;
             vel->linear.z *= 0.85f;
+            // In zero-G, also damp vertical drift so the player doesn't float away
+            if (cc->zero_g && !cc->on_ground)
+                vel->linear.y *= 0.92f;
         } else {
             tr.pos += delta;
         }

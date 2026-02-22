@@ -76,6 +76,13 @@ public:
     // Draw the queued mob sprites (call inside the render pass, after draw_world()).
     void draw_mobs();
 
+    // Queue the animated Earth / space background for the current frame.
+    // Must be called BEFORE begin_frame() (like queue_world_items).
+    void queue_earth_background(glm::vec3 cam_pos, float yaw, float pitch);
+
+    // Draw the space background (call FIRST inside the render pass, before draw_world).
+    void draw_space_background();
+
     // CPU mesh management
     ChunkMesh& get_or_create_mesh(glm::ivec3 chunk_pos);
     void       upload_mesh(ChunkMesh& mesh);   // copies to GPU
@@ -168,9 +175,26 @@ private:
     bool create_highlight_pipeline();
     bool create_item_pipeline();
     bool create_mob_buffers();
+    bool create_sky_pipeline();          // background Earth-orbit pass
+    bool load_earth_gif(const char* path);
     void upload_highlight_geometry();   // copy pass before render pass
     void upload_item_geometry();        // copy pass before render pass
     void upload_mob_geometry();         // copy pass before render pass
+    void upload_sky_geometry();         // copy pass before render pass
     void release_gpu_mesh(GPUMesh& gm);
     static bool aabb_in_frustum(const glm::mat4& mvp, glm::vec3 mn, glm::vec3 mx);
+
+    // ── Sky / space background (Earth orbit) ─────────────────────────────────
+    SDL_GPUGraphicsPipeline* m_sky_pipeline    = nullptr;
+    SDL_GPUBuffer*           m_sky_vbuf        = nullptr;  // 4 verts × ItemVert
+    SDL_GPUBuffer*           m_sky_ibuf        = nullptr;  // 6 uint32 indices
+    SDL_GPUTexture*          m_earth_tex_array = nullptr;  // GIF frames as 2D-array layers
+    SDL_GPUSampler*          m_earth_sampler   = nullptr;
+    uint32_t                 m_earth_num_frames = 0;
+    uint32_t                 m_earth_frame      = 0;       // current animation frame index
+    std::vector<int>         m_earth_delays;               // ms per frame
+    uint32_t                 m_earth_accum_ms   = 0;       // elapsed ms in current frame
+    ItemVert                 m_sky_verts[4]     = {};      // CPU quad geometry, updated per-frame
+    glm::mat4                m_sky_mvp          = glm::mat4(1.f); // rotation-only VP (no translation)
+    bool                     m_sky_pending      = false;
 };
