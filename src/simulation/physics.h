@@ -18,8 +18,8 @@ struct CharacterControllerComponent {
     float move_speed  = 4.5f;
     float sprint_mult = 1.8f;
     float jump_vel    = 6.f;
-    float height      = 1.8f;
-    float radius      = 0.4f;
+    float height      = 1.0f;
+    float radius      = 0.45f;  // just under 0.5 to avoid corner snagging in 1-voxel gaps
     bool  on_ground   = false;
     bool  crouching   = false;
     bool  sprinting   = false;

@@ -186,7 +186,7 @@ int main(int /*argc*/, char* /*argv*/[])
     // ── 14. Camera state ──────────────────────────────────────────────────────
     float cam_yaw   = 0.f;
     float cam_pitch = 0.f;
-    glm::vec3 cam_pos = {0.f, 2.75f, 0.f}; // player feet at y=1, eyes at +1.75
+    glm::vec3 cam_pos = {0.f, 1.5f, 0.f};  // player feet at y=1, eyes at +0.5
 
     // ── 15. Game loop ─────────────────────────────────────────────────────────
     GameLoop loop(1.0 / 60.0);
@@ -216,7 +216,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 const float SENSITIVITY = 0.15f;
                 glm::vec2 mdelta = input.mouse_delta();
                 cam_yaw   += mdelta.x * SENSITIVITY;
-                cam_pitch  = glm::clamp(cam_pitch + mdelta.y * SENSITIVITY, -89.f, 89.f);
+                cam_pitch  = glm::clamp(cam_pitch - mdelta.y * SENSITIVITY, -89.f, 89.f);
             }
 
             // Movement wish direction (camera-relative XZ)
@@ -247,7 +247,7 @@ int main(int /*argc*/, char* /*argv*/[])
             // Sync camera to physics-driven player position
             if (player != NULL_ENTITY) {
                 auto* tr = server.entities().get_component<TransformComponent>(player);
-                if (tr) cam_pos = tr->pos + glm::vec3(0, 1.75f, 0);
+                if (tr) cam_pos = tr->pos + glm::vec3(0, 0.5f, 0);
             }
 
             // Upload any finished chunk meshes
@@ -291,9 +291,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 std::sin(pitch_r),
                -std::cos(pitch_r) * std::cos(yaw_r)
             };
-            RayHit hit = server.world().raycast(
-                cam_pos - glm::vec3(0, 1.75f, 0) + glm::vec3(0, 1.f, 0),
-                ray_dir, 4.f);
+            RayHit hit = server.world().raycast(cam_pos, ray_dir, 4.f);
             renderer.queue_highlight(hit);
 
             renderer.begin_frame(alpha);
