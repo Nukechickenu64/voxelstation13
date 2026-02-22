@@ -74,3 +74,6 @@
 16	114	7934439146804759	C:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_frag_spv.h	9837ec8d4848a950
 114	2215	7934439146934758	CMakeFiles/vs13.dir/src/render/renderer.cpp.obj	cb8a2ef2d557481a
 2215	3151	7934439167946908	vs13.exe	ce54476b84fbd8d5
+22	2362	7934440776951805	CMakeFiles/vs13.dir/src/render/renderer.cpp.obj	cb8a2ef2d557481a
+28	4606	7934440777011816	CMakeFiles/vs13.dir/src/data/data_validator.cpp.obj	dd7f6488d12fd3bd
+4606	5555	7934440822793776	vs13.exe	ce54476b84fbd8d5

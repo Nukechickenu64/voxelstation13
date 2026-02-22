@@ -107,6 +107,10 @@ bool DataValidator::validate_game_mode(const std::string& path)
 bool DataValidator::validate_reaction(const std::string& path)
 {
     std::ifstream f(path); json j; f >> j;
-    has_keys(j, {"id", "reagents", "products"}, path, m_errors);
+    auto validate_obj = [&](const json& obj) {
+        has_keys(obj, {"id", "reagents", "products"}, path, m_errors);
+    };
+    if (j.is_array()) for (auto& o : j) validate_obj(o);
+    else validate_obj(j);
     return m_errors.empty();
 }

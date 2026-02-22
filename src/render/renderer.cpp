@@ -47,24 +47,14 @@ bool Renderer::init(const char* title, int width, int height)
 
     SDL_Log("GPU driver: %s", SDL_GetGPUDeviceDriver(m_gpu));
 
-    SDL_Log("Renderer::init step: claiming window...");
     if (!SDL_ClaimWindowForGPUDevice(m_gpu, m_window)) {
         SDL_Log("SDL_ClaimWindowForGPUDevice failed: %s", SDL_GetError());
         return false;
     }
-    SDL_Log("Renderer::init step: window claimed OK");
 
-    SDL_Log("Renderer::init step: creating depth texture...");
     if (!create_depth_texture())       return false;
-    SDL_Log("Renderer::init step: depth texture OK");
-
-    SDL_Log("Renderer::init step: creating world pipeline...");
     if (!create_pipeline())            return false;
-    SDL_Log("Renderer::init step: world pipeline OK");
-
-    SDL_Log("Renderer::init step: creating highlight pipeline...");
     if (!create_highlight_pipeline())  return false;
-    SDL_Log("Renderer::init step: highlight pipeline OK");
 
     return true;
 }
@@ -78,7 +68,6 @@ bool Renderer::create_depth_texture()
         SDL_GPU_TEXTUREFORMAT_D16_UNORM,
     };
     m_depth_fmt = SDL_GPU_TEXTUREFORMAT_INVALID;
-    SDL_Log("create_depth_texture: probing format support...");
     for (auto fmt : candidates) {
         if (SDL_GPUTextureSupportsFormat(m_gpu, fmt,
                 SDL_GPU_TEXTURETYPE_2D, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)) {
@@ -90,7 +79,6 @@ bool Renderer::create_depth_texture()
         SDL_Log("No supported depth format found.");
         return false;
     }
-    SDL_Log("create_depth_texture: depth format = %d", (int)m_depth_fmt);
 
     SDL_GPUTextureCreateInfo info{};
     info.type          = SDL_GPU_TEXTURETYPE_2D;
@@ -112,7 +100,7 @@ bool Renderer::create_depth_texture()
 
 bool Renderer::create_pipeline()
 {
-    SDL_Log("create_pipeline: creating vertex shader...");
+    // ── Vertex shader ─────────────────────────────────────────────────────────
     SDL_GPUShaderCreateInfo vi{};
     vi.code               = reinterpret_cast<const Uint8*>(k_chunk_vert_spv);
     vi.code_size          = k_chunk_vert_spv_size;
@@ -126,7 +114,6 @@ bool Renderer::create_pipeline()
         SDL_Log("SDL_CreateGPUShader (vert) failed: %s", SDL_GetError());
         return false;
     }
-    SDL_Log("create_pipeline: vert shader OK");
 
     // ── Fragment shader ───────────────────────────────────────────────────────
     SDL_GPUShaderCreateInfo fi{};
@@ -142,7 +129,6 @@ bool Renderer::create_pipeline()
         SDL_Log("SDL_CreateGPUShader (frag) failed: %s", SDL_GetError());
         return false;
     }
-    SDL_Log("create_pipeline: frag shader OK");
 
     // ── Vertex layout: pos(3f) + normal(3f), stride 24 ───────────────────────
     SDL_GPUVertexBufferDescription vbuf_desc{};
@@ -157,10 +143,8 @@ bool Renderer::create_pipeline()
     vattrs[2] = { 2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, 24 }; // location 2 = uv
 
     // ── Colour target format (matches the swapchain) ──────────────────────────
-    SDL_Log("create_pipeline: querying swapchain format...");
     SDL_GPUColorTargetDescription ctd{};
     ctd.format = SDL_GetGPUSwapchainTextureFormat(m_gpu, m_window);
-    SDL_Log("create_pipeline: swapchain format = %d", (int)ctd.format);
     if (ctd.format == SDL_GPU_TEXTUREFORMAT_INVALID) {
         SDL_Log("create_pipeline: invalid swapchain format, aborting");
         return false;
@@ -191,13 +175,12 @@ bool Renderer::create_pipeline()
     pci.target_info.has_depth_stencil_target  = true;
     pci.target_info.depth_stencil_format      = m_depth_fmt;
 
-    SDL_Log("create_pipeline: creating graphics pipeline...");
+    SDL_Log("Renderer: world pipeline created");
     m_world_pipeline = SDL_CreateGPUGraphicsPipeline(m_gpu, &pci);
     if (!m_world_pipeline) {
         SDL_Log("SDL_CreateGPUGraphicsPipeline failed: %s", SDL_GetError());
         return false;
     }
-    SDL_Log("create_pipeline: graphics pipeline OK");
 
     // Shaders no longer needed after pipeline creation
     SDL_ReleaseGPUShader(m_gpu, m_vert_shader); m_vert_shader = nullptr;
@@ -522,7 +505,7 @@ void Renderer::upload_highlight_geometry()
 bool Renderer::create_highlight_pipeline()
 {
     // ── Pre-allocate VBO / IBO ─────────────────────────────────────────────────
-    SDL_Log("create_hl_pipeline: allocating buffers...");
+
     SDL_GPUBufferCreateInfo vbi{};
     vbi.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
     vbi.size  = 4 * 3 * sizeof(float);
@@ -537,10 +520,8 @@ bool Renderer::create_highlight_pipeline()
         SDL_Log("create_highlight_pipeline: buffer alloc failed: %s", SDL_GetError());
         return false;
     }
-    SDL_Log("create_hl_pipeline: buffers OK");
 
-    // ── Shaders ───────────────────────────────────────────────────────────────
-    SDL_Log("create_hl_pipeline: creating hl_vert shader...");
+    // ── Shaders ─────────────────────────────────────────────────────────────
     SDL_GPUShaderCreateInfo vi{};
     vi.code      = reinterpret_cast<const Uint8*>(k_highlight_vert_spv);
     vi.code_size = k_highlight_vert_spv_size;
@@ -549,9 +530,7 @@ bool Renderer::create_highlight_pipeline()
     vi.stage     = SDL_GPU_SHADERSTAGE_VERTEX;
     auto* hl_vert = SDL_CreateGPUShader(m_gpu, &vi);
     if (!hl_vert) { SDL_Log("highlight vert shader: %s", SDL_GetError()); return false; }
-    SDL_Log("create_hl_pipeline: hl_vert OK");
 
-    SDL_Log("create_hl_pipeline: creating hl_frag shader...");
     SDL_GPUShaderCreateInfo fi{};
     fi.code      = reinterpret_cast<const Uint8*>(k_highlight_frag_spv);
     fi.code_size = k_highlight_frag_spv_size;
@@ -564,7 +543,6 @@ bool Renderer::create_highlight_pipeline()
         SDL_Log("highlight frag shader: %s", SDL_GetError());
         return false;
     }
-    SDL_Log("create_hl_pipeline: hl_frag OK");
 
     // ── Vertex layout: pos(3f) only, stride 12 ────────────────────────────────
     SDL_GPUVertexBufferDescription vbuf_desc{};
@@ -585,9 +563,13 @@ bool Renderer::create_highlight_pipeline()
     blend.alpha_blend_op        = SDL_GPU_BLENDOP_ADD;
 
     SDL_GPUColorTargetDescription ctd{};
-    SDL_Log("create_hl_pipeline: querying swapchain format...");
-    ctd.format      = SDL_GetGPUSwapchainTextureFormat(m_gpu, m_window);
-    SDL_Log("create_hl_pipeline: swapchain format = %d", (int)ctd.format);
+    ctd.format = SDL_GetGPUSwapchainTextureFormat(m_gpu, m_window);
+    if (ctd.format == SDL_GPU_TEXTUREFORMAT_INVALID) {
+        SDL_ReleaseGPUShader(m_gpu, hl_vert);
+        SDL_ReleaseGPUShader(m_gpu, hl_frag);
+        SDL_Log("create_highlight_pipeline: invalid swapchain format");
+        return false;
+    }
     ctd.blend_state = blend;
 
     // ── Build pipeline ────────────────────────────────────────────────────────
@@ -609,7 +591,7 @@ bool Renderer::create_highlight_pipeline()
     pci.target_info.has_depth_stencil_target   = true;
     pci.target_info.depth_stencil_format       = m_depth_fmt;
 
-    SDL_Log("create_hl_pipeline: creating graphics pipeline...");
+    SDL_Log("Renderer: highlight pipeline created");
     m_highlight_pipeline = SDL_CreateGPUGraphicsPipeline(m_gpu, &pci);
     SDL_ReleaseGPUShader(m_gpu, hl_vert);
     SDL_ReleaseGPUShader(m_gpu, hl_frag);
@@ -618,7 +600,6 @@ bool Renderer::create_highlight_pipeline()
         SDL_Log("highlight pipeline failed: %s", SDL_GetError());
         return false;
     }
-    SDL_Log("create_hl_pipeline: pipeline OK");
     return true;
 }
 
