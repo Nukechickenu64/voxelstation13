@@ -35,6 +35,12 @@ include CMakeFiles/rules.ninja
 # Logical path to working directory; prefix for absolute paths.
 
 cmake_ninja_workdir = C$:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/
+
+#############################################
+# Utility command for gen_shaders
+
+build gen_shaders: phony CMakeFiles/gen_shaders C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_vert_spv.h C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_frag_spv.h
+
 # =============================================================================
 # Object build statements for EXECUTABLE target vs13
 
@@ -42,7 +48,7 @@ cmake_ninja_workdir = C$:/Users/nukec/Documents/GitHub/voxelstation13/build_ninj
 #############################################
 # Order-only phony target for vs13
 
-build cmake_object_order_depends_target_vs13: phony || cmake_object_order_depends_target_glm
+build cmake_object_order_depends_target_vs13: phony || cmake_object_order_depends_target_glm gen_shaders
 
 build CMakeFiles/vs13.dir/src/main.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/main.cpp || cmake_object_order_depends_target_vs13
   DEP_FILE = CMakeFiles\vs13.dir\src\main.cpp.obj.d
@@ -50,8 +56,6 @@ build CMakeFiles/vs13.dir/src/main.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Us
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/core/game_loop.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/core/game_loop.cpp || cmake_object_order_depends_target_vs13
@@ -60,8 +64,6 @@ build CMakeFiles/vs13.dir/src/core/game_loop.cpp.obj: CXX_COMPILER__vs13_unscann
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\core
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/core/world.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/core/world.cpp || cmake_object_order_depends_target_vs13
@@ -70,8 +72,6 @@ build CMakeFiles/vs13.dir/src/core/world.cpp.obj: CXX_COMPILER__vs13_unscanned_ 
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\core
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/core/entity_manager.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/core/entity_manager.cpp || cmake_object_order_depends_target_vs13
@@ -80,8 +80,6 @@ build CMakeFiles/vs13.dir/src/core/entity_manager.cpp.obj: CXX_COMPILER__vs13_un
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\core
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/render/renderer.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/renderer.cpp || cmake_object_order_depends_target_vs13
@@ -90,8 +88,6 @@ build CMakeFiles/vs13.dir/src/render/renderer.cpp.obj: CXX_COMPILER__vs13_unscan
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\render
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/render/chunk_mesher.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/chunk_mesher.cpp || cmake_object_order_depends_target_vs13
@@ -100,8 +96,6 @@ build CMakeFiles/vs13.dir/src/render/chunk_mesher.cpp.obj: CXX_COMPILER__vs13_un
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\render
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/render/lighting.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/lighting.cpp || cmake_object_order_depends_target_vs13
@@ -110,8 +104,6 @@ build CMakeFiles/vs13.dir/src/render/lighting.cpp.obj: CXX_COMPILER__vs13_unscan
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\render
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/render/ui_renderer.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/ui_renderer.cpp || cmake_object_order_depends_target_vs13
@@ -120,8 +112,6 @@ build CMakeFiles/vs13.dir/src/render/ui_renderer.cpp.obj: CXX_COMPILER__vs13_uns
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\render
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/simulation/atmos.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/atmos.cpp || cmake_object_order_depends_target_vs13
@@ -130,8 +120,6 @@ build CMakeFiles/vs13.dir/src/simulation/atmos.cpp.obj: CXX_COMPILER__vs13_unsca
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/simulation/power.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/power.cpp || cmake_object_order_depends_target_vs13
@@ -140,8 +128,6 @@ build CMakeFiles/vs13.dir/src/simulation/power.cpp.obj: CXX_COMPILER__vs13_unsca
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/simulation/pipes.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/pipes.cpp || cmake_object_order_depends_target_vs13
@@ -150,8 +136,6 @@ build CMakeFiles/vs13.dir/src/simulation/pipes.cpp.obj: CXX_COMPILER__vs13_unsca
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/simulation/physics.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/physics.cpp || cmake_object_order_depends_target_vs13
@@ -160,8 +144,6 @@ build CMakeFiles/vs13.dir/src/simulation/physics.cpp.obj: CXX_COMPILER__vs13_uns
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/input/input_manager.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/input/input_manager.cpp || cmake_object_order_depends_target_vs13
@@ -170,8 +152,6 @@ build CMakeFiles/vs13.dir/src/input/input_manager.cpp.obj: CXX_COMPILER__vs13_un
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\input
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/input/alt_mode.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/input/alt_mode.cpp || cmake_object_order_depends_target_vs13
@@ -180,8 +160,6 @@ build CMakeFiles/vs13.dir/src/input/alt_mode.cpp.obj: CXX_COMPILER__vs13_unscann
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\input
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/inventory/inventory.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/inventory/inventory.cpp || cmake_object_order_depends_target_vs13
@@ -190,8 +168,6 @@ build CMakeFiles/vs13.dir/src/inventory/inventory.cpp.obj: CXX_COMPILER__vs13_un
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\inventory
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/inventory/item_registry.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/inventory/item_registry.cpp || cmake_object_order_depends_target_vs13
@@ -200,8 +176,6 @@ build CMakeFiles/vs13.dir/src/inventory/item_registry.cpp.obj: CXX_COMPILER__vs1
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\inventory
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/network/server.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/network/server.cpp || cmake_object_order_depends_target_vs13
@@ -210,8 +184,6 @@ build CMakeFiles/vs13.dir/src/network/server.cpp.obj: CXX_COMPILER__vs13_unscann
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\network
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/network/client.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/network/client.cpp || cmake_object_order_depends_target_vs13
@@ -220,8 +192,6 @@ build CMakeFiles/vs13.dir/src/network/client.cpp.obj: CXX_COMPILER__vs13_unscann
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\network
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/audio/audio_manager.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/audio/audio_manager.cpp || cmake_object_order_depends_target_vs13
@@ -230,8 +200,6 @@ build CMakeFiles/vs13.dir/src/audio/audio_manager.cpp.obj: CXX_COMPILER__vs13_un
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\audio
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/data/voxel_registry.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/data/voxel_registry.cpp || cmake_object_order_depends_target_vs13
@@ -240,8 +208,6 @@ build CMakeFiles/vs13.dir/src/data/voxel_registry.cpp.obj: CXX_COMPILER__vs13_un
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\data
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/data/data_validator.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/data/data_validator.cpp || cmake_object_order_depends_target_vs13
@@ -250,8 +216,6 @@ build CMakeFiles/vs13.dir/src/data/data_validator.cpp.obj: CXX_COMPILER__vs13_un
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\data
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/ui/hud.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/ui/hud.cpp || cmake_object_order_depends_target_vs13
@@ -260,8 +224,6 @@ build CMakeFiles/vs13.dir/src/ui/hud.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\ui
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/ui/inventory_panel.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/ui/inventory_panel.cpp || cmake_object_order_depends_target_vs13
@@ -270,8 +232,6 @@ build CMakeFiles/vs13.dir/src/ui/inventory_panel.cpp.obj: CXX_COMPILER__vs13_uns
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\ui
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/ui/context_menu.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/ui/context_menu.cpp || cmake_object_order_depends_target_vs13
@@ -280,8 +240,6 @@ build CMakeFiles/vs13.dir/src/ui/context_menu.cpp.obj: CXX_COMPILER__vs13_unscan
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\ui
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
-  TARGET_PDB = vs13.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 
@@ -292,15 +250,14 @@ build CMakeFiles/vs13.dir/src/ui/context_menu.cpp.obj: CXX_COMPILER__vs13_unscan
 #############################################
 # Link the executable vs13.exe
 
-build vs13.exe: CXX_EXECUTABLE_LINKER__vs13_ CMakeFiles/vs13.dir/src/main.cpp.obj CMakeFiles/vs13.dir/src/core/game_loop.cpp.obj CMakeFiles/vs13.dir/src/core/world.cpp.obj CMakeFiles/vs13.dir/src/core/entity_manager.cpp.obj CMakeFiles/vs13.dir/src/render/renderer.cpp.obj CMakeFiles/vs13.dir/src/render/chunk_mesher.cpp.obj CMakeFiles/vs13.dir/src/render/lighting.cpp.obj CMakeFiles/vs13.dir/src/render/ui_renderer.cpp.obj CMakeFiles/vs13.dir/src/simulation/atmos.cpp.obj CMakeFiles/vs13.dir/src/simulation/power.cpp.obj CMakeFiles/vs13.dir/src/simulation/pipes.cpp.obj CMakeFiles/vs13.dir/src/simulation/physics.cpp.obj CMakeFiles/vs13.dir/src/input/input_manager.cpp.obj CMakeFiles/vs13.dir/src/input/alt_mode.cpp.obj CMakeFiles/vs13.dir/src/inventory/inventory.cpp.obj CMakeFiles/vs13.dir/src/inventory/item_registry.cpp.obj CMakeFiles/vs13.dir/src/network/server.cpp.obj CMakeFiles/vs13.dir/src/network/client.cpp.obj CMakeFiles/vs13.dir/src/audio/audio_manager.cpp.obj CMakeFiles/vs13.dir/src/data/voxel_registry.cpp.obj CMakeFiles/vs13.dir/src/data/data_validator.cpp.obj CMakeFiles/vs13.dir/src/ui/hud.cpp.obj CMakeFiles/vs13.dir/src/ui/inventory_panel.cpp.obj CMakeFiles/vs13.dir/src/ui/context_menu.cpp.obj | C$:/Program$ Files/SDL3/lib/libSDL3.dll.a _deps/glm-build/glm/libglm.a || _deps/glm-build/glm/libglm.a
+build vs13.exe: CXX_EXECUTABLE_LINKER__vs13_ CMakeFiles/vs13.dir/src/main.cpp.obj CMakeFiles/vs13.dir/src/core/game_loop.cpp.obj CMakeFiles/vs13.dir/src/core/world.cpp.obj CMakeFiles/vs13.dir/src/core/entity_manager.cpp.obj CMakeFiles/vs13.dir/src/render/renderer.cpp.obj CMakeFiles/vs13.dir/src/render/chunk_mesher.cpp.obj CMakeFiles/vs13.dir/src/render/lighting.cpp.obj CMakeFiles/vs13.dir/src/render/ui_renderer.cpp.obj CMakeFiles/vs13.dir/src/simulation/atmos.cpp.obj CMakeFiles/vs13.dir/src/simulation/power.cpp.obj CMakeFiles/vs13.dir/src/simulation/pipes.cpp.obj CMakeFiles/vs13.dir/src/simulation/physics.cpp.obj CMakeFiles/vs13.dir/src/input/input_manager.cpp.obj CMakeFiles/vs13.dir/src/input/alt_mode.cpp.obj CMakeFiles/vs13.dir/src/inventory/inventory.cpp.obj CMakeFiles/vs13.dir/src/inventory/item_registry.cpp.obj CMakeFiles/vs13.dir/src/network/server.cpp.obj CMakeFiles/vs13.dir/src/network/client.cpp.obj CMakeFiles/vs13.dir/src/audio/audio_manager.cpp.obj CMakeFiles/vs13.dir/src/data/voxel_registry.cpp.obj CMakeFiles/vs13.dir/src/data/data_validator.cpp.obj CMakeFiles/vs13.dir/src/ui/hud.cpp.obj CMakeFiles/vs13.dir/src/ui/inventory_panel.cpp.obj CMakeFiles/vs13.dir/src/ui/context_menu.cpp.obj | C$:/Program$ Files/SDL3/lib/libSDL3.dll.a _deps/glm-build/glm/libglm.a || _deps/glm-build/glm/libglm.a gen_shaders
   LINK_LIBRARIES = "C:/Program Files/SDL3/lib/libSDL3.dll.a"  _deps/glm-build/glm/libglm.a  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
   OBJECT_DIR = CMakeFiles\vs13.dir
   POST_BUILD = cd .
   PRE_LINK = cd .
-  TARGET_COMPILE_PDB = CMakeFiles\vs13.dir\
   TARGET_FILE = vs13.exe
   TARGET_IMPLIB = libvs13.dll.a
-  TARGET_PDB = vs13.pdb
+  TARGET_PDB = vs13.exe.dbg
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 
@@ -368,6 +325,21 @@ build CMakeFiles/install/strip.util: CUSTOM_COMMAND all
   restat = 1
 
 build install/strip: phony CMakeFiles/install/strip.util
+
+
+#############################################
+# Phony custom command for CMakeFiles\gen_shaders
+
+build CMakeFiles/gen_shaders | ${cmake_ninja_workdir}CMakeFiles/gen_shaders: phony C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_vert_spv.h C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_frag_spv.h
+
+
+#############################################
+# Custom command for C:\Users\nukec\Documents\GitHub\voxelstation13\src\render\shaders\chunk_vert_spv.h
+
+build C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_vert_spv.h C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_frag_spv.h: CUSTOM_COMMAND C$:/Users/nukec/Documents/GitHub/voxelstation13/tools/gen_shaders.py
+  COMMAND = C:\Windows\system32\cmd.exe /C "cd /D C:\Users\nukec\Documents\GitHub\voxelstation13 && C:\Users\nukec\AppData\Local\Programs\Python\Python312\python.exe C:/Users/nukec/Documents/GitHub/voxelstation13/tools/gen_shaders.py"
+  DESC = Generating SPIRV shader headers
+  restat = 1
 
 # =============================================================================
 # Write statements declared in CMakeLists.txt:
@@ -460,8 +432,6 @@ build _deps/glm-build/glm/CMakeFiles/glm.dir/detail/glm.cpp.obj: CXX_COMPILER__g
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = _deps\glm-build\glm\CMakeFiles\glm.dir
   OBJECT_FILE_DIR = _deps\glm-build\glm\CMakeFiles\glm.dir\detail
-  TARGET_COMPILE_PDB = _deps\glm-build\glm\CMakeFiles\glm.dir\
-  TARGET_PDB = _deps\glm-build\glm\libglm.pdb
   TARGET_SUPPORT_DIR = _deps\glm-build\glm\CMakeFiles\glm.dir
 
 
@@ -476,9 +446,8 @@ build _deps/glm-build/glm/libglm.a: CXX_STATIC_LIBRARY_LINKER__glm_ _deps/glm-bu
   OBJECT_DIR = _deps\glm-build\glm\CMakeFiles\glm.dir
   POST_BUILD = cd .
   PRE_LINK = cd .
-  TARGET_COMPILE_PDB = _deps\glm-build\glm\CMakeFiles\glm.dir\
   TARGET_FILE = _deps\glm-build\glm\libglm.a
-  TARGET_PDB = _deps\glm-build\glm\libglm.pdb
+  TARGET_PDB = glm.a.dbg
   TARGET_SUPPORT_DIR = _deps\glm-build\glm\CMakeFiles\glm.dir
 
 
@@ -587,14 +556,14 @@ build _deps/glm-build/glm/all: phony _deps/glm-build/glm/libglm.a
 #############################################
 # Re-run CMake if any of its inputs changed.
 
-build build.ninja C$:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/cmake_install.cmake C$:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-build/cmake_install.cmake C$:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-build/glm/cmake_install.cmake: RERUN_CMAKE | C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeCXXCompiler.cmake.in C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeCXXCompilerABI.cpp C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeCXXInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeCommonLanguageInclude.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeCompilerIdDetection.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeDetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeDetermineCompilerABI.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeDetermineCompilerId.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeDetermineCompilerSupport.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeDetermineRCCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeDetermineSystem.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeFindBinUtils.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeGenericSystem.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeInitializeConfigs.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeLanguageInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeNinjaFindMake.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeParseImplicitIncludeInfo.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeParseImplicitLinkInfo.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeParseLibraryArchitecture.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeRCCompiler.cmake.in C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeRCInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeSystem.cmake.in C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeSystemSpecificInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeSystemSpecificInitialize.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeTestCXXCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeTestCompilerCommon.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeTestRCCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/ADSP-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/ARMCC-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/ARMClang-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/AppleClang-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Borland-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/CMakeCommonCompilerMacros.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Clang-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Clang-DetermineCompilerInternal.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Compaq-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Cray-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/CrayClang-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Diab-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Embarcadero-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Fujitsu-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/FujitsuClang-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GHS-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GNU-CXX-CXXImportStd.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GNU-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GNU-FindBinUtils.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/HP-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/IAR-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/IBMCPP-CXX-DetermineVersionInternal.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/IBMClang-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Intel-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/IntelLLVM-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/LCC-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/MSVC-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/NVHPC-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/NVIDIA-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/OpenWatcom-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/OrangeC-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/PGI-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/PathScale-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Renesas-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/SCO-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/SunPro-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/TI-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/TIClang-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Tasking-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/VisualAge-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Watcom-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/XL-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/XLClang-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/ExternalProject/shared_internal_commands.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FeatureSummary.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FetchContent.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FetchContent/CMakeLists.cmake.in C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindGit.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindPackageHandleStandardArgs.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindPackageMessage.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/GNUInstallDirs.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Internal/CMakeCXXLinkerInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Internal/CMakeCommonLinkerInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Internal/CMakeDetermineLinkerId.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Internal/CMakeInspectCXXLinker.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Internal/FeatureTesting.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Linker/GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Linker/GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Linker/GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Linker/Windows-GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Linker/Windows-GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-Determine-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-GNU-CXX-ABI.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-Initialize.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-windres.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/WindowsPaths.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3Config.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3ConfigVersion.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3headersTargets.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3sharedTargets-release.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3sharedTargets.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3testTargets-release.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3testTargets.cmake C$:/Users/nukec/Documents/GitHub/voxelstation13/CMakeLists.txt CMakeCache.txt CMakeFiles/4.2.0/CMakeCXXCompiler.cmake CMakeFiles/4.2.0/CMakeRCCompiler.cmake CMakeFiles/4.2.0/CMakeSystem.cmake _deps/glm-src/CMakeLists.txt _deps/glm-src/glm/CMakeLists.txt
+build build.ninja C$:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/cmake_install.cmake C$:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-build/cmake_install.cmake C$:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-build/glm/cmake_install.cmake: RERUN_CMAKE | C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeCXXInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeCommonLanguageInclude.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeGenericSystem.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeInitializeConfigs.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeLanguageInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeRCInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeSystemSpecificInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeSystemSpecificInitialize.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/CMakeCommonCompilerMacros.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/ExternalProject/shared_internal_commands.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FeatureSummary.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FetchContent.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FetchContent/CMakeLists.cmake.in C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindGit.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindPackageHandleStandardArgs.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindPackageMessage.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindPython3.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindPython/Support.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/GNUInstallDirs.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Internal/CMakeCXXLinkerInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Internal/CMakeCommonLinkerInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Linker/GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Linker/GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Linker/GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Linker/Windows-GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Linker/Windows-GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-GNU-CXX-ABI.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-Initialize.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-windres.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/WindowsPaths.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3Config.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3ConfigVersion.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3headersTargets.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3sharedTargets-release.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3sharedTargets.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3testTargets-release.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3testTargets.cmake C$:/Users/nukec/Documents/GitHub/voxelstation13/CMakeLists.txt CMakeCache.txt CMakeFiles/4.2.0/CMakeCXXCompiler.cmake CMakeFiles/4.2.0/CMakeRCCompiler.cmake CMakeFiles/4.2.0/CMakeSystem.cmake _deps/glm-src/CMakeLists.txt _deps/glm-src/glm/CMakeLists.txt
   pool = console
 
 
 #############################################
 # A missing CMake input file is not an error.
 
-build C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeCXXCompiler.cmake.in C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeCXXCompilerABI.cpp C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeCXXInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeCommonLanguageInclude.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeCompilerIdDetection.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeDetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeDetermineCompilerABI.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeDetermineCompilerId.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeDetermineCompilerSupport.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeDetermineRCCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeDetermineSystem.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeFindBinUtils.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeGenericSystem.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeInitializeConfigs.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeLanguageInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeNinjaFindMake.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeParseImplicitIncludeInfo.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeParseImplicitLinkInfo.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeParseLibraryArchitecture.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeRCCompiler.cmake.in C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeRCInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeSystem.cmake.in C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeSystemSpecificInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeSystemSpecificInitialize.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeTestCXXCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeTestCompilerCommon.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeTestRCCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/ADSP-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/ARMCC-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/ARMClang-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/AppleClang-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Borland-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/CMakeCommonCompilerMacros.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Clang-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Clang-DetermineCompilerInternal.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Compaq-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Cray-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/CrayClang-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Diab-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Embarcadero-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Fujitsu-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/FujitsuClang-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GHS-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GNU-CXX-CXXImportStd.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GNU-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GNU-FindBinUtils.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/HP-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/IAR-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/IBMCPP-CXX-DetermineVersionInternal.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/IBMClang-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Intel-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/IntelLLVM-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/LCC-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/MSVC-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/NVHPC-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/NVIDIA-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/OpenWatcom-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/OrangeC-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/PGI-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/PathScale-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Renesas-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/SCO-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/SunPro-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/TI-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/TIClang-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Tasking-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/VisualAge-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/Watcom-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/XL-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/XLClang-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/ExternalProject/shared_internal_commands.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FeatureSummary.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FetchContent.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FetchContent/CMakeLists.cmake.in C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindGit.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindPackageHandleStandardArgs.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindPackageMessage.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/GNUInstallDirs.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Internal/CMakeCXXLinkerInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Internal/CMakeCommonLinkerInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Internal/CMakeDetermineLinkerId.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Internal/CMakeInspectCXXLinker.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Internal/FeatureTesting.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Linker/GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Linker/GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Linker/GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Linker/Windows-GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Linker/Windows-GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-Determine-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-GNU-CXX-ABI.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-Initialize.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-windres.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/WindowsPaths.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3Config.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3ConfigVersion.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3headersTargets.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3sharedTargets-release.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3sharedTargets.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3testTargets-release.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3testTargets.cmake C$:/Users/nukec/Documents/GitHub/voxelstation13/CMakeLists.txt CMakeCache.txt CMakeFiles/4.2.0/CMakeCXXCompiler.cmake CMakeFiles/4.2.0/CMakeRCCompiler.cmake CMakeFiles/4.2.0/CMakeSystem.cmake _deps/glm-src/CMakeLists.txt _deps/glm-src/glm/CMakeLists.txt: phony
+build C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeCXXInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeCommonLanguageInclude.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeGenericSystem.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeInitializeConfigs.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeLanguageInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeRCInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeSystemSpecificInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/CMakeSystemSpecificInitialize.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/CMakeCommonCompilerMacros.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Compiler/GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/ExternalProject/shared_internal_commands.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FeatureSummary.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FetchContent.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FetchContent/CMakeLists.cmake.in C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindGit.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindPackageHandleStandardArgs.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindPackageMessage.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindPython3.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/FindPython/Support.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/GNUInstallDirs.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Internal/CMakeCXXLinkerInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Internal/CMakeCommonLinkerInformation.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Linker/GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Linker/GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Linker/GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Linker/Windows-GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Linker/Windows-GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-GNU-CXX-ABI.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-GNU-CXX.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-GNU.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-Initialize.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows-windres.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/Windows.cmake C$:/Program$ Files/CMake/share/cmake-4.2/Modules/Platform/WindowsPaths.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3Config.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3ConfigVersion.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3headersTargets.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3sharedTargets-release.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3sharedTargets.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3testTargets-release.cmake C$:/Program$ Files/SDL3/lib/cmake/SDL3/SDL3testTargets.cmake C$:/Users/nukec/Documents/GitHub/voxelstation13/CMakeLists.txt CMakeCache.txt CMakeFiles/4.2.0/CMakeCXXCompiler.cmake CMakeFiles/4.2.0/CMakeRCCompiler.cmake CMakeFiles/4.2.0/CMakeSystem.cmake _deps/glm-src/CMakeLists.txt _deps/glm-src/glm/CMakeLists.txt: phony
 
 
 #############################################

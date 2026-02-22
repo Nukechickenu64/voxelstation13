@@ -26,3 +26,15 @@
 61	8458	7934307174225751	CMakeFiles/vs13.dir/src/audio/audio_manager.cpp.obj	c4947bdcba84242e
 66	9367	7934307174275738	CMakeFiles/vs13.dir/src/data/voxel_registry.cpp.obj	1c56b76c0f183295
 9367	10648	7934307267282761	vs13.exe	ce54476b84fbd8d5
+12	2532	7934373870179571	build.ninja	4067d48c57a2fbc1
+12	2532	7934373870179571	C:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/cmake_install.cmake	4067d48c57a2fbc1
+12	2532	7934373870179571	C:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-build/cmake_install.cmake	4067d48c57a2fbc1
+12	2532	7934373870179571	C:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-build/glm/cmake_install.cmake	4067d48c57a2fbc1
+42	132	7934373872029570	C:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_vert_spv.h	9837ec8d4848a950
+42	132	7934373872029570	C:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_frag_spv.h	9837ec8d4848a950
+138	2620	7934373872181718	CMakeFiles/vs13.dir/src/render/renderer.cpp.obj	cb8a2ef2d557481a
+142	2890	7934373872229708	CMakeFiles/vs13.dir/src/render/chunk_mesher.cpp.obj	7fa7e4ef7ee1dfa7
+133	4771	7934373872138429	CMakeFiles/vs13.dir/src/main.cpp.obj	394d15b511b14004
+4771	5732	7934373918516923	vs13.exe	ce54476b84fbd8d5
+16	2167	7934377018731704	CMakeFiles/vs13.dir/src/render/renderer.cpp.obj	cb8a2ef2d557481a
+2168	3159	7934377040251653	vs13.exe	ce54476b84fbd8d5

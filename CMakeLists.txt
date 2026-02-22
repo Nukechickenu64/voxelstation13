@@ -18,6 +18,22 @@ FetchContent_MakeAvailable(glm)
 # SDL3 — system installed
 find_package(SDL3 REQUIRED CONFIG)
 
+# ── Shader generation (Python SPIRV assembler) ────────────────────────────────
+find_package(Python3 QUIET)
+if(Python3_FOUND)
+    set(SHADER_VERT_H "${CMAKE_SOURCE_DIR}/src/render/shaders/chunk_vert_spv.h")
+    set(SHADER_FRAG_H "${CMAKE_SOURCE_DIR}/src/render/shaders/chunk_frag_spv.h")
+    add_custom_command(
+        OUTPUT  "${SHADER_VERT_H}" "${SHADER_FRAG_H}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/gen_shaders.py"
+        DEPENDS "${CMAKE_SOURCE_DIR}/tools/gen_shaders.py"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        COMMENT "Generating SPIRV shader headers"
+    )
+    add_custom_target(gen_shaders DEPENDS "${SHADER_VERT_H}" "${SHADER_FRAG_H}")
+endif()
+
+
 # ── Source files ──────────────────────────────────────────────────────────────
 set(SRC_CORE
     src/core/game_loop.cpp
@@ -82,6 +98,10 @@ add_executable(vs13
     ${SRC_DATA}
     ${SRC_UI}
 )
+
+if(Python3_FOUND)
+    add_dependencies(vs13 gen_shaders)
+endif()
 
 target_include_directories(vs13 PRIVATE
     ${CMAKE_SOURCE_DIR}/src
