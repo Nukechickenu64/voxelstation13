@@ -29,16 +29,27 @@ FetchContent_MakeAvailable(stb)
 # ── Shader generation (Python SPIRV assembler) ────────────────────────────────
 find_package(Python3 QUIET)
 if(Python3_FOUND)
-    set(SHADER_VERT_H "${CMAKE_SOURCE_DIR}/src/render/shaders/chunk_vert_spv.h")
-    set(SHADER_FRAG_H "${CMAKE_SOURCE_DIR}/src/render/shaders/chunk_frag_spv.h")
+    set(SHADER_VERT_H   "${CMAKE_SOURCE_DIR}/src/render/shaders/chunk_vert_spv.h")
+    set(SHADER_FRAG_H   "${CMAKE_SOURCE_DIR}/src/render/shaders/chunk_frag_spv.h")
+    set(FONT_ATLAS_H    "${CMAKE_SOURCE_DIR}/src/render/shaders/roboto_atlas.h")
+    set(UI_TEXT_FRAG_H  "${CMAKE_SOURCE_DIR}/src/render/shaders/ui_text_frag_spv.h")
     add_custom_command(
-        OUTPUT  "${SHADER_VERT_H}" "${SHADER_FRAG_H}"
+        OUTPUT  "${SHADER_VERT_H}" "${SHADER_FRAG_H}" "${UI_TEXT_FRAG_H}"
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/gen_shaders.py"
         DEPENDS "${CMAKE_SOURCE_DIR}/tools/gen_shaders.py"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
         COMMENT "Generating SPIRV shader headers"
     )
-    add_custom_target(gen_shaders DEPENDS "${SHADER_VERT_H}" "${SHADER_FRAG_H}")
+    add_custom_command(
+        OUTPUT  "${FONT_ATLAS_H}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/gen_font_data.py"
+        DEPENDS "${CMAKE_SOURCE_DIR}/tools/gen_font_data.py"
+                "${CMAKE_SOURCE_DIR}/textures/font/roboto.png"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        COMMENT "Generating Roboto font atlas header"
+    )
+    add_custom_target(gen_shaders   DEPENDS "${SHADER_VERT_H}" "${SHADER_FRAG_H}" "${UI_TEXT_FRAG_H}")
+    add_custom_target(gen_font_data DEPENDS "${FONT_ATLAS_H}")
 endif()
 
 
@@ -61,6 +72,7 @@ set(SRC_SIM
     src/simulation/power.cpp
     src/simulation/pipes.cpp
     src/simulation/physics.cpp
+    src/simulation/world_items.cpp
 )
 
 set(SRC_INPUT
@@ -109,7 +121,7 @@ add_executable(vs13
 )
 
 if(Python3_FOUND)
-    add_dependencies(vs13 gen_shaders)
+    add_dependencies(vs13 gen_shaders gen_font_data)
 endif()
 
 target_include_directories(vs13 PRIVATE

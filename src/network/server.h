@@ -35,7 +35,6 @@ struct NetAddress {
 // Per-player movement input submitted each frame.
 struct PlayerInput {
     glm::vec3 wish_dir{};   // world-space wish direction (Y ignored for walking)
-    bool jump   = false;
     bool crouch = false;
     bool sprint = false;
 };
@@ -64,7 +63,7 @@ public:
     // Convenience: apply a movement input to a player entity for one tick.
     // wish_dir is a world-space unit vector (Y component ignored for walking).
     void move_player(EntityID id, glm::vec3 wish_dir,
-                     bool jump, bool crouch, bool sprint, double dt);
+                     bool crouch, bool sprint, double dt);
 
 private:
     void process_incoming();

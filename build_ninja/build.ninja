@@ -39,7 +39,13 @@ cmake_ninja_workdir = C$:/Users/nukec/Documents/GitHub/voxelstation13/build_ninj
 #############################################
 # Utility command for gen_shaders
 
-build gen_shaders: phony CMakeFiles/gen_shaders C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_vert_spv.h C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_frag_spv.h
+build gen_shaders: phony CMakeFiles/gen_shaders C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_vert_spv.h C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_frag_spv.h C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/ui_text_frag_spv.h
+
+
+#############################################
+# Utility command for gen_font_data
+
+build gen_font_data: phony CMakeFiles/gen_font_data C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/roboto_atlas.h
 
 # =============================================================================
 # Object build statements for EXECUTABLE target vs13
@@ -48,7 +54,7 @@ build gen_shaders: phony CMakeFiles/gen_shaders C$:/Users/nukec/Documents/GitHub
 #############################################
 # Order-only phony target for vs13
 
-build cmake_object_order_depends_target_vs13: phony || cmake_object_order_depends_target_glm gen_shaders
+build cmake_object_order_depends_target_vs13: phony || cmake_object_order_depends_target_glm gen_font_data gen_shaders
 
 build CMakeFiles/vs13.dir/src/main.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/main.cpp || cmake_object_order_depends_target_vs13
   DEP_FILE = CMakeFiles\vs13.dir\src\main.cpp.obj.d
@@ -148,6 +154,14 @@ build CMakeFiles/vs13.dir/src/simulation/pipes.cpp.obj: CXX_COMPILER__vs13_unsca
 
 build CMakeFiles/vs13.dir/src/simulation/physics.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/physics.cpp || cmake_object_order_depends_target_vs13
   DEP_FILE = CMakeFiles\vs13.dir\src\simulation\physics.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
+
+build CMakeFiles/vs13.dir/src/simulation/world_items.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/world_items.cpp || cmake_object_order_depends_target_vs13
+  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\world_items.cpp.obj.d
   FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
@@ -258,7 +272,7 @@ build CMakeFiles/vs13.dir/src/ui/context_menu.cpp.obj: CXX_COMPILER__vs13_unscan
 #############################################
 # Link the executable vs13.exe
 
-build vs13.exe: CXX_EXECUTABLE_LINKER__vs13_ CMakeFiles/vs13.dir/src/main.cpp.obj CMakeFiles/vs13.dir/src/stb_impl.cpp.obj CMakeFiles/vs13.dir/src/core/game_loop.cpp.obj CMakeFiles/vs13.dir/src/core/world.cpp.obj CMakeFiles/vs13.dir/src/core/entity_manager.cpp.obj CMakeFiles/vs13.dir/src/render/renderer.cpp.obj CMakeFiles/vs13.dir/src/render/chunk_mesher.cpp.obj CMakeFiles/vs13.dir/src/render/lighting.cpp.obj CMakeFiles/vs13.dir/src/render/ui_renderer.cpp.obj CMakeFiles/vs13.dir/src/simulation/atmos.cpp.obj CMakeFiles/vs13.dir/src/simulation/power.cpp.obj CMakeFiles/vs13.dir/src/simulation/pipes.cpp.obj CMakeFiles/vs13.dir/src/simulation/physics.cpp.obj CMakeFiles/vs13.dir/src/input/input_manager.cpp.obj CMakeFiles/vs13.dir/src/input/alt_mode.cpp.obj CMakeFiles/vs13.dir/src/inventory/inventory.cpp.obj CMakeFiles/vs13.dir/src/inventory/item_registry.cpp.obj CMakeFiles/vs13.dir/src/network/server.cpp.obj CMakeFiles/vs13.dir/src/network/client.cpp.obj CMakeFiles/vs13.dir/src/audio/audio_manager.cpp.obj CMakeFiles/vs13.dir/src/data/voxel_registry.cpp.obj CMakeFiles/vs13.dir/src/data/data_validator.cpp.obj CMakeFiles/vs13.dir/src/ui/hud.cpp.obj CMakeFiles/vs13.dir/src/ui/inventory_panel.cpp.obj CMakeFiles/vs13.dir/src/ui/context_menu.cpp.obj | C$:/Program$ Files/SDL3/lib/libSDL3.dll.a _deps/glm-build/glm/libglm.a || _deps/glm-build/glm/libglm.a gen_shaders
+build vs13.exe: CXX_EXECUTABLE_LINKER__vs13_ CMakeFiles/vs13.dir/src/main.cpp.obj CMakeFiles/vs13.dir/src/stb_impl.cpp.obj CMakeFiles/vs13.dir/src/core/game_loop.cpp.obj CMakeFiles/vs13.dir/src/core/world.cpp.obj CMakeFiles/vs13.dir/src/core/entity_manager.cpp.obj CMakeFiles/vs13.dir/src/render/renderer.cpp.obj CMakeFiles/vs13.dir/src/render/chunk_mesher.cpp.obj CMakeFiles/vs13.dir/src/render/lighting.cpp.obj CMakeFiles/vs13.dir/src/render/ui_renderer.cpp.obj CMakeFiles/vs13.dir/src/simulation/atmos.cpp.obj CMakeFiles/vs13.dir/src/simulation/power.cpp.obj CMakeFiles/vs13.dir/src/simulation/pipes.cpp.obj CMakeFiles/vs13.dir/src/simulation/physics.cpp.obj CMakeFiles/vs13.dir/src/simulation/world_items.cpp.obj CMakeFiles/vs13.dir/src/input/input_manager.cpp.obj CMakeFiles/vs13.dir/src/input/alt_mode.cpp.obj CMakeFiles/vs13.dir/src/inventory/inventory.cpp.obj CMakeFiles/vs13.dir/src/inventory/item_registry.cpp.obj CMakeFiles/vs13.dir/src/network/server.cpp.obj CMakeFiles/vs13.dir/src/network/client.cpp.obj CMakeFiles/vs13.dir/src/audio/audio_manager.cpp.obj CMakeFiles/vs13.dir/src/data/voxel_registry.cpp.obj CMakeFiles/vs13.dir/src/data/data_validator.cpp.obj CMakeFiles/vs13.dir/src/ui/hud.cpp.obj CMakeFiles/vs13.dir/src/ui/inventory_panel.cpp.obj CMakeFiles/vs13.dir/src/ui/context_menu.cpp.obj | C$:/Program$ Files/SDL3/lib/libSDL3.dll.a _deps/glm-build/glm/libglm.a || _deps/glm-build/glm/libglm.a gen_font_data gen_shaders
   LINK_LIBRARIES = "C:/Program Files/SDL3/lib/libSDL3.dll.a"  _deps/glm-build/glm/libglm.a  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
   OBJECT_DIR = CMakeFiles\vs13.dir
   POST_BUILD = cd .
@@ -338,15 +352,30 @@ build install/strip: phony CMakeFiles/install/strip.util
 #############################################
 # Phony custom command for CMakeFiles\gen_shaders
 
-build CMakeFiles/gen_shaders | ${cmake_ninja_workdir}CMakeFiles/gen_shaders: phony C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_vert_spv.h C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_frag_spv.h
+build CMakeFiles/gen_shaders | ${cmake_ninja_workdir}CMakeFiles/gen_shaders: phony C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_vert_spv.h C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_frag_spv.h C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/ui_text_frag_spv.h
 
 
 #############################################
 # Custom command for C:\Users\nukec\Documents\GitHub\voxelstation13\src\render\shaders\chunk_vert_spv.h
 
-build C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_vert_spv.h C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_frag_spv.h: CUSTOM_COMMAND C$:/Users/nukec/Documents/GitHub/voxelstation13/tools/gen_shaders.py
+build C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_vert_spv.h C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/chunk_frag_spv.h C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/ui_text_frag_spv.h: CUSTOM_COMMAND C$:/Users/nukec/Documents/GitHub/voxelstation13/tools/gen_shaders.py
   COMMAND = C:\Windows\system32\cmd.exe /C "cd /D C:\Users\nukec\Documents\GitHub\voxelstation13 && C:\Users\nukec\AppData\Local\Programs\Python\Python312\python.exe C:/Users/nukec/Documents/GitHub/voxelstation13/tools/gen_shaders.py"
   DESC = Generating SPIRV shader headers
+  restat = 1
+
+
+#############################################
+# Phony custom command for CMakeFiles\gen_font_data
+
+build CMakeFiles/gen_font_data | ${cmake_ninja_workdir}CMakeFiles/gen_font_data: phony C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/roboto_atlas.h
+
+
+#############################################
+# Custom command for C:\Users\nukec\Documents\GitHub\voxelstation13\src\render\shaders\roboto_atlas.h
+
+build C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/shaders/roboto_atlas.h: CUSTOM_COMMAND C$:/Users/nukec/Documents/GitHub/voxelstation13/tools/gen_font_data.py C$:/Users/nukec/Documents/GitHub/voxelstation13/textures/font/roboto.png
+  COMMAND = C:\Windows\system32\cmd.exe /C "cd /D C:\Users\nukec\Documents\GitHub\voxelstation13 && C:\Users\nukec\AppData\Local\Programs\Python\Python312\python.exe C:/Users/nukec/Documents/GitHub/voxelstation13/tools/gen_font_data.py"
+  DESC = Generating Roboto font atlas header
   restat = 1
 
 # =============================================================================

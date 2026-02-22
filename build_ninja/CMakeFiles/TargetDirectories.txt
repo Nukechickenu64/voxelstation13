@@ -1,4 +1,5 @@
 C:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/CMakeFiles/gen_shaders.dir
+C:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/CMakeFiles/gen_font_data.dir
 C:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/CMakeFiles/vs13.dir
 C:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/CMakeFiles/edit_cache.dir
 C:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/CMakeFiles/rebuild_cache.dir

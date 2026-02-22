@@ -15,24 +15,15 @@ void InputManager::build_default_bindings()
     m_key_map[SDL_SCANCODE_S]       = Action::MoveBack;
     m_key_map[SDL_SCANCODE_A]       = Action::MoveLeft;
     m_key_map[SDL_SCANCODE_D]       = Action::MoveRight;
-    m_key_map[SDL_SCANCODE_SPACE]   = Action::Jump;
+    m_key_map[SDL_SCANCODE_SPACE]   = Action::SwitchHand;
     m_key_map[SDL_SCANCODE_LCTRL]   = Action::Crouch;
     m_key_map[SDL_SCANCODE_LSHIFT]  = Action::Sprint;
     m_key_map[SDL_SCANCODE_E]       = Action::PickUp;
     m_key_map[SDL_SCANCODE_F]       = Action::ThrowItem;
-    m_key_map[SDL_SCANCODE_X]       = Action::DropItem;
+    m_key_map[SDL_SCANCODE_Q]       = Action::DropItem;
     m_key_map[SDL_SCANCODE_TAB]     = Action::ExamineMode;
     m_key_map[SDL_SCANCODE_LALT]    = Action::AltMode;
     m_key_map[SDL_SCANCODE_ESCAPE]  = Action::Escape;
-    m_key_map[SDL_SCANCODE_1]       = Action::HotbarSlot1;
-    m_key_map[SDL_SCANCODE_2]       = Action::HotbarSlot2;
-    m_key_map[SDL_SCANCODE_3]       = Action::HotbarSlot3;
-    m_key_map[SDL_SCANCODE_4]       = Action::HotbarSlot4;
-    m_key_map[SDL_SCANCODE_5]       = Action::HotbarSlot5;
-    m_key_map[SDL_SCANCODE_6]       = Action::HotbarSlot6;
-    m_key_map[SDL_SCANCODE_7]       = Action::HotbarSlot7;
-    m_key_map[SDL_SCANCODE_8]       = Action::HotbarSlot8;
-    m_key_map[SDL_SCANCODE_9]       = Action::HotbarSlot9;
     m_key_map[SDL_SCANCODE_T]       = Action::ChatOpen;
     m_key_map[SDL_SCANCODE_SLASH]   = Action::ChatOpen;
 
@@ -73,8 +64,6 @@ void InputManager::process_event(const SDL_Event& e)
         break;
     case SDL_EVENT_MOUSE_WHEEL:
         m_scroll_delta += e.wheel.y;
-        // Cycle hotbar slot
-        m_hotbar_slot = (m_hotbar_slot - static_cast<int>(e.wheel.y) + 9) % 9;
         break;
     default: break;
     }

@@ -1,6 +1,8 @@
 ﻿#include "render/ui_renderer.h"
 #include "render/shaders/ui_vert_spv.h"
 #include "render/shaders/ui_frag_spv.h"
+#include "render/shaders/ui_text_frag_spv.h"
+#include "render/shaders/roboto_atlas.h"
 #include "stb_image.h"
 
 #include <cstring>
@@ -19,6 +21,12 @@ bool UIRenderer::init(SDL_Window* window, int fb_width, int fb_height)
 
     if (!create_white_texture()) return false;
     if (!create_pipeline(window)) return false;
+    if (!create_text_pipeline(window)) return false;
+
+    // ── Load Roboto MTSDF font atlas ──────────────────────────────────────
+    m_font_tex = load_texture("textures/font/roboto.png");
+    if (!m_font_tex)
+        SDL_Log("UIRenderer: font atlas not loaded -- text will be invisible");
 
     // â”€â”€ Sampler: linear + clamp â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     SDL_GPUSamplerCreateInfo sci{};
@@ -202,6 +210,85 @@ bool UIRenderer::create_pipeline(SDL_Window* window)
     return true;
 }
 
+bool UIRenderer::create_text_pipeline(SDL_Window* window)
+{
+    // Identical vertex shader; different fragment shader (MTSDF).
+    SDL_GPUShaderCreateInfo vi{};
+    vi.code                = reinterpret_cast<const Uint8*>(k_ui_vert_spv);
+    vi.code_size           = k_ui_vert_spv_size;
+    vi.entrypoint          = "main";
+    vi.format              = SDL_GPU_SHADERFORMAT_SPIRV;
+    vi.stage               = SDL_GPU_SHADERSTAGE_VERTEX;
+    vi.num_uniform_buffers = 1;
+
+    auto* vs = SDL_CreateGPUShader(m_gpu, &vi);
+    if (!vs) { SDL_Log("UIRenderer: text vert shader: %s", SDL_GetError()); return false; }
+
+    SDL_GPUShaderCreateInfo fi{};
+    fi.code         = reinterpret_cast<const Uint8*>(k_ui_text_frag_spv);
+    fi.code_size    = k_ui_text_frag_spv_size;
+    fi.entrypoint   = "main";
+    fi.format       = SDL_GPU_SHADERFORMAT_SPIRV;
+    fi.stage        = SDL_GPU_SHADERSTAGE_FRAGMENT;
+    fi.num_samplers = 1;
+
+    auto* fs = SDL_CreateGPUShader(m_gpu, &fi);
+    if (!fs) {
+        SDL_Log("UIRenderer: text frag shader: %s", SDL_GetError());
+        SDL_ReleaseGPUShader(m_gpu, vs);
+        return false;
+    }
+
+    SDL_GPUVertexBufferDescription vbd{};
+    vbd.slot               = 0;
+    vbd.pitch              = (Uint32)sizeof(UIVertex);
+    vbd.input_rate         = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+    vbd.instance_step_rate = 0;
+
+    SDL_GPUVertexAttribute attrs[3]{};
+    attrs[0] = { 0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,  0 };
+    attrs[1] = { 1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,  8 };
+    attrs[2] = { 2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, 16 };
+
+    SDL_GPUColorTargetBlendState bs{};
+    bs.enable_blend           = true;
+    bs.color_blend_op         = SDL_GPU_BLENDOP_ADD;
+    bs.alpha_blend_op         = SDL_GPU_BLENDOP_ADD;
+    bs.src_color_blendfactor  = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+    bs.dst_color_blendfactor  = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+    bs.src_alpha_blendfactor  = SDL_GPU_BLENDFACTOR_ONE;
+    bs.dst_alpha_blendfactor  = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+
+    SDL_GPUColorTargetDescription ctd{};
+    ctd.format      = SDL_GetGPUSwapchainTextureFormat(m_gpu, window);
+    ctd.blend_state = bs;
+
+    SDL_GPUGraphicsPipelineCreateInfo pci{};
+    pci.vertex_shader   = vs;
+    pci.fragment_shader = fs;
+    pci.vertex_input_state.vertex_buffer_descriptions = &vbd;
+    pci.vertex_input_state.num_vertex_buffers         = 1;
+    pci.vertex_input_state.vertex_attributes          = attrs;
+    pci.vertex_input_state.num_vertex_attributes      = 3;
+    pci.primitive_type                         = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+    pci.rasterizer_state.fill_mode             = SDL_GPU_FILLMODE_FILL;
+    pci.rasterizer_state.cull_mode             = SDL_GPU_CULLMODE_NONE;
+    pci.depth_stencil_state.enable_depth_test  = false;
+    pci.depth_stencil_state.enable_depth_write = false;
+    pci.target_info.color_target_descriptions  = &ctd;
+    pci.target_info.num_color_targets          = 1;
+
+    m_text_pipeline = SDL_CreateGPUGraphicsPipeline(m_gpu, &pci);
+    SDL_ReleaseGPUShader(m_gpu, vs);
+    SDL_ReleaseGPUShader(m_gpu, fs);
+
+    if (!m_text_pipeline) {
+        SDL_Log("UIRenderer: text pipeline: %s", SDL_GetError());
+        return false;
+    }
+    return true;
+}
+
 void UIRenderer::shutdown()
 {
     if (!m_gpu) return;
@@ -210,13 +297,16 @@ void UIRenderer::shutdown()
     for (auto* t : m_owned_textures) if (t) SDL_ReleaseGPUTexture(m_gpu, t);
     m_owned_textures.clear();
 
-    if (m_white_tex)  { SDL_ReleaseGPUTexture(m_gpu, m_white_tex);         m_white_tex  = nullptr; }
-    if (m_sampler)    { SDL_ReleaseGPUSampler(m_gpu, m_sampler);            m_sampler    = nullptr; }
-    if (m_pipeline)   { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_pipeline); m_pipeline   = nullptr; }
-    if (m_vbuf)       { SDL_ReleaseGPUBuffer(m_gpu, m_vbuf);               m_vbuf       = nullptr; }
-    if (m_ibuf)       { SDL_ReleaseGPUBuffer(m_gpu, m_ibuf);               m_ibuf       = nullptr; }
-    if (m_vert_tbuf)  { SDL_ReleaseGPUTransferBuffer(m_gpu, m_vert_tbuf);  m_vert_tbuf  = nullptr; }
-    if (m_idx_tbuf)   { SDL_ReleaseGPUTransferBuffer(m_gpu, m_idx_tbuf);   m_idx_tbuf   = nullptr; }
+    if (m_white_tex)       { SDL_ReleaseGPUTexture(m_gpu, m_white_tex);              m_white_tex      = nullptr; }
+    if (m_sampler)         { SDL_ReleaseGPUSampler(m_gpu, m_sampler);                m_sampler        = nullptr; }
+    if (m_pipeline)        { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_pipeline);      m_pipeline       = nullptr; }
+    if (m_text_pipeline)   { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_text_pipeline); m_text_pipeline  = nullptr; }
+    if (m_vbuf)            { SDL_ReleaseGPUBuffer(m_gpu, m_vbuf);                    m_vbuf           = nullptr; }
+    if (m_ibuf)            { SDL_ReleaseGPUBuffer(m_gpu, m_ibuf);                    m_ibuf           = nullptr; }
+    if (m_vert_tbuf)       { SDL_ReleaseGPUTransferBuffer(m_gpu, m_vert_tbuf);       m_vert_tbuf      = nullptr; }
+    if (m_idx_tbuf)        { SDL_ReleaseGPUTransferBuffer(m_gpu, m_idx_tbuf);        m_idx_tbuf       = nullptr; }
+    // m_font_tex is in m_owned_textures, already freed above
+    m_font_tex = nullptr;
 }
 
 void UIRenderer::on_resize(int w, int h) { m_fb_w = w; m_fb_h = h; }
@@ -274,22 +364,27 @@ void UIRenderer::end(SDL_GPUCommandBuffer* cmd_buf,
 
     auto* rp = SDL_BeginGPURenderPass(cmd_buf, &cti, 1, nullptr);
 
-    SDL_BindGPUGraphicsPipeline(rp, m_pipeline);
-
     float xform[4] = {
          2.f / (float)fb_w,   //  scale_x
         -2.f / (float)fb_h,   //  scale_y (flip Y: top-left = NDC origin)
         -1.f,                  //  bias_x
          1.f                   //  bias_y
     };
-    SDL_PushGPUVertexUniformData(cmd_buf, 0, xform, sizeof(xform));
 
     SDL_GPUBufferBinding vbind{ m_vbuf, 0 };
     SDL_GPUBufferBinding ibind{ m_ibuf, 0 };
     SDL_BindGPUVertexBuffers(rp, 0, &vbind, 1);
     SDL_BindGPUIndexBuffer(rp, &ibind, SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
+    SDL_GPUGraphicsPipeline* cur_pl = nullptr;
     for (const auto& batch : m_batches) {
+        SDL_GPUGraphicsPipeline* want = batch.is_text ? m_text_pipeline : m_pipeline;
+        if (want && want != cur_pl) {
+            SDL_BindGPUGraphicsPipeline(rp, want);
+            // Re-push the xform uniform after every pipeline switch.
+            SDL_PushGPUVertexUniformData(cmd_buf, 0, xform, sizeof(xform));
+            cur_pl = want;
+        }
         SDL_GPUTextureSamplerBinding tsb{ batch.tex, m_sampler };
         SDL_BindGPUFragmentSamplers(rp, 0, &tsb, 1);
         SDL_DrawGPUIndexedPrimitives(rp, batch.count, 1, batch.first, 0, 0);
@@ -302,7 +397,8 @@ void UIRenderer::end(SDL_GPUCommandBuffer* cmd_buf,
 
 bool UIRenderer::push_quad(glm::vec2 pos, glm::vec2 size,
                             float u0, float v0, float u1, float v1,
-                            glm::vec4 color, SDL_GPUTexture* tex)
+                            glm::vec4 color, SDL_GPUTexture* tex,
+                            bool is_text)
 {
     if (!m_vert_ptr || !m_idx_ptr) return false;
     if (m_vert_count + 4 > k_max_verts ||
@@ -325,10 +421,11 @@ bool UIRenderer::push_quad(glm::vec2 pos, glm::vec2 size,
 
     m_vert_count += 4;
 
-    if (!m_batches.empty() && m_batches.back().tex == tex)
+    if (!m_batches.empty() && m_batches.back().tex == tex
+                           && m_batches.back().is_text == is_text)
         m_batches.back().count += 6;
     else
-        m_batches.push_back({ tex, m_idx_count, 6 });
+        m_batches.push_back({ tex, m_idx_count, 6, is_text });
 
     m_idx_count += 6;
     return true;
@@ -345,14 +442,29 @@ void UIRenderer::rect(glm::vec2 pos, glm::vec2 size, glm::vec4 color,
 void UIRenderer::text(glm::vec2 pos, const std::string& str,
                        glm::vec4 color, float font_size)
 {
-    // Placeholder: draw a thin bar proportional to text width.
-    // TODO: replace with glyph atlas rendering once font data is wired in.
-    if (str.empty()) return;
-    float w = static_cast<float>(str.size()) * font_size * 0.55f;
-    float h = font_size * 0.12f;
-    glm::vec4 c{ color.r, color.g, color.b, color.a * 0.55f };
-    push_quad(pos + glm::vec2(0.f, font_size * 0.45f), { w, h },
-              0.f, 0.f, 1.f, 1.f, c, m_white_tex);
+    if (str.empty() || !m_font_tex) return;
+
+    // Scale glyphs so that the cap-height equals font_size pixels.
+    const float scale = font_size / k_roboto_cap_height;
+    float x = pos.x;
+
+    for (unsigned char c : str) {
+        if (c < 32 || c > 126) {
+            // Unknown char: advance by a space width.
+            x += k_roboto_glyphs[0].advance_uv * k_roboto_atlas_w * scale;
+            continue;
+        }
+        const RoboGlyph& g = k_roboto_glyphs[c - 32];
+        if (g.u1 > g.u0) {
+            float gw    = (g.u1 - g.u0) * k_roboto_atlas_w * scale;
+            float gh    = (g.v1 - g.v0) * k_roboto_atlas_h * scale;
+            float y_off = g.bearing_y * scale;  // baseline-relative vertical offset
+            push_quad({x, pos.y + y_off}, {gw, gh},
+                      g.u0, g.v0, g.u1, g.v1,
+                      color, m_font_tex, /*is_text=*/true);
+        }
+        x += g.advance_uv * k_roboto_atlas_w * scale;
+    }
 }
 
 void UIRenderer::icon(glm::vec2 pos, glm::vec2 size,
@@ -388,10 +500,11 @@ void UIRenderer::line(glm::vec2 a, glm::vec2 b, glm::vec4 color,
     idx[3] = base+0; idx[4] = base+2; idx[5] = base+3;
     m_vert_count += 4;
 
-    if (!m_batches.empty() && m_batches.back().tex == m_white_tex)
+    if (!m_batches.empty() && m_batches.back().tex == m_white_tex
+                           && !m_batches.back().is_text)
         m_batches.back().count += 6;
     else
-        m_batches.push_back({ m_white_tex, m_idx_count, 6 });
+        m_batches.push_back({ m_white_tex, m_idx_count, 6, false });
     m_idx_count += 6;
 }
 

@@ -75,18 +75,15 @@ void Server::apply_pending_inputs(double dt)
 {
     for (auto& [id, inp] : m_pending_inputs)
         m_physics->prepare_character_movement(id, inp.wish_dir,
-                                               inp.jump, inp.crouch, inp.sprint);
-    // Jump is a one-shot; clear it after applying so it doesn't repeat next tick.
-    for (auto& [id, inp] : m_pending_inputs)
-        inp.jump = false;
+                                               inp.crouch, inp.sprint);
     (void)dt;
 }
 
 void Server::move_player(EntityID id, glm::vec3 wish_dir,
-                          bool jump, bool crouch, bool sprint, double dt)
+                          bool crouch, bool sprint, double dt)
 {
     if (!m_running || !m_physics) return;
-    m_physics->move_character(id, wish_dir, jump, crouch, sprint, dt);
+    m_physics->move_character(id, wish_dir, crouch, sprint, dt);
 }
 
 void Server::broadcast_dirty_chunks()

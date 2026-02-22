@@ -50,10 +50,12 @@ public:
 
 private:
     // ── GPU objects ────────────────────────────────────────────────────────
-    SDL_GPUDevice*           m_gpu      = nullptr;
-    SDL_GPUGraphicsPipeline* m_pipeline = nullptr;
-    SDL_GPUSampler*          m_sampler  = nullptr;
-    SDL_GPUTexture*          m_white_tex = nullptr;  // 1×1 opaque white
+    SDL_GPUDevice*           m_gpu           = nullptr;
+    SDL_GPUGraphicsPipeline* m_pipeline      = nullptr;  // coloured quads / images
+    SDL_GPUGraphicsPipeline* m_text_pipeline = nullptr;  // MTSDF text
+    SDL_GPUSampler*          m_sampler       = nullptr;
+    SDL_GPUTexture*          m_white_tex     = nullptr;  // 1×1 opaque white
+    SDL_GPUTexture*          m_font_tex      = nullptr;  // roboto MTSDF atlas
 
     // Dynamic geometry (pre-allocated, remapped each frame)
     SDL_GPUBuffer*         m_vbuf      = nullptr;
@@ -71,8 +73,8 @@ private:
     uint32_t  m_vert_count = 0;
     uint32_t  m_idx_count  = 0;
 
-    // ── Batch list (grouped by texture) ───────────────────────────────────
-    struct DrawBatch { SDL_GPUTexture* tex; uint32_t first, count; };
+    // ── Batch list (grouped by texture + pipeline) ───────────────────────
+    struct DrawBatch { SDL_GPUTexture* tex; uint32_t first, count; bool is_text; };
     std::vector<DrawBatch> m_batches;
 
     // ── Loaded textures (freed on shutdown) ────────────────────────────────
@@ -82,9 +84,11 @@ private:
 
     // ── Helpers ────────────────────────────────────────────────────────────
     bool create_pipeline(SDL_Window* window);
+    bool create_text_pipeline(SDL_Window* window);
     bool create_white_texture();
-    // Push one axis-aligned quad. Returns false if buffer is full.
+    // Push one axis-aligned quad.  is_text=true uses the MTSDF pipeline.
     bool push_quad(glm::vec2 pos, glm::vec2 size,
                    float u0, float v0, float u1, float v1,
-                   glm::vec4 color, SDL_GPUTexture* tex);
+                   glm::vec4 color, SDL_GPUTexture* tex,
+                   bool is_text = false);
 };

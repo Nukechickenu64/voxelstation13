@@ -8,13 +8,12 @@
 // Named actions mapped to SDL keys / mouse buttons
 enum class Action : uint32_t {
     MoveForward, MoveBack, MoveLeft, MoveRight,
-    Jump, Crouch, Sprint,
+    Crouch, Sprint,
     PrimaryInteract, SecondaryInteract,
     PickUp, ThrowItem, DropItem,
+    SwitchHand,
     ExamineMode,
     AltMode,
-    HotbarSlot1, HotbarSlot2, HotbarSlot3, HotbarSlot4,
-    HotbarSlot5, HotbarSlot6, HotbarSlot7, HotbarSlot8, HotbarSlot9,
     ChatOpen,
     Escape,
     COUNT
@@ -50,9 +49,6 @@ public:
     void capture_cursor(SDL_Window* window, bool capture);
     bool cursor_captured() const { return m_captured; }
 
-    // Hotbar scroll result (0-indexed slot)
-    int active_hotbar_slot() const { return m_hotbar_slot; }
-
 private:
     std::unordered_map<Action, InputState> m_states;
     std::unordered_map<SDL_Scancode, Action> m_key_map;
@@ -62,7 +58,6 @@ private:
     glm::vec2 m_mouse_pos{};
     float     m_scroll_delta = 0.f;
     bool      m_captured     = false;
-    int       m_hotbar_slot  = 0;
 
     void build_default_bindings();
     void update_action(Action a, bool down);

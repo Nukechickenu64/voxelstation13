@@ -39,7 +39,14 @@
     "file":    "sounds/wrench.wav",
     "volume":  0.6,
     "spatial": true,
-    "max_dist": 8.0
+    "max_dist": 10.0
+  },
+  {
+    "id":      "knock",
+    "file":    "sounds/knock.wav",
+    "volume":  0.7,
+    "spatial": true,
+    "max_dist": 12.0
   },
   {
     "id":      "fire",

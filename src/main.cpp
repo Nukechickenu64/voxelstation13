@@ -12,6 +12,8 @@
 #include "simulation/power.h"
 #include "simulation/pipes.h"
 #include "simulation/physics.h"
+#include "simulation/world_items.h"
+#include "simulation/mob_system.h"
 #include "input/input_manager.h"
 #include "input/alt_mode.h"
 #include "inventory/inventory.h"
@@ -27,6 +29,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <algorithm>
 
 // ── Hotbar inventory helper ───────────────────────────────────────────────────
 static std::vector<InventorySlot> make_human_slots()
@@ -74,6 +77,8 @@ int main(int /*argc*/, char* /*argv*/[])
         return 1;
     }
     renderer.load_tile_textures(voxel_reg, "textures");
+    renderer.load_item_textures(item_reg,  "textures");
+    renderer.load_mob_textures("textures");
 
     UIRenderer ui_renderer(renderer.gpu());
     if (!ui_renderer.init(renderer.window(), renderer.width(), renderer.height())) {
@@ -115,6 +120,9 @@ int main(int /*argc*/, char* /*argv*/[])
 
     // ── 11. Player inventory ──────────────────────────────────────────────────
     Inventory player_inv(make_human_slots());
+
+    // ── 11b. World item system ────────────────────────────────────────────────
+    WorldItemSystem world_items(server.world(), server.entities());
 
     // ── 12. Test world geometry — placeholder room ────────────────────────────
     {
@@ -178,6 +186,32 @@ int main(int /*argc*/, char* /*argv*/[])
         // Enqueue all dirty chunks for meshing
         for (Chunk* c : server.world().dirty_chunks())
             mesher.enqueue(c->chunk_pos(), server.world());
+
+        // Spawn a couple of test items on the floor for M1 testing
+        auto spawn_test_item = [&](const char* item_id, int x, int z) {
+            const ItemDef* def = item_reg.get(item_id);
+            if (!def) return;
+            ItemStack stack; stack.def = def; stack.count = 1;
+            world_items.spawn({x, 0, z}, FaceDir::PosY, std::move(stack));
+        };
+        spawn_test_item("wrench",      2,  0);
+        spawn_test_item("screwdriver", 2,  2);
+        spawn_test_item("crowbar",    -2,  2);
+
+        // Spawn a mob dummy for Doom-style sprite testing.
+        // Stand at (4, 1, -2): visible from the player start at (0,1,0).
+        // Walk around it to see all four rotation sprites change.
+        {
+            EntityID dummy = server.entities().create();
+            TransformComponent tr{};
+            tr.pos = { 4.f, 1.f, -2.f };
+            tr.yaw = 0.f;   // faces -Z (same default as the camera)
+            server.entities().add_component<TransformComponent>(dummy, tr);
+            MobComponent mob{};
+            mob.species = "human";
+            mob.variant = "female";
+            server.entities().add_component<MobComponent>(dummy, mob);
+        }
     }
 
     // ── 13. HUD state ─────────────────────────────────────────────────────────
@@ -189,6 +223,11 @@ int main(int /*argc*/, char* /*argv*/[])
     float cam_yaw   = 0.f;
     float cam_pitch = 0.f;
     glm::vec3 cam_pos = {0.f, 1.5f, 0.f};  // player feet at y=1, eyes at +0.5
+
+    // Currently hovered / targeted world item entity (updated each render frame)
+    EntityID hovered_item_entity = NULL_ENTITY;
+    std::vector<EntityID> item_candidates;   // all items in selection area, sorted nearest-first
+    int scroll_item_idx = 0;                 // which candidate is selected (scroll wheel cycles)
 
     // ── 15. Game loop ─────────────────────────────────────────────────────────
     GameLoop loop(1.0 / 60.0);
@@ -236,10 +275,21 @@ int main(int /*argc*/, char* /*argv*/[])
             if (player != NULL_ENTITY) {
                 server.queue_player_input(player, PlayerInput{
                     wish,
-                    input.is_pressed(Action::Jump),
                     input.is_held   (Action::Crouch),
                     input.is_held   (Action::Sprint),
                 });
+            }
+
+            // Switch active hand (Space)
+            if (input.is_pressed(Action::SwitchHand))
+                player_inv.cycle_active_hand();
+
+            // Scroll wheel cycles through overlapping items in the selection area
+            float scroll = input.scroll_delta();
+            if (scroll != 0.f && !item_candidates.empty()) {
+                scroll_item_idx -= (scroll > 0.f ? 1 : -1);
+                int n = static_cast<int>(item_candidates.size());
+                scroll_item_idx = ((scroll_item_idx % n) + n) % n;
             }
 
             // Server tick (applies pending inputs, steps physics + simulations)
@@ -268,16 +318,107 @@ int main(int /*argc*/, char* /*argv*/[])
             audio.update(static_cast<float>(dt));
 
             // Update HUD state
-            hud_state.clock_str   = "00:00"; // TODO: round timer
-            hud_state.examine_label = "";    // TODO: set from ray-hit voxel type name
-            hud_state.cam_pitch   = cam_pitch;
+            hud_state.clock_str          = "00:00"; // TODO: round timer
+            hud_state.cam_pitch          = cam_pitch;
+            hud_state.active_hand_is_left = (player_inv.active_hand_id() == "l_hand");
 
-            // Inventory: hotbar scroll
+            // ── Item drop (X) ─────────────────────────────────────────────────
             if (input.is_pressed(Action::DropItem)) {
-                auto item = player_inv.take(player_inv.active_hand_id());
-                // TODO: spawn item entity in world at player's feet
-                (void)item;
+                auto maybe_item = player_inv.take(player_inv.active_hand_id());
+                if (maybe_item) {
+                    // Cast downward from player feet to find a floor face
+                    RayHit down = server.world().raycast(cam_pos, {0,-1,0}, 3.f);
+                    if (down.valid) {
+                        world_items.spawn(down.voxel, down.face, std::move(*maybe_item));
+                    } else {
+                        // No floor nearby – spawn floating at player feet
+                        world_items.spawn_floating(
+                            cam_pos - glm::vec3(0, 0.5f, 0), std::move(*maybe_item));
+                    }
+                }
             }
+
+            // ── LMB / E: interact with world based on active hand ─────────────
+            // Empty hand  + item  → pick up
+            // Empty hand  + turf  → nothing (can't pick up turf)
+            // Held item   + item  → item-on-item interaction
+            // Held item   + turf  → knock on the wall with held item
+            {
+                bool fps_lmb = !alt_mode.active() && input.is_pressed(Action::PrimaryInteract);
+                bool e_press = !alt_mode.active() && input.is_pressed(Action::PickUp);
+                if (fps_lmb || e_press) {
+                    constexpr float ITEM_REACH = 1.5f;
+                    float yr = glm::radians(cam_yaw), pr = glm::radians(cam_pitch);
+                    glm::vec3 rdir = {
+                        std::cos(pr) * std::sin(yr),
+                        std::sin(pr),
+                       -std::cos(pr) * std::cos(yr)
+                    };
+                    auto*  active_slot = player_inv.active_hand();
+                    bool   hand_empty  = !active_slot || !active_slot->item;
+
+                    RayHit fhit = server.world().raycast(cam_pos, rdir, ITEM_REACH);
+                    float item_dist = 0.f;
+                    EntityID item_ent = world_items.ray_cast_items(
+                        cam_pos, rdir, ITEM_REACH,
+                        fhit.valid ? fhit.distance : ITEM_REACH, item_dist);
+
+                    if (item_ent != NULL_ENTITY) {
+                        if (hand_empty) {
+                            // Pick up
+                            auto picked = world_items.pick_up(item_ent);
+                            if (picked && picked->def)
+                                player_inv.put(player_inv.active_hand_id(), std::move(*picked));
+                        } else {
+                            // Use held item on world item
+                            auto* wic = server.entities().get_component<WorldItemComponent>(item_ent);
+                            if (wic && wic->item.def) {
+                                SDL_Log("Interact: %s on %s",
+                                        active_slot->item->def->name.c_str(),
+                                        wic->item.def->name.c_str());
+                                audio.play("click", cam_pos);
+                            }
+                        }
+                    } else if (fhit.valid && !hand_empty) {
+                        // Use held item on turf → knock
+                        glm::vec3 hit_world = glm::vec3(fhit.voxel) + glm::vec3(0.5f);
+                        SDL_Log("Knock: %s on wall",
+                                active_slot->item->def
+                                    ? active_slot->item->def->name.c_str() : "item");
+                        audio.play("knock", hit_world);
+                    }
+                }
+            }
+
+            // ── Alt-mode LMB click on world item ─────────────────────────────
+            if (alt_mode.active() && input.is_pressed(Action::PrimaryInteract)
+                && hovered_item_entity != NULL_ENTITY) {
+                auto*  active_slot = player_inv.active_hand();
+                bool   hand_empty  = !active_slot || !active_slot->item;
+                if (hand_empty) {
+                    auto picked = world_items.pick_up(hovered_item_entity);
+                    hovered_item_entity = NULL_ENTITY;
+                    if (picked && picked->def) {
+                        auto* hand = player_inv.active_hand();
+                        if (hand && !hand->item)
+                            player_inv.put(player_inv.active_hand_id(), std::move(*picked));
+                        else {
+                            auto* slot = player_inv.find_empty_accepting(*picked->def);
+                            if (slot) player_inv.put(slot->id, std::move(*picked));
+                        }
+                    }
+                } else {
+                    // Use held item on hovered world item
+                    auto* wic = server.entities().get_component<WorldItemComponent>(hovered_item_entity);
+                    if (wic && wic->item.def && active_slot->item->def) {
+                        SDL_Log("Interact: %s on %s",
+                                active_slot->item->def->name.c_str(),
+                                wic->item.def->name.c_str());
+                        audio.play("click", cam_pos);
+                    }
+                }
+            }
+
             if (input.is_pressed(Action::Escape)) {
                 SDL_SetWindowRelativeMouseMode(renderer.window(), false);
             }
@@ -287,27 +428,112 @@ int main(int /*argc*/, char* /*argv*/[])
         [&](double alpha) {
             client.interpolate(alpha);
 
-            // Ray cast before begin_frame so highlight geometry uploads this frame
-            float yaw_r = glm::radians(cam_yaw), pitch_r = glm::radians(cam_pitch);
+            // ── Camera basis + view-projection (mirrors draw_world) ──────────
+            float yaw_r   = glm::radians(cam_yaw);
+            float pitch_r = glm::radians(cam_pitch);
             glm::vec3 ray_dir = {
                 std::cos(pitch_r) * std::sin(yaw_r),
                 std::sin(pitch_r),
                -std::cos(pitch_r) * std::cos(yaw_r)
             };
+            glm::mat4 vp_mat = glm::perspective(
+                glm::radians(90.f),
+                renderer.height() > 0 ? float(renderer.width()) / renderer.height() : 1.f,
+                0.1f, 400.f)
+                * glm::lookAt(cam_pos, cam_pos + ray_dir, {0.f, 1.f, 0.f});
+
+            // ── Voxel face ray cast ──────────────────────────────────────────
             RayHit hit = server.world().raycast(cam_pos, ray_dir, 4.f);
+            // Restrict turf selection to voxels adjacent (Chebyshev ≤ 1) to the
+            // player's current voxel — includes all 26 immediate neighbours.
+            if (hit.valid) {
+                glm::vec3 feet = cam_pos - glm::vec3(0.f, 0.5f, 0.f);
+                glm::ivec3 pv = {
+                    static_cast<int>(std::floor(feet.x)),
+                    static_cast<int>(std::floor(feet.y)),
+                    static_cast<int>(std::floor(feet.z))
+                };
+                if (std::abs(hit.voxel.x - pv.x) > 1 ||
+                    std::abs(hit.voxel.y - pv.y) > 1 ||
+                    std::abs(hit.voxel.z - pv.z) > 1)
+                    hit.valid = false;
+            }
+
+            // ── World item hovering ───────────────────────────────────────────
+            constexpr float ITEM_REACH = 1.5f;
+            {
+                std::vector<EntityID> new_candidates;
+                if (alt_mode.active()) {
+                    new_candidates = world_items.screen_hover_all(
+                        alt_mode.cursor_pos(), vp_mat,
+                        renderer.width(), renderer.height());
+                    // Distance-cap each candidate
+                    new_candidates.erase(
+                        std::remove_if(new_candidates.begin(), new_candidates.end(),
+                            [&](EntityID eid) {
+                                auto* tr = server.entities().get_component<TransformComponent>(eid);
+                                return !tr || glm::length(tr->pos - cam_pos) > ITEM_REACH;
+                            }),
+                        new_candidates.end());
+                } else {
+                    new_candidates = world_items.ray_cast_items_all(
+                        cam_pos, ray_dir, ITEM_REACH,
+                        hit.valid ? hit.distance : ITEM_REACH);
+                }
+                // Reset scroll index if the candidate set changed identity
+                if (new_candidates != item_candidates) {
+                    item_candidates = std::move(new_candidates);
+                    scroll_item_idx = 0;
+                } else {
+                    item_candidates = std::move(new_candidates);
+                }
+                int n = static_cast<int>(item_candidates.size());
+                if (n == 0) {
+                    hovered_item_entity = NULL_ENTITY;
+                    scroll_item_idx     = 0;
+                } else {
+                    scroll_item_idx     = ((scroll_item_idx % n) + n) % n;
+                    hovered_item_entity = item_candidates[scroll_item_idx];
+                }
+            }
+
+            // ── Queue geometry for GPU upload (must be before begin_frame) ───
             renderer.queue_highlight(hit);
+            renderer.queue_world_items(server.entities(), hovered_item_entity,
+                                       cam_pos, cam_yaw, cam_pitch);
+            renderer.queue_mobs(server.entities(), cam_pos, cam_yaw);
 
             renderer.begin_frame(alpha);
 
             renderer.draw_world(server.world(), cam_pos, cam_yaw, cam_pitch);
             renderer.draw_face_highlight(hit);
+            renderer.draw_world_items();
+            renderer.draw_mobs();
             renderer.draw_viewmodel(0); // TODO: held item type id
 
             // UI pass
             ui_renderer.begin();
 
+            // ── World item name labels (projected to screen) ──────────────────
+            {
+                auto labels = world_items.build_labels(
+                    renderer.view_proj(),
+                    renderer.width(), renderer.height(),
+                    hovered_item_entity);
+                for (const auto& lbl : labels) {
+                    // Only show tooltip for the item currently being hovered
+                    if (!lbl.in_front || !lbl.hovered) continue;
+                    // Small background pill
+                    glm::vec2 ts = {static_cast<float>(lbl.name.size() * 7 + 10), 16.f};
+                    ui_renderer.rect(lbl.screen_pos - glm::vec2(4, 2), ts,
+                                     {0.f, 0.f, 0.f, 0.55f}, 3.f);
+                    ui_renderer.text(lbl.screen_pos, lbl.name,
+                                     {1.f, 1.f, 0.4f, 1.f}, 14.f);
+                }
+            }
+
             // Always-on HUD
-            hud.draw(hud_state, player_inv, input.active_hotbar_slot());
+            hud.draw(hud_state, player_inv);
 
             // Alt-mode overlay
             float ov_alpha = alt_mode.overlay_alpha();

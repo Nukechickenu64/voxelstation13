@@ -49,7 +49,7 @@ void PhysicsSystem::tick(double dt)
 }
 
 void PhysicsSystem::prepare_character_movement(EntityID id, glm::vec3 wish_dir,
-                                                bool jump, bool crouch, bool sprint)
+                                                bool crouch, bool sprint)
 {
     auto* vel = m_entities.get_component<VelocityComponent>(id);
     auto* cc  = m_entities.get_component<CharacterControllerComponent>(id);
@@ -65,18 +65,13 @@ void PhysicsSystem::prepare_character_movement(EntityID id, glm::vec3 wish_dir,
 
     vel->linear.x = wish_dir.x * speed;
     vel->linear.z = wish_dir.z * speed;
-
-    if (jump && cc->on_ground) {
-        vel->linear.y = cc->jump_vel;
-        cc->on_ground = false;
-    }
 }
 
 void PhysicsSystem::move_character(EntityID id, glm::vec3 wish_dir,
-                                    bool jump, bool crouch, bool sprint,
+                                    bool crouch, bool sprint,
                                     double dt)
 {
-    prepare_character_movement(id, wish_dir, jump, crouch, sprint);
+    prepare_character_movement(id, wish_dir, crouch, sprint);
     tick(dt);
 }
 

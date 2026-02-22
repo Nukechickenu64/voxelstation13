@@ -10,11 +10,10 @@ HUD::HUD(UIRenderer& ui)
     m_hand_tex = m_ui.load_texture("textures/worldui/hand.png");
 }
 
-void HUD::draw(const HUDState& state, const Inventory& inv, int hotbar_slot)
+void HUD::draw(const HUDState& state, const Inventory& inv)
 {
     draw_health_bar(state);
     draw_suit_sensors(state);
-    draw_hotbar(inv, hotbar_slot);
     draw_hands(inv, state.active_hand_is_left, state.cam_pitch);
     draw_clock(state.clock_str);
     if (!state.examine_label.empty())
@@ -61,33 +60,6 @@ void HUD::draw_suit_sensors(const HUDState& s)
         m_ui.text(pos + glm::vec2(6,48), "T: " + s.suit_temp_str,                  {0.9f,0.9f,0.9f,1},11.f);
 }
 
-void HUD::draw_hotbar(const Inventory& inv, int active_slot)
-{
-    const int  SLOTS     = 9;
-    const float SZ       = 48.f;
-    const float PAD      = 4.f;
-    float total_w  = SLOTS * (SZ + PAD) - PAD;
-    float fb_w     = static_cast<float>(m_ui.fb_width());
-    float fb_h     = static_cast<float>(m_ui.fb_height());
-    float start_x  = (fb_w - total_w) * 0.5f;
-    float y        = fb_h - SZ - 8.f;
-
-    // Hotbar is backed by the first 9 hotbar slots; we approximate using l/r hands here
-    for (int i = 0; i < SLOTS; ++i) {
-        glm::vec2 pos = {start_x + i * (SZ + PAD), y};
-        bool is_active = (i == active_slot);
-        glm::vec4 bg   = is_active ? glm::vec4{0.3f,0.3f,0.5f,0.85f}
-                                   : glm::vec4{0.1f,0.1f,0.1f,0.6f};
-        m_ui.rect(pos, {SZ, SZ}, bg, 4.f);
-        if (is_active)
-            m_ui.rect(pos, {SZ, SZ}, {0.6f,0.7f,1,0.5f}, 4.f); // highlight border
-        // TODO: draw item icon if slot has item
-        (void)inv;
-        // Slot number label
-        m_ui.text(pos + glm::vec2(2,2), std::to_string(i + 1), {0.7f,0.7f,0.7f,0.8f}, 10.f);
-    }
-}
-
 void HUD::draw_hands(const Inventory& inv, bool left_active, float pitch)
 {
     // --- Always-on hand slots (small, above hotbar) ---
@@ -95,8 +67,8 @@ void HUD::draw_hands(const Inventory& inv, bool left_active, float pitch)
     float fb_w = static_cast<float>(m_ui.fb_width());
     float fb_h = static_cast<float>(m_ui.fb_height());
 
-    glm::vec2 lpos = {fb_w * 0.5f - SZ - PAD, fb_h - SZ - 64.f};
-    glm::vec2 rpos = {fb_w * 0.5f + PAD,       fb_h - SZ - 64.f};
+    glm::vec2 lpos = {fb_w * 0.5f - SZ - PAD, fb_h - SZ - 8.f};
+    glm::vec2 rpos = {fb_w * 0.5f + PAD,       fb_h - SZ - 8.f};
 
     auto draw_slot = [&](glm::vec2 pos, const std::string& slot_id, bool active) {
         glm::vec4 bg = active ? glm::vec4{0.25f,0.35f,0.5f,0.85f}

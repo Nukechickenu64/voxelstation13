@@ -26,12 +26,11 @@ class HUD {
 public:
     explicit HUD(UIRenderer& ui);
 
-    void draw(const HUDState& state, const Inventory& inv, int hotbar_slot);
+    void draw(const HUDState& state, const Inventory& inv);
 
 private:
     void draw_health_bar   (const HUDState& s);
     void draw_suit_sensors (const HUDState& s);
-    void draw_hotbar       (const Inventory& inv, int active_slot);
     void draw_hands        (const Inventory& inv, bool left_active, float pitch);
     void draw_examine_label(const std::string& label);
     void draw_radio_log    (const std::deque<std::string>& log);
