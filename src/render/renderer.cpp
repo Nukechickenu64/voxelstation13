@@ -1,6 +1,9 @@
 #include "render/renderer.h"
 #include "render/shaders/chunk_vert_spv.h"
 #include "render/shaders/chunk_frag_spv.h"
+#include "render/shaders/highlight_vert_spv.h"
+#include "render/shaders/highlight_frag_spv.h"
+#include "core/world.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -44,13 +47,24 @@ bool Renderer::init(const char* title, int width, int height)
 
     SDL_Log("GPU driver: %s", SDL_GetGPUDeviceDriver(m_gpu));
 
+    SDL_Log("Renderer::init step: claiming window...");
     if (!SDL_ClaimWindowForGPUDevice(m_gpu, m_window)) {
         SDL_Log("SDL_ClaimWindowForGPUDevice failed: %s", SDL_GetError());
         return false;
     }
+    SDL_Log("Renderer::init step: window claimed OK");
 
-    if (!create_depth_texture()) return false;
-    if (!create_pipeline())      return false;
+    SDL_Log("Renderer::init step: creating depth texture...");
+    if (!create_depth_texture())       return false;
+    SDL_Log("Renderer::init step: depth texture OK");
+
+    SDL_Log("Renderer::init step: creating world pipeline...");
+    if (!create_pipeline())            return false;
+    SDL_Log("Renderer::init step: world pipeline OK");
+
+    SDL_Log("Renderer::init step: creating highlight pipeline...");
+    if (!create_highlight_pipeline())  return false;
+    SDL_Log("Renderer::init step: highlight pipeline OK");
 
     return true;
 }
@@ -64,6 +78,7 @@ bool Renderer::create_depth_texture()
         SDL_GPU_TEXTUREFORMAT_D16_UNORM,
     };
     m_depth_fmt = SDL_GPU_TEXTUREFORMAT_INVALID;
+    SDL_Log("create_depth_texture: probing format support...");
     for (auto fmt : candidates) {
         if (SDL_GPUTextureSupportsFormat(m_gpu, fmt,
                 SDL_GPU_TEXTURETYPE_2D, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)) {
@@ -75,6 +90,7 @@ bool Renderer::create_depth_texture()
         SDL_Log("No supported depth format found.");
         return false;
     }
+    SDL_Log("create_depth_texture: depth format = %d", (int)m_depth_fmt);
 
     SDL_GPUTextureCreateInfo info{};
     info.type          = SDL_GPU_TEXTURETYPE_2D;
@@ -96,7 +112,7 @@ bool Renderer::create_depth_texture()
 
 bool Renderer::create_pipeline()
 {
-    // ── Vertex shader ─────────────────────────────────────────────────────────
+    SDL_Log("create_pipeline: creating vertex shader...");
     SDL_GPUShaderCreateInfo vi{};
     vi.code               = reinterpret_cast<const Uint8*>(k_chunk_vert_spv);
     vi.code_size          = k_chunk_vert_spv_size;
@@ -110,6 +126,7 @@ bool Renderer::create_pipeline()
         SDL_Log("SDL_CreateGPUShader (vert) failed: %s", SDL_GetError());
         return false;
     }
+    SDL_Log("create_pipeline: vert shader OK");
 
     // ── Fragment shader ───────────────────────────────────────────────────────
     SDL_GPUShaderCreateInfo fi{};
@@ -125,21 +142,29 @@ bool Renderer::create_pipeline()
         SDL_Log("SDL_CreateGPUShader (frag) failed: %s", SDL_GetError());
         return false;
     }
+    SDL_Log("create_pipeline: frag shader OK");
 
     // ── Vertex layout: pos(3f) + normal(3f), stride 24 ───────────────────────
     SDL_GPUVertexBufferDescription vbuf_desc{};
     vbuf_desc.slot              = 0;
-    vbuf_desc.pitch             = 24;   // 6 floats × 4 bytes
+    vbuf_desc.pitch             = 32;   // 8 floats × 4 bytes: pos(3f)+normal(3f)+uv(2f)
     vbuf_desc.input_rate        = SDL_GPU_VERTEXINPUTRATE_VERTEX;
     vbuf_desc.instance_step_rate = 0;
 
-    SDL_GPUVertexAttribute vattrs[2]{};
+    SDL_GPUVertexAttribute vattrs[3]{};
     vattrs[0] = { 0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,  0 }; // location 0 = pos
     vattrs[1] = { 1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, 12 }; // location 1 = normal
+    vattrs[2] = { 2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, 24 }; // location 2 = uv
 
     // ── Colour target format (matches the swapchain) ──────────────────────────
+    SDL_Log("create_pipeline: querying swapchain format...");
     SDL_GPUColorTargetDescription ctd{};
     ctd.format = SDL_GetGPUSwapchainTextureFormat(m_gpu, m_window);
+    SDL_Log("create_pipeline: swapchain format = %d", (int)ctd.format);
+    if (ctd.format == SDL_GPU_TEXTUREFORMAT_INVALID) {
+        SDL_Log("create_pipeline: invalid swapchain format, aborting");
+        return false;
+    }
 
     // ── Build pipeline ────────────────────────────────────────────────────────
     SDL_GPUGraphicsPipelineCreateInfo pci{};
@@ -149,7 +174,7 @@ bool Renderer::create_pipeline()
     pci.vertex_input_state.vertex_buffer_descriptions = &vbuf_desc;
     pci.vertex_input_state.num_vertex_buffers         = 1;
     pci.vertex_input_state.vertex_attributes          = vattrs;
-    pci.vertex_input_state.num_vertex_attributes      = 2;
+    pci.vertex_input_state.num_vertex_attributes      = 3;
 
     pci.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
 
@@ -166,11 +191,13 @@ bool Renderer::create_pipeline()
     pci.target_info.has_depth_stencil_target  = true;
     pci.target_info.depth_stencil_format      = m_depth_fmt;
 
+    SDL_Log("create_pipeline: creating graphics pipeline...");
     m_world_pipeline = SDL_CreateGPUGraphicsPipeline(m_gpu, &pci);
     if (!m_world_pipeline) {
         SDL_Log("SDL_CreateGPUGraphicsPipeline failed: %s", SDL_GetError());
         return false;
     }
+    SDL_Log("create_pipeline: graphics pipeline OK");
 
     // Shaders no longer needed after pipeline creation
     SDL_ReleaseGPUShader(m_gpu, m_vert_shader); m_vert_shader = nullptr;
@@ -189,10 +216,13 @@ void Renderer::shutdown()
             release_gpu_mesh(gm);
         m_gpu_meshes.clear();
 
-        if (m_world_pipeline) { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_world_pipeline); m_world_pipeline = nullptr; }
-        if (m_vert_shader)    { SDL_ReleaseGPUShader(m_gpu, m_vert_shader);  m_vert_shader = nullptr; }
-        if (m_frag_shader)    { SDL_ReleaseGPUShader(m_gpu, m_frag_shader);  m_frag_shader = nullptr; }
-        if (m_depth_tex)      { SDL_ReleaseGPUTexture(m_gpu, m_depth_tex);   m_depth_tex   = nullptr; }
+        if (m_world_pipeline)     { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_world_pipeline);     m_world_pipeline     = nullptr; }
+        if (m_highlight_pipeline) { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_highlight_pipeline); m_highlight_pipeline = nullptr; }
+        if (m_highlight_vbuf)     { SDL_ReleaseGPUBuffer(m_gpu, m_highlight_vbuf);               m_highlight_vbuf     = nullptr; }
+        if (m_highlight_ibuf)     { SDL_ReleaseGPUBuffer(m_gpu, m_highlight_ibuf);               m_highlight_ibuf     = nullptr; }
+        if (m_vert_shader)        { SDL_ReleaseGPUShader(m_gpu, m_vert_shader);                  m_vert_shader        = nullptr; }
+        if (m_frag_shader)        { SDL_ReleaseGPUShader(m_gpu, m_frag_shader);                  m_frag_shader        = nullptr; }
+        if (m_depth_tex)          { SDL_ReleaseGPUTexture(m_gpu, m_depth_tex);                   m_depth_tex          = nullptr; }
 
         if (m_window) SDL_ReleaseWindowFromGPUDevice(m_gpu, m_window);
         SDL_DestroyGPUDevice(m_gpu);
@@ -238,6 +268,9 @@ void Renderer::begin_frame(double /*alpha*/)
         create_depth_texture();
     }
 
+    // ── Upload pending highlight geometry (copy pass before render pass) ─────
+    upload_highlight_geometry();
+
     // ── Begin render pass ─────────────────────────────────────────────────────
     SDL_GPUColorTargetInfo color_info{};
     color_info.texture     = swapchain_tex;
@@ -278,15 +311,21 @@ void Renderer::draw_world(const World& /*world*/,
     // Flip Y – Vulkan's clip-space Y is top-down, GLM assumes OpenGL convention
     proj[1][1] *= -1.f;
     glm::mat4 mvp = proj * view;
+    m_current_mvp = mvp;  // save for highlight pass
 
     // Push MVP as vertex push-constant slot 0
     SDL_PushGPUVertexUniformData(m_cmd_buf, 0, &mvp[0][0], sizeof(glm::mat4));
 
     SDL_BindGPUGraphicsPipeline(m_render_pass, m_world_pipeline);
 
-    // ── Draw each uploaded GPU mesh ──────────────────────────────────────────
+    // ── Draw each uploaded GPU mesh (frustum-culled) ──────────────────────────
     for (auto& [chunk_pos, gm] : m_gpu_meshes) {
         if (!gm.vbuf || !gm.ibuf || gm.num_indices == 0) continue;
+
+        // Chunk AABB in world space
+        glm::vec3 mn = glm::vec3(chunk_pos)     * float(CHUNK_SIZE);
+        glm::vec3 mx = glm::vec3(chunk_pos + 1) * float(CHUNK_SIZE);
+        if (!aabb_in_frustum(mvp, mn, mx)) continue;
 
         SDL_GPUBufferBinding vb{ gm.vbuf, 0 };
         SDL_GPUBufferBinding ib{ gm.ibuf, 0 };
@@ -298,9 +337,15 @@ void Renderer::draw_world(const World& /*world*/,
 
 void Renderer::draw_face_highlight(const RayHit& hit)
 {
-    if (!hit.valid) return;
-    // TODO: render thin outline quad over selected face (needs line pipeline)
-    (void)hit;
+    if (!hit.valid || !m_hl_valid || !m_highlight_pipeline || !m_render_pass) return;
+
+    SDL_BindGPUGraphicsPipeline(m_render_pass, m_highlight_pipeline);
+    SDL_PushGPUVertexUniformData(m_cmd_buf, 0, &m_current_mvp[0][0], sizeof(glm::mat4));
+    SDL_GPUBufferBinding vb{ m_highlight_vbuf, 0 };
+    SDL_GPUBufferBinding ib{ m_highlight_ibuf, 0 };
+    SDL_BindGPUVertexBuffers(m_render_pass, 0, &vb, 1);
+    SDL_BindGPUIndexBuffer(m_render_pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+    SDL_DrawGPUIndexedPrimitives(m_render_pass, 6, 1, 0, 0, 0);
 }
 
 void Renderer::draw_viewmodel(uint16_t /*item_type_id*/)
@@ -404,4 +449,202 @@ void Renderer::free_mesh(glm::ivec3 chunk_pos)
     auto it = m_gpu_meshes.find(chunk_pos);
     if (it != m_gpu_meshes.end()) { release_gpu_mesh(it->second); m_gpu_meshes.erase(it); }
     m_meshes.erase(chunk_pos);
+}
+
+// ── Face highlight ────────────────────────────────────────────────────────────
+
+// Quad corners per face direction (matches chunk_mesher FaceGeo, CCW winding).
+static const float k_face_quad[6][4][3] = {
+    { {1,0,0},{1,0,1},{1,1,1},{1,1,0} },  // PosX
+    { {0,0,1},{0,0,0},{0,1,0},{0,1,1} },  // NegX
+    { {0,1,1},{1,1,1},{1,1,0},{0,1,0} },  // PosY
+    { {0,0,0},{1,0,0},{1,0,1},{0,0,1} },  // NegY
+    { {0,0,1},{1,0,1},{1,1,1},{0,1,1} },  // PosZ
+    { {1,0,0},{0,0,0},{0,1,0},{1,1,0} },  // NegZ
+};
+static const float k_face_nrm[6][3] = {
+    { 1,0,0},{-1,0,0},{ 0,1,0},{ 0,-1,0},{ 0,0,1},{ 0,0,-1}
+};
+
+void Renderer::queue_highlight(const RayHit& hit)
+{
+    if (!hit.valid) { m_hl_pending = false; m_hl_valid = false; return; }
+
+    int   dir = static_cast<int>(hit.face);
+    float ox  = float(hit.voxel.x);
+    float oy  = float(hit.voxel.y);
+    float oz  = float(hit.voxel.z);
+    static constexpr float kEps = 0.004f;
+    float nx  = k_face_nrm[dir][0] * kEps;
+    float ny  = k_face_nrm[dir][1] * kEps;
+    float nz  = k_face_nrm[dir][2] * kEps;
+    for (int vi = 0; vi < 4; ++vi) {
+        m_hl_verts[vi * 3 + 0] = ox + k_face_quad[dir][vi][0] + nx;
+        m_hl_verts[vi * 3 + 1] = oy + k_face_quad[dir][vi][1] + ny;
+        m_hl_verts[vi * 3 + 2] = oz + k_face_quad[dir][vi][2] + nz;
+    }
+    m_hl_pending = true;
+}
+
+void Renderer::upload_highlight_geometry()
+{
+    if (!m_hl_pending || !m_highlight_vbuf || !m_highlight_ibuf || !m_cmd_buf) return;
+
+    const Uint32 vsize = 4 * 3 * sizeof(float);
+    const Uint32 isize = 6 * sizeof(uint32_t);
+    static const uint32_t k_idx[6] = {0, 1, 2, 0, 2, 3};
+
+    SDL_GPUTransferBufferCreateInfo tbi{};
+    tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    tbi.size  = vsize + isize;
+    auto* tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &tbi);
+    if (!tbuf) return;
+
+    auto* ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
+    std::memcpy(ptr,         m_hl_verts, vsize);
+    std::memcpy(ptr + vsize, k_idx,      isize);
+    SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
+
+    auto* copy_pass = SDL_BeginGPUCopyPass(m_cmd_buf);
+    SDL_GPUTransferBufferLocation sv{ tbuf, 0 };
+    SDL_GPUBufferRegion           dv{ m_highlight_vbuf, 0, vsize };
+    SDL_UploadToGPUBuffer(copy_pass, &sv, &dv, false);
+    SDL_GPUTransferBufferLocation si{ tbuf, vsize };
+    SDL_GPUBufferRegion           di{ m_highlight_ibuf, 0, isize };
+    SDL_UploadToGPUBuffer(copy_pass, &si, &di, false);
+    SDL_EndGPUCopyPass(copy_pass);
+    SDL_ReleaseGPUTransferBuffer(m_gpu, tbuf);
+
+    m_hl_pending = false;
+    m_hl_valid   = true;
+}
+
+bool Renderer::create_highlight_pipeline()
+{
+    // ── Pre-allocate VBO / IBO ─────────────────────────────────────────────────
+    SDL_Log("create_hl_pipeline: allocating buffers...");
+    SDL_GPUBufferCreateInfo vbi{};
+    vbi.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+    vbi.size  = 4 * 3 * sizeof(float);
+    m_highlight_vbuf = SDL_CreateGPUBuffer(m_gpu, &vbi);
+
+    SDL_GPUBufferCreateInfo ibi{};
+    ibi.usage = SDL_GPU_BUFFERUSAGE_INDEX;
+    ibi.size  = 6 * sizeof(uint32_t);
+    m_highlight_ibuf = SDL_CreateGPUBuffer(m_gpu, &ibi);
+
+    if (!m_highlight_vbuf || !m_highlight_ibuf) {
+        SDL_Log("create_highlight_pipeline: buffer alloc failed: %s", SDL_GetError());
+        return false;
+    }
+    SDL_Log("create_hl_pipeline: buffers OK");
+
+    // ── Shaders ───────────────────────────────────────────────────────────────
+    SDL_Log("create_hl_pipeline: creating hl_vert shader...");
+    SDL_GPUShaderCreateInfo vi{};
+    vi.code      = reinterpret_cast<const Uint8*>(k_highlight_vert_spv);
+    vi.code_size = k_highlight_vert_spv_size;
+    vi.entrypoint = "main";
+    vi.format    = SDL_GPU_SHADERFORMAT_SPIRV;
+    vi.stage     = SDL_GPU_SHADERSTAGE_VERTEX;
+    auto* hl_vert = SDL_CreateGPUShader(m_gpu, &vi);
+    if (!hl_vert) { SDL_Log("highlight vert shader: %s", SDL_GetError()); return false; }
+    SDL_Log("create_hl_pipeline: hl_vert OK");
+
+    SDL_Log("create_hl_pipeline: creating hl_frag shader...");
+    SDL_GPUShaderCreateInfo fi{};
+    fi.code      = reinterpret_cast<const Uint8*>(k_highlight_frag_spv);
+    fi.code_size = k_highlight_frag_spv_size;
+    fi.entrypoint = "main";
+    fi.format    = SDL_GPU_SHADERFORMAT_SPIRV;
+    fi.stage     = SDL_GPU_SHADERSTAGE_FRAGMENT;
+    auto* hl_frag = SDL_CreateGPUShader(m_gpu, &fi);
+    if (!hl_frag) {
+        SDL_ReleaseGPUShader(m_gpu, hl_vert);
+        SDL_Log("highlight frag shader: %s", SDL_GetError());
+        return false;
+    }
+    SDL_Log("create_hl_pipeline: hl_frag OK");
+
+    // ── Vertex layout: pos(3f) only, stride 12 ────────────────────────────────
+    SDL_GPUVertexBufferDescription vbuf_desc{};
+    vbuf_desc.slot               = 0;
+    vbuf_desc.pitch              = 12;
+    vbuf_desc.input_rate         = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+    vbuf_desc.instance_step_rate = 0;
+    SDL_GPUVertexAttribute vattr{ 0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, 0 };
+
+    // ── Alpha-blended colour target ───────────────────────────────────────────
+    SDL_GPUColorTargetBlendState blend{};
+    blend.enable_blend          = true;
+    blend.src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+    blend.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+    blend.color_blend_op        = SDL_GPU_BLENDOP_ADD;
+    blend.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+    blend.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ZERO;
+    blend.alpha_blend_op        = SDL_GPU_BLENDOP_ADD;
+
+    SDL_GPUColorTargetDescription ctd{};
+    SDL_Log("create_hl_pipeline: querying swapchain format...");
+    ctd.format      = SDL_GetGPUSwapchainTextureFormat(m_gpu, m_window);
+    SDL_Log("create_hl_pipeline: swapchain format = %d", (int)ctd.format);
+    ctd.blend_state = blend;
+
+    // ── Build pipeline ────────────────────────────────────────────────────────
+    SDL_GPUGraphicsPipelineCreateInfo pci{};
+    pci.vertex_shader   = hl_vert;
+    pci.fragment_shader = hl_frag;
+    pci.vertex_input_state.vertex_buffer_descriptions = &vbuf_desc;
+    pci.vertex_input_state.num_vertex_buffers         = 1;
+    pci.vertex_input_state.vertex_attributes          = &vattr;
+    pci.vertex_input_state.num_vertex_attributes      = 1;
+    pci.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+    pci.rasterizer_state.fill_mode  = SDL_GPU_FILLMODE_FILL;
+    pci.rasterizer_state.cull_mode  = SDL_GPU_CULLMODE_NONE;
+    pci.depth_stencil_state.enable_depth_test  = true;
+    pci.depth_stencil_state.enable_depth_write = false;
+    pci.depth_stencil_state.compare_op         = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+    pci.target_info.color_target_descriptions  = &ctd;
+    pci.target_info.num_color_targets          = 1;
+    pci.target_info.has_depth_stencil_target   = true;
+    pci.target_info.depth_stencil_format       = m_depth_fmt;
+
+    SDL_Log("create_hl_pipeline: creating graphics pipeline...");
+    m_highlight_pipeline = SDL_CreateGPUGraphicsPipeline(m_gpu, &pci);
+    SDL_ReleaseGPUShader(m_gpu, hl_vert);
+    SDL_ReleaseGPUShader(m_gpu, hl_frag);
+
+    if (!m_highlight_pipeline) {
+        SDL_Log("highlight pipeline failed: %s", SDL_GetError());
+        return false;
+    }
+    SDL_Log("create_hl_pipeline: pipeline OK");
+    return true;
+}
+
+// ── Frustum culling ───────────────────────────────────────────────────────────
+
+// Returns true if AABB [mn, mx] intersects the view frustum defined by mvp.
+// Uses Gribb/Hartmann plane extraction (GLM stores mat4 in column-major order).
+bool Renderer::aabb_in_frustum(const glm::mat4& m, glm::vec3 mn, glm::vec3 mx)
+{
+    for (int i = 0; i < 3; ++i)
+    for (int sign : {+1, -1}) {
+        float s = float(sign);
+        float a = m[0][3] + s * m[0][i];
+        float b = m[1][3] + s * m[1][i];
+        float c = m[2][3] + s * m[2][i];
+        float d = m[3][3] + s * m[3][i];
+        bool any_in = false;
+        for (int cx = 0; cx < 2 && !any_in; ++cx)
+        for (int cy = 0; cy < 2 && !any_in; ++cy)
+        for (int cz = 0; cz < 2 && !any_in; ++cz) {
+            float x = cx ? mx.x : mn.x;
+            float y = cy ? mx.y : mn.y;
+            float z = cz ? mx.z : mn.z;
+            if (a*x + b*y + c*z + d >= 0.f) any_in = true;
+        }
+        if (!any_in) return false;
+    }
+    return true;
 }

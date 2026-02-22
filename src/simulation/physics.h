@@ -32,7 +32,13 @@ public:
 
     void tick(double dt);
 
+    // Set up character velocity from a wish direction without ticking.
+    // Call this before tick() — used by Server::tick() after receiving input.
+    void prepare_character_movement(EntityID id, glm::vec3 wish_dir,
+                                    bool jump, bool crouch, bool sprint);
+
     // Move the character controller, resolving voxel collisions.
+    // Equivalent to prepare_character_movement() + tick().
     void move_character(EntityID id, glm::vec3 wish_dir, bool jump, bool crouch, bool sprint, double dt);
 
     // Apply standing wind forces from atmos decompression

@@ -30,6 +30,7 @@ void Server::tick(double dt)
 {
     if (!m_running) return;
     process_incoming();
+    apply_pending_inputs(dt);
     m_physics->tick(dt);
     m_atmos->tick(dt);
     m_power->tick(dt);
@@ -63,6 +64,29 @@ void Server::process_incoming()
 void Server::broadcast_entity_states()
 {
     // TODO: serialise TransformComponent for all entities, send to subscribed peers
+}
+
+void Server::queue_player_input(EntityID id, const PlayerInput& input)
+{
+    m_pending_inputs[id] = input;
+}
+
+void Server::apply_pending_inputs(double dt)
+{
+    for (auto& [id, inp] : m_pending_inputs)
+        m_physics->prepare_character_movement(id, inp.wish_dir,
+                                               inp.jump, inp.crouch, inp.sprint);
+    // Jump is a one-shot; clear it after applying so it doesn't repeat next tick.
+    for (auto& [id, inp] : m_pending_inputs)
+        inp.jump = false;
+    (void)dt;
+}
+
+void Server::move_player(EntityID id, glm::vec3 wish_dir,
+                          bool jump, bool crouch, bool sprint, double dt)
+{
+    if (!m_running || !m_physics) return;
+    m_physics->move_character(id, wish_dir, jump, crouch, sprint, dt);
 }
 
 void Server::broadcast_dirty_chunks()

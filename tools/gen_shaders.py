@@ -175,6 +175,13 @@ def build_vertex():
     ID_RPOS         = s.new()   # 32  result position
     ID_P_GPOS       = s.new()   # 33  AccessChain ptr to gl_Position
     ID_LNRM         = s.new()   # 34  loaded normal
+    # UV support
+    ID_VEC2         = s.new()   # 35  TypeVector(float, 2)
+    ID_PTR_IN_V2    = s.new()   # 36  TypePointer(Input,  vec2)
+    ID_PTR_OUT_V2   = s.new()   # 37  TypePointer(Output, vec2)
+    ID_IN_UV        = s.new()   # 38  var inUV   Input  (location 2)
+    ID_OUT_UV       = s.new()   # 39  var fragUV Output (location 1)
+    ID_LUV          = s.new()   # 40  loaded uv vec2
 
     # ── Section 1: Capabilities ───────────────────────────────────────────────
     s.emit(OP_CAPABILITY, CAP_SHADER)
@@ -184,12 +191,15 @@ def build_vertex():
 
     # ── Section 5: Entry point ────────────────────────────────────────────────
     s.entry_point(EXM_VERTEX, ID_MAIN, "main",
-                  ID_IN_POS, ID_IN_NRM, ID_GL_POS_BLOCK, ID_OUT_NRM)
+                  ID_IN_POS, ID_IN_NRM, ID_IN_UV,
+                  ID_GL_POS_BLOCK, ID_OUT_NRM, ID_OUT_UV)
 
     # ── Section 8: Decorations ────────────────────────────────────────────────
     s.emit(OP_DECORATE, ID_IN_POS,  DEC_LOCATION, 0)
     s.emit(OP_DECORATE, ID_IN_NRM,  DEC_LOCATION, 1)
+    s.emit(OP_DECORATE, ID_IN_UV,   DEC_LOCATION, 2)
     s.emit(OP_DECORATE, ID_OUT_NRM, DEC_LOCATION, 0)
+    s.emit(OP_DECORATE, ID_OUT_UV,  DEC_LOCATION, 1)
     # gl_PerVertex block
     s.emit(OP_DECORATE,        ID_PV_STRUCT, DEC_BLOCK)
     s.emit(OP_MEMBER_DECORATE, ID_PV_STRUCT, 0, DEC_BUILT_IN, BI_POSITION)
@@ -207,6 +217,7 @@ def build_vertex():
     s.emit(OP_TYPE_VECTOR,   ID_VEC4, ID_FLOAT, 4)
     s.emit(OP_TYPE_MATRIX,   ID_MAT4, ID_VEC4, 4)   # mat4 = 4 columns of vec4
     s.emit(OP_TYPE_INT,      ID_INT, 32, 1)           # signed int
+    s.emit(OP_TYPE_VECTOR,   ID_VEC2, ID_FLOAT, 2)
 
     s.emit(OP_TYPE_STRUCT,   ID_PV_STRUCT, ID_VEC4)  # gl_PerVertex { vec4 }
     s.emit(OP_TYPE_STRUCT,   ID_PC_STRUCT, ID_MAT4)  # PC { mat4 mvp }
@@ -217,12 +228,16 @@ def build_vertex():
     s.emit(OP_TYPE_POINTER,  ID_PTR_OUT_V3, SC_OUTPUT,       ID_VEC3)
     s.emit(OP_TYPE_POINTER,  ID_PTR_OUT_V4, SC_OUTPUT,       ID_VEC4)
     s.emit(OP_TYPE_POINTER,  ID_PTR_PC_M4,  SC_PUSH_CONSTANT, ID_MAT4)
+    s.emit(OP_TYPE_POINTER,  ID_PTR_IN_V2,  SC_INPUT,         ID_VEC2)
+    s.emit(OP_TYPE_POINTER,  ID_PTR_OUT_V2, SC_OUTPUT,        ID_VEC2)
 
     s.emit(OP_VARIABLE, ID_PTR_OUT_PV, ID_GL_POS_BLOCK, SC_OUTPUT)
     s.emit(OP_VARIABLE, ID_PTR_PC_S,   ID_PC_VAR,        SC_PUSH_CONSTANT)
     s.emit(OP_VARIABLE, ID_PTR_IN_V3,  ID_IN_POS,        SC_INPUT)
     s.emit(OP_VARIABLE, ID_PTR_IN_V3,  ID_IN_NRM,        SC_INPUT)
     s.emit(OP_VARIABLE, ID_PTR_OUT_V3, ID_OUT_NRM,       SC_OUTPUT)
+    s.emit(OP_VARIABLE, ID_PTR_IN_V2,  ID_IN_UV,         SC_INPUT)
+    s.emit(OP_VARIABLE, ID_PTR_OUT_V2, ID_OUT_UV,        SC_OUTPUT)
 
     s.emit(OP_CONSTANT, ID_INT,   ID_CI0, 0)
     s.emit(OP_CONSTANT, ID_FLOAT, ID_CF1, f2w(1.0))
@@ -250,6 +265,10 @@ def build_vertex():
     # Pass-through normal
     s.emit(OP_LOAD,  ID_VEC3, ID_LNRM, ID_IN_NRM)
     s.emit(OP_STORE, ID_OUT_NRM, ID_LNRM)
+
+    # Pass-through UV
+    s.emit(OP_LOAD,  ID_VEC2, ID_LUV, ID_IN_UV)
+    s.emit(OP_STORE, ID_OUT_UV, ID_LUV)
 
     s.emit(OP_RETURN)
     s.emit(OP_FUNCTION_END)
@@ -360,6 +379,145 @@ def build_fragment():
     return s.build()
 
 
+# ── Highlight vertex shader ──────────────────────────────────────────────────────
+def build_highlight_vertex():
+    """
+    Minimal vertex shader for face highlight:
+        layout(location=0) in vec3 inPos;
+        layout(push_constant) uniform PC { mat4 mvp; } pc;
+        out gl_PerVertex { vec4 gl_Position; };
+        void main() { gl_Position = pc.mvp * vec4(inPos, 1.0); }
+    """
+    s = Spirv()
+    ID_VOID         = s.new()
+    ID_FN_VT        = s.new()
+    ID_FLOAT        = s.new()
+    ID_VEC3         = s.new()
+    ID_VEC4         = s.new()
+    ID_MAT4         = s.new()
+    ID_INT          = s.new()
+    ID_PV_STRUCT    = s.new()
+    ID_PC_STRUCT    = s.new()
+    ID_PTR_OUT_PV   = s.new()
+    ID_PTR_PC_S     = s.new()
+    ID_PTR_IN_V3    = s.new()
+    ID_PTR_OUT_V4   = s.new()
+    ID_PTR_PC_M4    = s.new()
+    ID_GL_POS_BLOCK = s.new()
+    ID_PC_VAR       = s.new()
+    ID_IN_POS       = s.new()
+    ID_MAIN         = s.new()
+    ID_ENTRY_LBL    = s.new()
+    ID_CI0          = s.new()
+    ID_CF1          = s.new()
+    ID_LV3          = s.new()
+    ID_PX           = s.new()
+    ID_PY           = s.new()
+    ID_PZ           = s.new()
+    ID_POS4         = s.new()
+    ID_P_MVP        = s.new()
+    ID_MVP          = s.new()
+    ID_RPOS         = s.new()
+    ID_P_GPOS       = s.new()
+
+    s.emit(OP_CAPABILITY, CAP_SHADER)
+    s.emit(OP_MEMORY_MODEL, ADR_LOGICAL, MEM_GLSL450)
+    s.entry_point(EXM_VERTEX, ID_MAIN, "main", ID_IN_POS, ID_GL_POS_BLOCK)
+
+    s.emit(OP_DECORATE, ID_IN_POS, DEC_LOCATION, 0)
+    s.emit(OP_DECORATE, ID_PV_STRUCT, DEC_BLOCK)
+    s.emit(OP_MEMBER_DECORATE, ID_PV_STRUCT, 0, DEC_BUILT_IN, BI_POSITION)
+    s.emit(OP_DECORATE, ID_PC_STRUCT, DEC_BLOCK)
+    s.emit(OP_MEMBER_DECORATE, ID_PC_STRUCT, 0, DEC_COL_MAJOR)
+    s.emit(OP_MEMBER_DECORATE, ID_PC_STRUCT, 0, DEC_MATRIX_STRIDE, 16)
+    s.emit(OP_MEMBER_DECORATE, ID_PC_STRUCT, 0, DEC_OFFSET, 0)
+
+    s.emit(OP_TYPE_VOID, ID_VOID)
+    s.emit(OP_TYPE_FUNCTION, ID_FN_VT, ID_VOID)
+    s.emit(OP_TYPE_FLOAT, ID_FLOAT, 32)
+    s.emit(OP_TYPE_VECTOR, ID_VEC3, ID_FLOAT, 3)
+    s.emit(OP_TYPE_VECTOR, ID_VEC4, ID_FLOAT, 4)
+    s.emit(OP_TYPE_MATRIX, ID_MAT4, ID_VEC4, 4)
+    s.emit(OP_TYPE_INT, ID_INT, 32, 1)
+    s.emit(OP_TYPE_STRUCT, ID_PV_STRUCT, ID_VEC4)
+    s.emit(OP_TYPE_STRUCT, ID_PC_STRUCT, ID_MAT4)
+    s.emit(OP_TYPE_POINTER, ID_PTR_OUT_PV,  SC_OUTPUT,        ID_PV_STRUCT)
+    s.emit(OP_TYPE_POINTER, ID_PTR_PC_S,    SC_PUSH_CONSTANT, ID_PC_STRUCT)
+    s.emit(OP_TYPE_POINTER, ID_PTR_IN_V3,   SC_INPUT,         ID_VEC3)
+    s.emit(OP_TYPE_POINTER, ID_PTR_OUT_V4,  SC_OUTPUT,        ID_VEC4)
+    s.emit(OP_TYPE_POINTER, ID_PTR_PC_M4,   SC_PUSH_CONSTANT, ID_MAT4)
+    s.emit(OP_VARIABLE, ID_PTR_OUT_PV, ID_GL_POS_BLOCK, SC_OUTPUT)
+    s.emit(OP_VARIABLE, ID_PTR_PC_S,   ID_PC_VAR,        SC_PUSH_CONSTANT)
+    s.emit(OP_VARIABLE, ID_PTR_IN_V3,  ID_IN_POS,        SC_INPUT)
+    s.emit(OP_CONSTANT, ID_INT,   ID_CI0, 0)
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_CF1, f2w(1.0))
+
+    s.emit(OP_FUNCTION, ID_VOID, ID_MAIN, FC_NONE, ID_FN_VT)
+    s.emit(OP_LABEL, ID_ENTRY_LBL)
+    s.emit(OP_LOAD,               ID_VEC3,  ID_LV3,  ID_IN_POS)
+    s.emit(OP_COMPOSITE_EXTRACT,  ID_FLOAT, ID_PX,   ID_LV3, 0)
+    s.emit(OP_COMPOSITE_EXTRACT,  ID_FLOAT, ID_PY,   ID_LV3, 1)
+    s.emit(OP_COMPOSITE_EXTRACT,  ID_FLOAT, ID_PZ,   ID_LV3, 2)
+    s.emit(OP_COMPOSITE_CONSTRUCT, ID_VEC4, ID_POS4, ID_PX, ID_PY, ID_PZ, ID_CF1)
+    s.emit(OP_ACCESS_CHAIN,        ID_PTR_PC_M4, ID_P_MVP,  ID_PC_VAR, ID_CI0)
+    s.emit(OP_LOAD,                ID_MAT4,      ID_MVP,    ID_P_MVP)
+    s.emit(OP_MATRIX_TIMES_VECTOR, ID_VEC4,      ID_RPOS,   ID_MVP,    ID_POS4)
+    s.emit(OP_ACCESS_CHAIN, ID_PTR_OUT_V4, ID_P_GPOS, ID_GL_POS_BLOCK, ID_CI0)
+    s.emit(OP_STORE, ID_P_GPOS, ID_RPOS)
+    s.emit(OP_RETURN)
+    s.emit(OP_FUNCTION_END)
+    return s.build()
+
+
+# ── Highlight fragment shader ──────────────────────────────────────────────────
+def build_highlight_fragment():
+    """
+    Fixed yellow-orange color for face selection highlight:
+        layout(location=0) out vec4 outColor;
+        void main() { outColor = vec4(1.0, 0.78, 0.1, 0.85); }
+    """
+    s = Spirv()
+    ID_VOID       = s.new()
+    ID_FN_VT      = s.new()
+    ID_FLOAT      = s.new()
+    ID_VEC4       = s.new()
+    ID_PTR_OUT_V4 = s.new()
+    ID_OUT_COL    = s.new()
+    ID_MAIN       = s.new()
+    ID_ENTRY_LBL  = s.new()
+    ID_CR         = s.new()
+    ID_CG         = s.new()
+    ID_CB         = s.new()
+    ID_CA         = s.new()
+    ID_COLOR      = s.new()
+
+    s.emit(OP_CAPABILITY, CAP_SHADER)
+    s.emit(OP_MEMORY_MODEL, ADR_LOGICAL, MEM_GLSL450)
+    s.entry_point(EXM_FRAGMENT, ID_MAIN, "main", ID_OUT_COL)
+    s.emit(OP_EXECUTION_MODE, ID_MAIN, EM_ORIGIN_UPPER_LEFT)
+    s.emit(OP_DECORATE, ID_OUT_COL, DEC_LOCATION, 0)
+
+    s.emit(OP_TYPE_VOID, ID_VOID)
+    s.emit(OP_TYPE_FUNCTION, ID_FN_VT, ID_VOID)
+    s.emit(OP_TYPE_FLOAT, ID_FLOAT, 32)
+    s.emit(OP_TYPE_VECTOR, ID_VEC4, ID_FLOAT, 4)
+    s.emit(OP_TYPE_POINTER, ID_PTR_OUT_V4, SC_OUTPUT, ID_VEC4)
+    s.emit(OP_VARIABLE, ID_PTR_OUT_V4, ID_OUT_COL, SC_OUTPUT)
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_CR, f2w(1.00))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_CG, f2w(0.78))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_CB, f2w(0.10))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_CA, f2w(0.85))
+    # OP_CONSTANT_COMPOSITE must live in the global section, before any function.
+    s.emit(OP_CONSTANT_COMPOSITE, ID_VEC4, ID_COLOR, ID_CR, ID_CG, ID_CB, ID_CA)
+
+    s.emit(OP_FUNCTION, ID_VOID, ID_MAIN, FC_NONE, ID_FN_VT)
+    s.emit(OP_LABEL, ID_ENTRY_LBL)
+    s.emit(OP_STORE, ID_OUT_COL, ID_COLOR)
+    s.emit(OP_RETURN)
+    s.emit(OP_FUNCTION_END)
+    return s.build()
+
+
 # ── C++ header output ──────────────────────────────────────────────────────────
 def to_cpp_header(array_name, data):
     words = struct.unpack(f'<{len(data)//4}I', data)
@@ -382,12 +540,18 @@ if __name__ == '__main__':
     out  = root / 'src' / 'render' / 'shaders'
     out.mkdir(parents=True, exist_ok=True)
 
-    vert_spv = build_vertex()
-    frag_spv = build_fragment()
+    vert_spv    = build_vertex()
+    frag_spv    = build_fragment()
+    hl_vert_spv = build_highlight_vertex()
+    hl_frag_spv = build_highlight_fragment()
 
     (out / 'chunk_vert_spv.h').write_text(to_cpp_header('k_chunk_vert_spv', vert_spv))
     (out / 'chunk_frag_spv.h').write_text(to_cpp_header('k_chunk_frag_spv', frag_spv))
+    (out / 'highlight_vert_spv.h').write_text(to_cpp_header('k_highlight_vert_spv', hl_vert_spv))
+    (out / 'highlight_frag_spv.h').write_text(to_cpp_header('k_highlight_frag_spv', hl_frag_spv))
 
-    print(f'chunk_vert_spv.h : {len(vert_spv)} bytes  ({len(vert_spv)//4} words)')
-    print(f'chunk_frag_spv.h : {len(frag_spv)} bytes  ({len(frag_spv)//4} words)')
+    print(f'chunk_vert_spv.h    : {len(vert_spv)} bytes  ({len(vert_spv)//4} words)')
+    print(f'chunk_frag_spv.h    : {len(frag_spv)} bytes  ({len(frag_spv)//4} words)')
+    print(f'highlight_vert_spv.h: {len(hl_vert_spv)} bytes  ({len(hl_vert_spv)//4} words)')
+    print(f'highlight_frag_spv.h: {len(hl_frag_spv)} bytes  ({len(hl_frag_spv)//4} words)')
     print('Done.')

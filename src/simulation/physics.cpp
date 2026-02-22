@@ -27,7 +27,6 @@ void PhysicsSystem::tick(double dt)
         if (cc) {
             float h = cc->crouching ? cc->height * 0.5f : cc->height;
             glm::vec3 new_pos = resolve_collisions(tr.pos, delta, cc->radius, h);
-            glm::vec3 actual  = new_pos - tr.pos;
             tr.pos = new_pos;
 
             // Detect ground contact
@@ -49,14 +48,12 @@ void PhysicsSystem::tick(double dt)
     });
 }
 
-void PhysicsSystem::move_character(EntityID id, glm::vec3 wish_dir,
-                                   bool jump, bool crouch, bool sprint,
-                                   double dt)
+void PhysicsSystem::prepare_character_movement(EntityID id, glm::vec3 wish_dir,
+                                                bool jump, bool crouch, bool sprint)
 {
-    auto* tr  = m_entities.get_component<TransformComponent>(id);
     auto* vel = m_entities.get_component<VelocityComponent>(id);
     auto* cc  = m_entities.get_component<CharacterControllerComponent>(id);
-    if (!tr || !vel || !cc) return;
+    if (!vel || !cc) return;
 
     cc->crouching = crouch;
     cc->sprinting = sprint && !crouch;
@@ -66,7 +63,6 @@ void PhysicsSystem::move_character(EntityID id, glm::vec3 wish_dir,
     if (glm::length(wish_dir) > 0.f)
         wish_dir = glm::normalize(wish_dir);
 
-    // Project movement onto the ground plane
     vel->linear.x = wish_dir.x * speed;
     vel->linear.z = wish_dir.z * speed;
 
@@ -74,7 +70,13 @@ void PhysicsSystem::move_character(EntityID id, glm::vec3 wish_dir,
         vel->linear.y = cc->jump_vel;
         cc->on_ground = false;
     }
+}
 
+void PhysicsSystem::move_character(EntityID id, glm::vec3 wish_dir,
+                                    bool jump, bool crouch, bool sprint,
+                                    double dt)
+{
+    prepare_character_movement(id, wish_dir, jump, crouch, sprint);
     tick(dt);
 }
 

@@ -55,8 +55,8 @@ int main(int /*argc*/, char* /*argv*/[])
     // ── 1. Data validation ────────────────────────────────────────────────────
     DataValidator validator;
     if (!validator.validate_all("data")) {
-        SDL_Log("Data validation failed with %zu error(s).",
-                validator.errors().size());
+        SDL_Log("Data validation failed with %u error(s).",
+                static_cast<unsigned>(validator.errors().size()));
         // Non-fatal during early development; continue anyway.
     }
 
@@ -198,19 +198,26 @@ int main(int /*argc*/, char* /*argv*/[])
             if (input.is_held(Action::MoveRight))   wish += right;
             if (input.is_held(Action::MoveLeft))    wish -= right;
 
-            // Send movement to server physics
+            // Submit movement input to server
             EntityID player = client.local_player();
             if (player != NULL_ENTITY) {
-                server.world(); // just accessing to avoid unused warning
-                // server's physics is ticked inside server.tick()
-                // For loopback we apply movement directly
+                server.queue_player_input(player, PlayerInput{
+                    wish,
+                    input.is_pressed(Action::Jump),
+                    input.is_held   (Action::Crouch),
+                    input.is_held   (Action::Sprint),
+                });
+            }
+
+            // Server tick (applies pending inputs, steps physics + simulations)
+            server.tick(dt);
+            client.tick(dt);
+
+            // Sync camera to physics-driven player position
+            if (player != NULL_ENTITY) {
                 auto* tr = server.entities().get_component<TransformComponent>(player);
                 if (tr) cam_pos = tr->pos + glm::vec3(0, 1.75f, 0);
             }
-
-            // Server tick
-            server.tick(dt);
-            client.tick(dt);
 
             // Upload any finished chunk meshes
             for (auto& mesh : mesher.collect_finished())
@@ -224,9 +231,6 @@ int main(int /*argc*/, char* /*argv*/[])
                                std::sin(glm::radians(cam_pitch)),
                               -std::cos(glm::radians(cam_yaw))};
             audio.set_listener(cam_pos, glm::normalize(fwd3), {0,1,0});
-            GasMixture local_gas = server.world().get_voxel(
-                glm::ivec3(glm::floor(cam_pos))).type_id == 0
-                    ? GasMixture{} : GasMixture{};
             audio.set_local_pressure(101.325f); // TODO: read from atmos zone
             audio.update(static_cast<float>(dt));
 
@@ -249,9 +253,7 @@ int main(int /*argc*/, char* /*argv*/[])
         [&](double alpha) {
             client.interpolate(alpha);
 
-            renderer.begin_frame(alpha);
-
-            // Ray cast for face selection
+            // Ray cast before begin_frame so highlight geometry uploads this frame
             float yaw_r = glm::radians(cam_yaw), pitch_r = glm::radians(cam_pitch);
             glm::vec3 ray_dir = {
                 std::cos(pitch_r) * std::sin(yaw_r),
@@ -261,6 +263,9 @@ int main(int /*argc*/, char* /*argv*/[])
             RayHit hit = server.world().raycast(
                 cam_pos - glm::vec3(0, 1.75f, 0) + glm::vec3(0, 1.f, 0),
                 ray_dir, 4.f);
+            renderer.queue_highlight(hit);
+
+            renderer.begin_frame(alpha);
 
             renderer.draw_world(server.world(), cam_pos, cam_yaw, cam_pitch);
             renderer.draw_face_highlight(hit);
@@ -310,7 +315,7 @@ int main(int /*argc*/, char* /*argv*/[])
             ctx_menu.draw(input.mouse_pos(),
                           input.is_pressed(Action::PrimaryInteract));
 
-            ui_renderer.end(nullptr); // TODO: pass real SDL_GPUCommandBuffer
+            ui_renderer.end(renderer.cmd_buf()); // real SDL3 GPU command buffer
 
             renderer.end_frame();
         }

@@ -126,8 +126,12 @@ void ChunkMesher::worker_loop()
                 if (neighbour_solid) continue;  // face hidden
 
                 const FaceGeo& fg = k_faces[f];
-                // 6 floats per vertex: pos(3) + normal(3)
-                uint32_t base = static_cast<uint32_t>(mesh.vertices.size() / 6);
+                // 8 floats per vertex: pos(3) + normal(3) + uv(2)
+                // Standard quad UVs: v0=(0,0), v1=(1,0), v2=(1,1), v3=(0,1)
+                static const float k_uvs[4][2] = {
+                    {0.f, 0.f}, {1.f, 0.f}, {1.f, 1.f}, {0.f, 1.f}
+                };
+                uint32_t base = static_cast<uint32_t>(mesh.vertices.size() / 8);
 
                 for (int vi = 0; vi < 4; ++vi) {
                     mesh.vertices.push_back(fx + fg.v[vi][0]);
@@ -136,6 +140,8 @@ void ChunkMesher::worker_loop()
                     mesh.vertices.push_back(fg.n[0]);
                     mesh.vertices.push_back(fg.n[1]);
                     mesh.vertices.push_back(fg.n[2]);
+                    mesh.vertices.push_back(k_uvs[vi][0]);  // u
+                    mesh.vertices.push_back(k_uvs[vi][1]);  // v
                 }
                 mesh.indices.insert(mesh.indices.end(), {
                     base, base+1, base+2,
