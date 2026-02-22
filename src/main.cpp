@@ -268,8 +268,9 @@ int main(int /*argc*/, char* /*argv*/[])
             audio.update(static_cast<float>(dt));
 
             // Update HUD state
-            hud_state.clock_str = "00:00"; // TODO: round timer
-            hud_state.examine_label = "";  // TODO: set from ray-hit voxel type name
+            hud_state.clock_str   = "00:00"; // TODO: round timer
+            hud_state.examine_label = "";    // TODO: set from ray-hit voxel type name
+            hud_state.cam_pitch   = cam_pitch;
 
             // Inventory: hotbar scroll
             if (input.is_pressed(Action::DropItem)) {
@@ -346,7 +347,13 @@ int main(int /*argc*/, char* /*argv*/[])
             ctx_menu.draw(input.mouse_pos(),
                           input.is_pressed(Action::PrimaryInteract));
 
-            ui_renderer.end(renderer.cmd_buf()); // real SDL3 GPU command buffer
+            // End world pass before UI so swapchain texture is free for the UI pass
+            renderer.end_world_pass();
+
+            ui_renderer.end(renderer.cmd_buf(),
+                            renderer.swapchain_tex(),
+                            renderer.width(),
+                            renderer.height());
 
             renderer.end_frame();
         }

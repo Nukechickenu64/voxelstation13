@@ -33,6 +33,9 @@ public:
     void queue_highlight(const RayHit& hit);
     void draw_face_highlight(const RayHit& hit);
     void draw_viewmodel(uint16_t item_type_id);
+    // End the world render pass without submitting (call before ui_renderer.end()).
+    void end_world_pass();
+    // Submit the command buffer (call after ui_renderer.end()).
     void end_frame();
 
     // Load tile textures from disk and upload a GPU 2D-array texture.
@@ -44,9 +47,10 @@ public:
     void       upload_mesh(ChunkMesh& mesh);   // copies to GPU
     void       free_mesh(glm::ivec3 chunk_pos);
 
-    SDL_Window*          window()  const { return m_window; }
-    SDL_GPUDevice*        gpu()     const { return m_gpu; }
-    SDL_GPUCommandBuffer* cmd_buf() const { return m_cmd_buf; }
+    SDL_Window*          window()       const { return m_window; }
+    SDL_GPUDevice*        gpu()          const { return m_gpu; }
+    SDL_GPUCommandBuffer* cmd_buf()      const { return m_cmd_buf; }
+    SDL_GPUTexture*       swapchain_tex() const { return m_swapchain_tex; }
     int width()  const { return m_width; }
     int height() const { return m_height; }
 
@@ -76,8 +80,9 @@ private:
     bool                     m_hl_valid            = false;   // draw this frame?
 
     // ── Per-frame transient ───────────────────────────────────────────────────
-    SDL_GPUCommandBuffer* m_cmd_buf     = nullptr;
-    SDL_GPURenderPass*    m_render_pass = nullptr;
+    SDL_GPUCommandBuffer* m_cmd_buf       = nullptr;
+    SDL_GPURenderPass*    m_render_pass   = nullptr;
+    SDL_GPUTexture*       m_swapchain_tex = nullptr;  // valid between begin_frame/end_frame
     glm::mat4             m_current_mvp{};  // stored by draw_world, reused by highlight
 
     // ── CPU mesh map ─────────────────────────────────────────────────────────

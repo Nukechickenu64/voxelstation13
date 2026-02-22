@@ -237,11 +237,11 @@ void Renderer::begin_frame(double /*alpha*/)
         return;
     }
 
-    SDL_GPUTexture* swapchain_tex = nullptr;
+    m_swapchain_tex = nullptr;
     Uint32 sw_w = 0, sw_h = 0;
     SDL_AcquireGPUSwapchainTexture(m_cmd_buf, m_window,
-                                   &swapchain_tex, &sw_w, &sw_h);
-    if (!swapchain_tex) {
+                                   &m_swapchain_tex, &sw_w, &sw_h);
+    if (!m_swapchain_tex) {
         // Window might be minimised – skip this frame
         SDL_SubmitGPUCommandBuffer(m_cmd_buf);
         m_cmd_buf = nullptr;
@@ -261,7 +261,7 @@ void Renderer::begin_frame(double /*alpha*/)
 
     // ── Begin render pass ─────────────────────────────────────────────────────
     SDL_GPUColorTargetInfo color_info{};
-    color_info.texture     = swapchain_tex;
+    color_info.texture     = m_swapchain_tex;
     color_info.clear_color = { 0.53f, 0.81f, 0.98f, 1.0f };  // sky blue
     color_info.load_op     = SDL_GPU_LOADOP_CLEAR;
     color_info.store_op    = SDL_GPU_STOREOP_STORE;
@@ -353,15 +353,22 @@ void Renderer::draw_viewmodel(uint16_t /*item_type_id*/)
     // TODO: render held item mesh in view-model pass
 }
 
-void Renderer::end_frame()
+void Renderer::end_world_pass()
 {
     if (m_render_pass) {
         SDL_EndGPURenderPass(m_render_pass);
         m_render_pass = nullptr;
     }
+}
+
+void Renderer::end_frame()
+{
+    // End world render pass if end_world_pass() wasn't called explicitly
+    end_world_pass();
     if (m_cmd_buf) {
         SDL_SubmitGPUCommandBuffer(m_cmd_buf);
-        m_cmd_buf = nullptr;
+        m_cmd_buf       = nullptr;
+        m_swapchain_tex = nullptr;
     }
 }
 

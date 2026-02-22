@@ -516,7 +516,7 @@ voxelstation13/
 | Milestone | Goals |
 |-----------|-------|
 | **M0 — Foundation** | SDL3 window, basic voxel grid, greedy mesher, first-person camera, chunk load/save. |
-| **M1 — Interaction** | Ray cast face selection, face highlight, left/right click dispatch, item pickup/drop, hotbar. |
+| **M1 — Interaction** | Ray cast face/item selection, face/item highlight, left/right click interact, item pickup/drop, inventory. |
 | **M2 — Alt-Mode UI** | Alt-mode cursor unlock, inventory overlay, drag-and-drop, item tooltips. |
 | **M3 — Simulation** | Atmos zones and gas mixing, power grid, basic fire propagation. |
 | **M4 — Networking** | Client/server split, chunk streaming, entity replication, basic lag compensation. |
