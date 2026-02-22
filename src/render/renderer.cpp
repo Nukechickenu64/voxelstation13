@@ -164,7 +164,7 @@ bool Renderer::create_pipeline()
 
     pci.rasterizer_state.fill_mode        = SDL_GPU_FILLMODE_FILL;
     pci.rasterizer_state.cull_mode        = SDL_GPU_CULLMODE_BACK;
-    pci.rasterizer_state.front_face       = SDL_GPU_FRONTFACE_CLOCKWISE; // proj Y-flip reverses winding
+    pci.rasterizer_state.front_face       = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
 
     pci.depth_stencil_state.enable_depth_test  = true;
     pci.depth_stencil_state.enable_depth_write = true;
@@ -291,8 +291,7 @@ void Renderer::draw_world(const World& /*world*/,
     glm::mat4 view = glm::lookAt(cam_pos, cam_pos + forward, {0.f, 1.f, 0.f});
     float aspect = (m_height > 0) ? float(m_width) / float(m_height) : 1.f;
     glm::mat4 proj = glm::perspective(glm::radians(90.f), aspect, 0.1f, 400.f);
-    // Flip Y – Vulkan's clip-space Y is top-down, GLM assumes OpenGL convention
-    proj[1][1] *= -1.f;
+    // No manual Y-flip: SDL3 GPU handles Vulkan clip-space internally
     glm::mat4 view_proj = proj * view;
     m_current_mvp = view_proj;  // save plain VP for the highlight pass (world-space verts)
 
@@ -445,8 +444,8 @@ void Renderer::free_mesh(glm::ivec3 chunk_pos)
 
 // Quad corners per face direction (matches chunk_mesher FaceGeo, CCW winding).
 static const float k_face_quad[6][4][3] = {
-    { {1,0,0},{1,0,1},{1,1,1},{1,1,0} },  // PosX
-    { {0,0,1},{0,0,0},{0,1,0},{0,1,1} },  // NegX
+    { {1,0,1},{1,0,0},{1,1,0},{1,1,1} },  // PosX
+    { {0,1,1},{0,1,0},{0,0,0},{0,0,1} },  // NegX
     { {0,1,1},{1,1,1},{1,1,0},{0,1,0} },  // PosY
     { {0,0,0},{1,0,0},{1,0,1},{0,0,1} },  // NegY
     { {0,0,1},{1,0,1},{1,1,1},{0,1,1} },  // PosZ
