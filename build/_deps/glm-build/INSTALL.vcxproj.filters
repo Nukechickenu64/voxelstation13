@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\nukec\Documents\GitHub\voxelstation13\build\CMakeFiles\31502a384c3b1ed2d2cfc6c6778c8307\INSTALL_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{3EF4B226-5AF7-3FE1-B599-5F88ABC6BFCA}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

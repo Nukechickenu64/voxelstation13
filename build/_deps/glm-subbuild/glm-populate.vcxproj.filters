@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\nukec\Documents\GitHub\voxelstation13\build\_deps\glm-subbuild\CMakeFiles\08752b37f9ba982d68aed82e260ef53d\glm-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\nukec\Documents\GitHub\voxelstation13\build\_deps\glm-subbuild\CMakeFiles\08752b37f9ba982d68aed82e260ef53d\glm-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\nukec\Documents\GitHub\voxelstation13\build\_deps\glm-subbuild\CMakeFiles\08752b37f9ba982d68aed82e260ef53d\glm-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\nukec\Documents\GitHub\voxelstation13\build\_deps\glm-subbuild\CMakeFiles\08752b37f9ba982d68aed82e260ef53d\glm-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\nukec\Documents\GitHub\voxelstation13\build\_deps\glm-subbuild\CMakeFiles\08752b37f9ba982d68aed82e260ef53d\glm-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\nukec\Documents\GitHub\voxelstation13\build\_deps\glm-subbuild\CMakeFiles\08752b37f9ba982d68aed82e260ef53d\glm-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\nukec\Documents\GitHub\voxelstation13\build\_deps\glm-subbuild\CMakeFiles\08752b37f9ba982d68aed82e260ef53d\glm-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\nukec\Documents\GitHub\voxelstation13\build\_deps\glm-subbuild\CMakeFiles\08752b37f9ba982d68aed82e260ef53d\glm-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\nukec\Documents\GitHub\voxelstation13\build\_deps\glm-subbuild\CMakeFiles\007d4d42bf756a7d7d4477799c804184\glm-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\nukec\Documents\GitHub\voxelstation13\build\_deps\glm-subbuild\CMakeFiles\e1abda88674c98024a77855d057510cb\glm-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\nukec\Documents\GitHub\voxelstation13\build\_deps\glm-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\nukec\Documents\GitHub\voxelstation13\build\_deps\glm-subbuild\CMakeFiles\glm-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{04171206-E8C2-31FD-A9B8-973092054326}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

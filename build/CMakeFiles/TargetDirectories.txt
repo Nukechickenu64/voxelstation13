@@ -1,0 +1,8 @@
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/CMakeFiles/vs13.dir
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/CMakeFiles/INSTALL.dir
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/CMakeFiles/ZERO_CHECK.dir
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-build/CMakeFiles/INSTALL.dir
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-build/CMakeFiles/ALL_BUILD.dir
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-build/glm/CMakeFiles/glm.dir
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-build/glm/CMakeFiles/INSTALL.dir

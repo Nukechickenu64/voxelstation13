@@ -1,0 +1,8 @@
+{
+  "id": "extended",
+  "name": "Extended",
+  "description": "No antagonists. Pure roleplay and construction.",
+  "min_players": 1,
+  "antagonist_chance": 0.0,
+  "objectives": []
+}

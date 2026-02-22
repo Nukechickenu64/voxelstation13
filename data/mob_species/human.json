@@ -1,0 +1,27 @@
+{
+  "species": "human",
+  "name": "Human",
+  "health_max": 100,
+  "move_speed": 4.5,
+  "sprint_mult": 1.8,
+  "jump_vel": 6.0,
+  "height": 1.8,
+  "radius": 0.4,
+  "damage_types": ["brute", "burn", "tox", "oxy"],
+  "slots": [
+    { "id": "head",    "accepts": ["hat", "helmet", "mask"]    },
+    { "id": "eyes",    "accepts": ["glasses", "goggles"]       },
+    { "id": "ears",    "accepts": ["headset", "earmuffs"]      },
+    { "id": "mask",    "accepts": ["mask", "respirator"]       },
+    { "id": "uniform", "accepts": ["uniform", "jumpsuit"]      },
+    { "id": "suit",    "accepts": ["suit", "hardsuit"]         },
+    { "id": "gloves",  "accepts": ["gloves"]                   },
+    { "id": "boots",   "accepts": ["boots"]                    },
+    { "id": "back",    "accepts": ["bag", "tank"]              },
+    { "id": "belt",    "accepts": ["belt", "holster"]          },
+    { "id": "l_hand",  "accepts": ["*"]                        },
+    { "id": "r_hand",  "accepts": ["*"]                        },
+    { "id": "id_card", "accepts": ["id_card"]                  },
+    { "id": "pda",     "accepts": ["pda"]                      }
+  ]
+}

@@ -1,0 +1,52 @@
+[
+  {
+    "id":      "footstep_metal",
+    "file":    "sounds/footstep_metal.wav",
+    "volume":  0.5,
+    "spatial": true,
+    "max_dist": 10.0
+  },
+  {
+    "id":      "door_open",
+    "file":    "sounds/door_open.wav",
+    "volume":  0.8,
+    "spatial": true,
+    "max_dist": 15.0
+  },
+  {
+    "id":      "door_close",
+    "file":    "sounds/door_close.wav",
+    "volume":  0.8,
+    "spatial": true,
+    "max_dist": 15.0
+  },
+  {
+    "id":      "click",
+    "file":    "sounds/click.wav",
+    "volume":  0.4,
+    "spatial": false
+  },
+  {
+    "id":      "alarm_atmos",
+    "file":    "sounds/alarm_atmos.wav",
+    "volume":  1.0,
+    "spatial": true,
+    "max_dist": 30.0,
+    "looping": true
+  },
+  {
+    "id":      "wrench",
+    "file":    "sounds/wrench.wav",
+    "volume":  0.6,
+    "spatial": true,
+    "max_dist": 8.0
+  },
+  {
+    "id":      "fire",
+    "file":    "sounds/fire_loop.wav",
+    "volume":  1.0,
+    "spatial": true,
+    "max_dist": 20.0,
+    "looping": true
+  }
+]

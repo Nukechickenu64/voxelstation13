@@ -1,0 +1,85 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\core\game_loop.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\core\world.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\core\entity_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\render\renderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\render\chunk_mesher.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\render\lighting.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\render\ui_renderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\simulation\atmos.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\simulation\power.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\simulation\pipes.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\simulation\physics.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\input\input_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\input\alt_mode.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\inventory\inventory.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\inventory\item_registry.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\network\server.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\network\client.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\audio\audio_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\data\voxel_registry.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\data\data_validator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\ui\hud.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\ui\inventory_panel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\nukec\Documents\GitHub\voxelstation13\src\ui\context_menu.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\nukec\Documents\GitHub\voxelstation13\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{CCFEA788-F35B-3824-98A8-73C642484529}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

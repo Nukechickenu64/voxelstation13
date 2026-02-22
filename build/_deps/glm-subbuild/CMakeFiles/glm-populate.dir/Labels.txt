@@ -1,0 +1,14 @@
+# Target labels
+ glm-populate
+# Source files and their labels
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/glm-populate
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/e1abda88674c98024a77855d057510cb/glm-populate.rule
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/007d4d42bf756a7d7d4477799c804184/glm-populate-complete.rule
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-build.rule
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-configure.rule
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-download.rule
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-install.rule
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-mkdir.rule
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-patch.rule
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-test.rule
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-update.rule

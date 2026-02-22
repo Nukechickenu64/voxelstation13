@@ -1,0 +1,3 @@
+C:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-subbuild/CMakeFiles/glm-populate.dir
+C:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-subbuild/CMakeFiles/edit_cache.dir
+C:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-subbuild/CMakeFiles/rebuild_cache.dir

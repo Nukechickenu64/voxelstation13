@@ -1,0 +1,9 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/nukec/Documents/GitHub/voxelstation13/build/cmake_install.cmake",
+		"C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-build/cmake_install.cmake",
+		"C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-build/glm/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

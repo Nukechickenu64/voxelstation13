@@ -1,0 +1,29 @@
+[
+  {
+    "id": "water_synthesis",
+    "name": "Water Synthesis",
+    "reagents":  [
+      { "id": "hydrogen", "min_volume": 10 },
+      { "id": "oxygen",   "min_volume": 5  }
+    ],
+    "products": [
+      { "id": "water", "volume_per_tick": 2 }
+    ],
+    "min_temperature": 293.0,
+    "exothermic": false
+  },
+  {
+    "id": "plasma_ignition",
+    "name": "Plasma Ignition",
+    "reagents": [
+      { "id": "plasma", "min_volume": 1 },
+      { "id": "o2",     "min_volume": 1 }
+    ],
+    "products": [
+      { "id": "co2",  "volume_per_tick": 0.5 }
+    ],
+    "min_temperature": 360.0,
+    "exothermic": true,
+    "heat_per_tick": 40.0
+  }
+]

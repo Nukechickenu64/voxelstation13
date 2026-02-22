@@ -1,0 +1,67 @@
+[
+  {
+    "id":    "air",
+    "name":  "Air",
+    "icon":  "",
+    "flags": [],
+    "health": 0
+  },
+  {
+    "id":    "floor",
+    "name":  "Steel Floor",
+    "icon":  "tiles/floor_steel",
+    "flags": ["SOLID", "OPAQUE"],
+    "health": 200,
+    "material": "steel"
+  },
+  {
+    "id":    "wall",
+    "name":  "Wall",
+    "icon":  "tiles/wall",
+    "flags": ["SOLID", "OPAQUE"],
+    "health": 300,
+    "material": "steel",
+    "on_hit": "deconstruct_wall"
+  },
+  {
+    "id":     "reinforced_wall",
+    "parent": "wall",
+    "name":   "Reinforced Wall",
+    "icon":   "tiles/rwall",
+    "health": 600,
+    "material": "plasteel"
+  },
+  {
+    "id":    "window",
+    "name":  "Window",
+    "icon":  "tiles/window",
+    "flags": ["SOLID"],
+    "health": 100,
+    "material": "glass"
+  },
+  {
+    "id":    "floor_plating",
+    "name":  "Floor Plating",
+    "icon":  "tiles/plating",
+    "flags": ["SOLID", "OPAQUE"],
+    "health": 150,
+    "material": "steel"
+  },
+  {
+    "id":    "catwalk",
+    "name":  "Catwalk",
+    "icon":  "tiles/catwalk",
+    "flags": ["SOLID"],
+    "health": 100,
+    "material": "steel"
+  },
+  {
+    "id":    "light_tube",
+    "name":  "Light Tube",
+    "icon":  "tiles/light",
+    "flags": [],
+    "health": 30,
+    "emit_light": 14,
+    "material": "glass"
+  }
+]

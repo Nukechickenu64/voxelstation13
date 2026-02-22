@@ -1,0 +1,96 @@
+[
+  {
+    "id":       "wrench",
+    "name":     "Wrench",
+    "icon":     "items/wrench",
+    "tags":     ["tool", "wrench"],
+    "weight":   0.4,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Wrench",  "range": 1.5, "handler": "verb_wrench"  },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "screwdriver",
+    "name":     "Screwdriver",
+    "icon":     "items/screwdriver",
+    "tags":     ["tool", "screwdriver"],
+    "weight":   0.2,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Screwdrive", "range": 1.5, "handler": "verb_screwdrive" },
+      { "name": "Stab",       "range": 0.8, "handler": "verb_stab"       },
+      { "name": "Throw",      "range": 0.0, "handler": "verb_throw"      },
+      { "name": "Examine",    "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":       "crowbar",
+    "name":     "Crowbar",
+    "icon":     "items/crowbar",
+    "tags":     ["tool", "crowbar"],
+    "weight":   0.9,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Pry",     "range": 1.5, "handler": "verb_pry"     },
+      { "name": "Hit",     "range": 1.2, "handler": "verb_hit"     },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "wirecutters",
+    "name":     "Wirecutters",
+    "icon":     "items/wirecutters",
+    "tags":     ["tool", "wirecutters"],
+    "weight":   0.3,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Cut wire", "range": 1.5, "handler": "verb_cut_wire" },
+      { "name": "Throw",    "range": 0.0, "handler": "verb_throw"    },
+      { "name": "Examine",  "range": 99,  "handler": "verb_examine"  }
+    ]
+  },
+  {
+    "id":          "toolbox",
+    "name":        "Toolbox",
+    "icon":        "items/toolbox",
+    "tags":        ["bag"],
+    "weight":      2.0,
+    "stack_max":   1,
+    "is_container": true,
+    "verbs": [
+      { "name": "Hit",     "range": 1.2, "handler": "verb_hit"     },
+      { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "stun_baton",
+    "name":     "Stun Baton",
+    "icon":     "items/stun_baton",
+    "tags":     ["weapon"],
+    "weight":   0.7,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Hit",     "range": 1.0, "handler": "verb_stun"    },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "id_card",
+    "name":     "ID Card",
+    "icon":     "items/id_card",
+    "tags":     ["id_card"],
+    "weight":   0.02,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Show",    "range": 2.0, "handler": "verb_show_id" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  }
+]

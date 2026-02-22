@@ -1,0 +1,109 @@
+cmake_minimum_required(VERSION 3.25)
+project(VoxelStation13 VERSION 0.1 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# ── FetchContent dependencies ─────────────────────────────────────────────────
+include(FetchContent)
+
+# GLM — header-only math
+FetchContent_Declare(glm
+    GIT_REPOSITORY https://github.com/g-truc/glm.git
+    GIT_TAG        1.0.1
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(glm)
+
+# SDL3 — system installed
+find_package(SDL3 REQUIRED CONFIG)
+
+# ── Source files ──────────────────────────────────────────────────────────────
+set(SRC_CORE
+    src/core/game_loop.cpp
+    src/core/world.cpp
+    src/core/entity_manager.cpp
+)
+
+set(SRC_RENDER
+    src/render/renderer.cpp
+    src/render/chunk_mesher.cpp
+    src/render/lighting.cpp
+    src/render/ui_renderer.cpp
+)
+
+set(SRC_SIM
+    src/simulation/atmos.cpp
+    src/simulation/power.cpp
+    src/simulation/pipes.cpp
+    src/simulation/physics.cpp
+)
+
+set(SRC_INPUT
+    src/input/input_manager.cpp
+    src/input/alt_mode.cpp
+)
+
+set(SRC_INVENTORY
+    src/inventory/inventory.cpp
+    src/inventory/item_registry.cpp
+)
+
+set(SRC_NETWORK
+    src/network/server.cpp
+    src/network/client.cpp
+)
+
+set(SRC_AUDIO
+    src/audio/audio_manager.cpp
+)
+
+set(SRC_DATA
+    src/data/voxel_registry.cpp
+    src/data/data_validator.cpp
+)
+
+set(SRC_UI
+    src/ui/hud.cpp
+    src/ui/inventory_panel.cpp
+    src/ui/context_menu.cpp
+)
+
+# ── Executable ────────────────────────────────────────────────────────────────
+add_executable(vs13
+    src/main.cpp
+    ${SRC_CORE}
+    ${SRC_RENDER}
+    ${SRC_SIM}
+    ${SRC_INPUT}
+    ${SRC_INVENTORY}
+    ${SRC_NETWORK}
+    ${SRC_AUDIO}
+    ${SRC_DATA}
+    ${SRC_UI}
+)
+
+target_include_directories(vs13 PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/includes
+)
+
+target_link_libraries(vs13 PRIVATE
+    SDL3::SDL3
+    glm::glm
+)
+
+# ── Compiler warnings ─────────────────────────────────────────────────────────
+if(MSVC)
+    target_compile_options(vs13 PRIVATE /W4 /WX-)
+else()
+    target_compile_options(vs13 PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+# ── Install ───────────────────────────────────────────────────────────────────
+install(TARGETS vs13 RUNTIME DESTINATION bin)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/data    DESTINATION share/vs13)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/textures DESTINATION share/vs13)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/sounds  DESTINATION share/vs13)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/maps    DESTINATION share/vs13)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/scripts DESTINATION share/vs13)

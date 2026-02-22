@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/glm-populate"
+		},
+		{
+			"file" : "C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/e1abda88674c98024a77855d057510cb/glm-populate.rule"
+		},
+		{
+			"file" : "C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/007d4d42bf756a7d7d4477799c804184/glm-populate-complete.rule"
+		},
+		{
+			"file" : "C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-build.rule"
+		},
+		{
+			"file" : "C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-configure.rule"
+		},
+		{
+			"file" : "C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-download.rule"
+		},
+		{
+			"file" : "C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-install.rule"
+		},
+		{
+			"file" : "C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-mkdir.rule"
+		},
+		{
+			"file" : "C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-patch.rule"
+		},
+		{
+			"file" : "C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-test.rule"
+		},
+		{
+			"file" : "C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/08752b37f9ba982d68aed82e260ef53d/glm-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"glm-populate"
+		],
+		"name" : "glm-populate"
+	}
+}

@@ -1,0 +1,3 @@
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/glm-populate.dir
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/ALL_BUILD.dir
+C:/Users/nukec/Documents/GitHub/voxelstation13/build/_deps/glm-subbuild/CMakeFiles/ZERO_CHECK.dir
