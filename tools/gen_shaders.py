@@ -27,16 +27,19 @@ EM_ORIGIN_UPPER_LEFT = 7
 
 # StorageClass
 SC_INPUT          = 1
+SC_UNIFORM        = 2   # UBO — used by SDL_PushGPUVertexUniformData
 SC_OUTPUT         = 3
-SC_PUSH_CONSTANT  = 9
+SC_PUSH_CONSTANT  = 9   # NOT used by SDL3 GPU — kept for reference only
 
 # Decoration
-DEC_BLOCK         = 2
-DEC_COL_MAJOR     = 5
-DEC_MATRIX_STRIDE = 7
-DEC_BUILT_IN      = 11
-DEC_LOCATION      = 30
-DEC_OFFSET        = 35
+DEC_BLOCK          = 2
+DEC_COL_MAJOR      = 5
+DEC_MATRIX_STRIDE  = 7
+DEC_BUILT_IN       = 11
+DEC_LOCATION       = 30
+DEC_BINDING        = 33  # Vulkan descriptor binding number
+DEC_DESCRIPTOR_SET = 34  # Vulkan descriptor set number
+DEC_OFFSET         = 35
 
 # BuiltIn
 BI_POSITION  = 0
@@ -203,11 +206,14 @@ def build_vertex():
     # gl_PerVertex block
     s.emit(OP_DECORATE,        ID_PV_STRUCT, DEC_BLOCK)
     s.emit(OP_MEMBER_DECORATE, ID_PV_STRUCT, 0, DEC_BUILT_IN, BI_POSITION)
-    # Push-constant block (layout std430)
+    # UBO block for MVP (SDL3 GPU vertex uniform slot 0 → set=1, binding=0)
     s.emit(OP_DECORATE,        ID_PC_STRUCT, DEC_BLOCK)
     s.emit(OP_MEMBER_DECORATE, ID_PC_STRUCT, 0, DEC_COL_MAJOR)
     s.emit(OP_MEMBER_DECORATE, ID_PC_STRUCT, 0, DEC_MATRIX_STRIDE, 16)
     s.emit(OP_MEMBER_DECORATE, ID_PC_STRUCT, 0, DEC_OFFSET, 0)
+    # Variable-level binding decorations (set=1 = vertex uniform slot in SDL3/Vulkan)
+    s.emit(OP_DECORATE, ID_PC_VAR, DEC_DESCRIPTOR_SET, 1)
+    s.emit(OP_DECORATE, ID_PC_VAR, DEC_BINDING,        0)
 
     # ── Section 9: Type + constant + global variable declarations ─────────────
     s.emit(OP_TYPE_VOID,     ID_VOID)
@@ -220,19 +226,19 @@ def build_vertex():
     s.emit(OP_TYPE_VECTOR,   ID_VEC2, ID_FLOAT, 2)
 
     s.emit(OP_TYPE_STRUCT,   ID_PV_STRUCT, ID_VEC4)  # gl_PerVertex { vec4 }
-    s.emit(OP_TYPE_STRUCT,   ID_PC_STRUCT, ID_MAT4)  # PC { mat4 mvp }
+    s.emit(OP_TYPE_STRUCT,   ID_PC_STRUCT, ID_MAT4)  # UBO { mat4 mvp }
 
-    s.emit(OP_TYPE_POINTER,  ID_PTR_OUT_PV, SC_OUTPUT,       ID_PV_STRUCT)
-    s.emit(OP_TYPE_POINTER,  ID_PTR_PC_S,   SC_PUSH_CONSTANT, ID_PC_STRUCT)
-    s.emit(OP_TYPE_POINTER,  ID_PTR_IN_V3,  SC_INPUT,        ID_VEC3)
-    s.emit(OP_TYPE_POINTER,  ID_PTR_OUT_V3, SC_OUTPUT,       ID_VEC3)
-    s.emit(OP_TYPE_POINTER,  ID_PTR_OUT_V4, SC_OUTPUT,       ID_VEC4)
-    s.emit(OP_TYPE_POINTER,  ID_PTR_PC_M4,  SC_PUSH_CONSTANT, ID_MAT4)
-    s.emit(OP_TYPE_POINTER,  ID_PTR_IN_V2,  SC_INPUT,         ID_VEC2)
-    s.emit(OP_TYPE_POINTER,  ID_PTR_OUT_V2, SC_OUTPUT,        ID_VEC2)
+    s.emit(OP_TYPE_POINTER,  ID_PTR_OUT_PV, SC_OUTPUT,  ID_PV_STRUCT)
+    s.emit(OP_TYPE_POINTER,  ID_PTR_PC_S,   SC_UNIFORM, ID_PC_STRUCT)
+    s.emit(OP_TYPE_POINTER,  ID_PTR_IN_V3,  SC_INPUT,   ID_VEC3)
+    s.emit(OP_TYPE_POINTER,  ID_PTR_OUT_V3, SC_OUTPUT,  ID_VEC3)
+    s.emit(OP_TYPE_POINTER,  ID_PTR_OUT_V4, SC_OUTPUT,  ID_VEC4)
+    s.emit(OP_TYPE_POINTER,  ID_PTR_PC_M4,  SC_UNIFORM, ID_MAT4)
+    s.emit(OP_TYPE_POINTER,  ID_PTR_IN_V2,  SC_INPUT,   ID_VEC2)
+    s.emit(OP_TYPE_POINTER,  ID_PTR_OUT_V2, SC_OUTPUT,  ID_VEC2)
 
     s.emit(OP_VARIABLE, ID_PTR_OUT_PV, ID_GL_POS_BLOCK, SC_OUTPUT)
-    s.emit(OP_VARIABLE, ID_PTR_PC_S,   ID_PC_VAR,        SC_PUSH_CONSTANT)
+    s.emit(OP_VARIABLE, ID_PTR_PC_S,   ID_PC_VAR,        SC_UNIFORM)
     s.emit(OP_VARIABLE, ID_PTR_IN_V3,  ID_IN_POS,        SC_INPUT)
     s.emit(OP_VARIABLE, ID_PTR_IN_V3,  ID_IN_NRM,        SC_INPUT)
     s.emit(OP_VARIABLE, ID_PTR_OUT_V3, ID_OUT_NRM,       SC_OUTPUT)
@@ -431,6 +437,8 @@ def build_highlight_vertex():
     s.emit(OP_MEMBER_DECORATE, ID_PC_STRUCT, 0, DEC_COL_MAJOR)
     s.emit(OP_MEMBER_DECORATE, ID_PC_STRUCT, 0, DEC_MATRIX_STRIDE, 16)
     s.emit(OP_MEMBER_DECORATE, ID_PC_STRUCT, 0, DEC_OFFSET, 0)
+    s.emit(OP_DECORATE, ID_PC_VAR, DEC_DESCRIPTOR_SET, 1)
+    s.emit(OP_DECORATE, ID_PC_VAR, DEC_BINDING,        0)
 
     s.emit(OP_TYPE_VOID, ID_VOID)
     s.emit(OP_TYPE_FUNCTION, ID_FN_VT, ID_VOID)
@@ -441,13 +449,13 @@ def build_highlight_vertex():
     s.emit(OP_TYPE_INT, ID_INT, 32, 1)
     s.emit(OP_TYPE_STRUCT, ID_PV_STRUCT, ID_VEC4)
     s.emit(OP_TYPE_STRUCT, ID_PC_STRUCT, ID_MAT4)
-    s.emit(OP_TYPE_POINTER, ID_PTR_OUT_PV,  SC_OUTPUT,        ID_PV_STRUCT)
-    s.emit(OP_TYPE_POINTER, ID_PTR_PC_S,    SC_PUSH_CONSTANT, ID_PC_STRUCT)
-    s.emit(OP_TYPE_POINTER, ID_PTR_IN_V3,   SC_INPUT,         ID_VEC3)
-    s.emit(OP_TYPE_POINTER, ID_PTR_OUT_V4,  SC_OUTPUT,        ID_VEC4)
-    s.emit(OP_TYPE_POINTER, ID_PTR_PC_M4,   SC_PUSH_CONSTANT, ID_MAT4)
+    s.emit(OP_TYPE_POINTER, ID_PTR_OUT_PV, SC_OUTPUT,  ID_PV_STRUCT)
+    s.emit(OP_TYPE_POINTER, ID_PTR_PC_S,   SC_UNIFORM, ID_PC_STRUCT)
+    s.emit(OP_TYPE_POINTER, ID_PTR_IN_V3,  SC_INPUT,   ID_VEC3)
+    s.emit(OP_TYPE_POINTER, ID_PTR_OUT_V4, SC_OUTPUT,  ID_VEC4)
+    s.emit(OP_TYPE_POINTER, ID_PTR_PC_M4,  SC_UNIFORM, ID_MAT4)
     s.emit(OP_VARIABLE, ID_PTR_OUT_PV, ID_GL_POS_BLOCK, SC_OUTPUT)
-    s.emit(OP_VARIABLE, ID_PTR_PC_S,   ID_PC_VAR,        SC_PUSH_CONSTANT)
+    s.emit(OP_VARIABLE, ID_PTR_PC_S,   ID_PC_VAR,        SC_UNIFORM)
     s.emit(OP_VARIABLE, ID_PTR_IN_V3,  ID_IN_POS,        SC_INPUT)
     s.emit(OP_CONSTANT, ID_INT,   ID_CI0, 0)
     s.emit(OP_CONSTANT, ID_FLOAT, ID_CF1, f2w(1.0))

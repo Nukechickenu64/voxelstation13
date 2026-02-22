@@ -78,9 +78,9 @@ void ChunkMesher::worker_loop()
         };
         static const FaceGeo k_faces[6] = {
             // PosX (right face, at x+1): normal +X
-            { { {1,0,0},{1,0,1},{1,1,1},{1,1,0} }, { 1, 0, 0} },
+            { { {1,0,1},{1,0,0},{1,1,0},{1,1,1} }, { 1, 0, 0} },
             // NegX (left face, at x):   normal -X
-            { { {0,0,1},{0,0,0},{0,1,0},{0,1,1} }, {-1, 0, 0} },
+            { { {0,1,1},{0,1,0},{0,0,0},{0,0,1} }, {-1, 0, 0} },
             // PosY (top face, at y+1):  normal +Y
             { { {0,1,1},{1,1,1},{1,1,0},{0,1,0} }, { 0, 1, 0} },
             // NegY (bottom face, at y): normal -Y

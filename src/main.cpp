@@ -115,31 +115,62 @@ int main(int /*argc*/, char* /*argv*/[])
     // ── 11. Player inventory ──────────────────────────────────────────────────
     Inventory player_inv(make_human_slots());
 
-    // ── 12. Test world geometry ───────────────────────────────────────────────
+    // ── 12. Test world geometry — placeholder room ────────────────────────────
     {
-        // Flat floor of solid voxels at y=0, air above
+        // Resolve voxel type IDs (fall back to 1/2 when data not loaded)
         uint16_t floor_id = voxel_reg.id_of("floor");
-        if (floor_id == 0) floor_id = 1; // fallback if data not loaded
-        Voxel floor_voxel;
-        floor_voxel.type_id     = floor_id;
-        floor_voxel.flags       = VFLAG_SOLID | VFLAG_OPAQUE;
-        for (int x = -8; x <= 8; ++x)
-            for (int z = -8; z <= 8; ++z)
-                server.world().set_voxel({x, 0, z}, floor_voxel);
-
-        // Some walls around the perimeter
+        if (floor_id == 0) floor_id = 1;
         uint16_t wall_id = voxel_reg.id_of("wall");
         if (wall_id == 0) wall_id = 2;
+
+        Voxel floor_voxel;
+        floor_voxel.type_id = floor_id;
+        floor_voxel.flags   = VFLAG_SOLID | VFLAG_OPAQUE;
+
         Voxel wall_voxel;
         wall_voxel.type_id = wall_id;
         wall_voxel.flags   = VFLAG_SOLID | VFLAG_OPAQUE;
-        for (int i = -8; i <= 8; ++i) {
-            for (int y = 1; y <= 3; ++y) {
-                server.world().set_voxel({ i, y, -8}, wall_voxel);
-                server.world().set_voxel({ i, y,  8}, wall_voxel);
-                server.world().set_voxel({-8, y,  i}, wall_voxel);
-                server.world().set_voxel({ 8, y,  i}, wall_voxel);
+
+        // Room extents: x/z = [-8, 8], y = 0 (floor) .. 5 (ceiling)
+        constexpr int ROOM_MIN  = -8;
+        constexpr int ROOM_MAX  =  8;
+        constexpr int WALL_TOP  =  4;  // walls fill y = 1 .. WALL_TOP
+        constexpr int CEILING_Y =  5;
+
+        // Floor (y = 0)
+        for (int x = ROOM_MIN; x <= ROOM_MAX; ++x)
+            for (int z = ROOM_MIN; z <= ROOM_MAX; ++z)
+                server.world().set_voxel({x, 0, z}, floor_voxel);
+
+        // Perimeter walls (y = 1 .. WALL_TOP)
+        for (int i = ROOM_MIN; i <= ROOM_MAX; ++i) {
+            for (int y = 1; y <= WALL_TOP; ++y) {
+                server.world().set_voxel({ i,       y, ROOM_MIN}, wall_voxel);
+                server.world().set_voxel({ i,       y, ROOM_MAX}, wall_voxel);
+                server.world().set_voxel({ROOM_MIN, y,  i      }, wall_voxel);
+                server.world().set_voxel({ROOM_MAX, y,  i      }, wall_voxel);
             }
+        }
+
+        // Ceiling (y = CEILING_Y)
+        for (int x = ROOM_MIN; x <= ROOM_MAX; ++x)
+            for (int z = ROOM_MIN; z <= ROOM_MAX; ++z)
+                server.world().set_voxel({x, CEILING_Y, z}, wall_voxel);
+
+        // Four interior pillars at (±5, 1..WALL_TOP, ±5)
+        constexpr int PIL = 5;
+        for (int y = 1; y <= WALL_TOP; ++y) {
+            server.world().set_voxel({ PIL, y,  PIL}, wall_voxel);
+            server.world().set_voxel({-PIL, y,  PIL}, wall_voxel);
+            server.world().set_voxel({ PIL, y, -PIL}, wall_voxel);
+            server.world().set_voxel({-PIL, y, -PIL}, wall_voxel);
+        }
+
+        // Place the player above the floor so they aren't embedded in it
+        EntityID player_ent = client.local_player();
+        if (player_ent != NULL_ENTITY) {
+            auto* tr = server.entities().get_component<TransformComponent>(player_ent);
+            if (tr) tr->pos = {0.f, 1.f, 0.f};
         }
 
         // Enqueue all dirty chunks for meshing
@@ -155,7 +186,7 @@ int main(int /*argc*/, char* /*argv*/[])
     // ── 14. Camera state ──────────────────────────────────────────────────────
     float cam_yaw   = 0.f;
     float cam_pitch = 0.f;
-    glm::vec3 cam_pos = {0.f, 1.75f, 0.f}; // eye height ~1.75 m
+    glm::vec3 cam_pos = {0.f, 2.75f, 0.f}; // player feet at y=1, eyes at +1.75
 
     // ── 15. Game loop ─────────────────────────────────────────────────────────
     GameLoop loop(1.0 / 60.0);
@@ -185,7 +216,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 const float SENSITIVITY = 0.15f;
                 glm::vec2 mdelta = input.mouse_delta();
                 cam_yaw   += mdelta.x * SENSITIVITY;
-                cam_pitch  = glm::clamp(cam_pitch - mdelta.y * SENSITIVITY, -89.f, 89.f);
+                cam_pitch  = glm::clamp(cam_pitch + mdelta.y * SENSITIVITY, -89.f, 89.f);
             }
 
             // Movement wish direction (camera-relative XZ)

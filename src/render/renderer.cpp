@@ -107,7 +107,7 @@ bool Renderer::create_pipeline()
     vi.entrypoint         = "main";
     vi.format             = SDL_GPU_SHADERFORMAT_SPIRV;
     vi.stage              = SDL_GPU_SHADERSTAGE_VERTEX;
-    vi.num_uniform_buffers = 0;   // push constant – not counted here
+    vi.num_uniform_buffers = 1;   // slot 0 = MVP (SDL_PushGPUVertexUniformData)
 
     m_vert_shader = SDL_CreateGPUShader(m_gpu, &vi);
     if (!m_vert_shader) {
@@ -164,7 +164,7 @@ bool Renderer::create_pipeline()
 
     pci.rasterizer_state.fill_mode        = SDL_GPU_FILLMODE_FILL;
     pci.rasterizer_state.cull_mode        = SDL_GPU_CULLMODE_BACK;
-    pci.rasterizer_state.front_face       = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+    pci.rasterizer_state.front_face       = SDL_GPU_FRONTFACE_CLOCKWISE; // proj Y-flip reverses winding
 
     pci.depth_stencil_state.enable_depth_test  = true;
     pci.depth_stencil_state.enable_depth_write = true;
@@ -293,29 +293,36 @@ void Renderer::draw_world(const World& /*world*/,
     glm::mat4 proj = glm::perspective(glm::radians(90.f), aspect, 0.1f, 400.f);
     // Flip Y – Vulkan's clip-space Y is top-down, GLM assumes OpenGL convention
     proj[1][1] *= -1.f;
-    glm::mat4 mvp = proj * view;
-    m_current_mvp = mvp;  // save for highlight pass
-
-    // Push MVP as vertex push-constant slot 0
-    SDL_PushGPUVertexUniformData(m_cmd_buf, 0, &mvp[0][0], sizeof(glm::mat4));
+    glm::mat4 view_proj = proj * view;
+    m_current_mvp = view_proj;  // save plain VP for the highlight pass (world-space verts)
 
     SDL_BindGPUGraphicsPipeline(m_render_pass, m_world_pipeline);
 
+    int drawn = 0;
     // ── Draw each uploaded GPU mesh (frustum-culled) ──────────────────────────
     for (auto& [chunk_pos, gm] : m_gpu_meshes) {
         if (!gm.vbuf || !gm.ibuf || gm.num_indices == 0) continue;
 
-        // Chunk AABB in world space
+        // Chunk AABB in world space (for frustum culling)
         glm::vec3 mn = glm::vec3(chunk_pos)     * float(CHUNK_SIZE);
         glm::vec3 mx = glm::vec3(chunk_pos + 1) * float(CHUNK_SIZE);
-        if (!aabb_in_frustum(mvp, mn, mx)) continue;
+        if (!aabb_in_frustum(view_proj, mn, mx)) continue;
+
+        // Per-chunk MVP: translate local (0..CHUNK_SIZE) verts to world space
+        glm::mat4 model = glm::translate(glm::mat4(1.f),
+                                         glm::vec3(chunk_pos) * float(CHUNK_SIZE));
+        glm::mat4 chunk_mvp = view_proj * model;
+        SDL_PushGPUVertexUniformData(m_cmd_buf, 0, &chunk_mvp[0][0], sizeof(glm::mat4));
 
         SDL_GPUBufferBinding vb{ gm.vbuf, 0 };
         SDL_GPUBufferBinding ib{ gm.ibuf, 0 };
         SDL_BindGPUVertexBuffers(m_render_pass, 0, &vb, 1);
         SDL_BindGPUIndexBuffer(m_render_pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
         SDL_DrawGPUIndexedPrimitives(m_render_pass, gm.num_indices, 1, 0, 0, 0);
+        ++drawn;
     }
+    if (drawn > 0 || !m_gpu_meshes.empty())
+        SDL_Log("draw_world: %d/%d chunks drawn", drawn, (int)m_gpu_meshes.size());
 }
 
 void Renderer::draw_face_highlight(const RayHit& hit)
@@ -528,6 +535,7 @@ bool Renderer::create_highlight_pipeline()
     vi.entrypoint = "main";
     vi.format    = SDL_GPU_SHADERFORMAT_SPIRV;
     vi.stage     = SDL_GPU_SHADERSTAGE_VERTEX;
+    vi.num_uniform_buffers = 1;   // slot 0 = MVP
     auto* hl_vert = SDL_CreateGPUShader(m_gpu, &vi);
     if (!hl_vert) { SDL_Log("highlight vert shader: %s", SDL_GetError()); return false; }
 
