@@ -88,9 +88,9 @@ void PhysicsSystem::apply_wind(EntityID id, glm::vec3 force)
 
 bool PhysicsSystem::overlaps_solid(glm::vec3 min, glm::vec3 max) const
 {
-    using std::floor; using std::ceil;
+    using std::floor;
     glm::ivec3 imin{ (int)floor(min.x), (int)floor(min.y), (int)floor(min.z) };
-    glm::ivec3 imax{ (int)ceil(max.x),  (int)ceil(max.y),  (int)ceil(max.z)  };
+    glm::ivec3 imax{ (int)floor(max.x), (int)floor(max.y), (int)floor(max.z) };
     for (int z = imin.z; z <= imax.z; ++z)
     for (int y = imin.y; y <= imax.y; ++y)
     for (int x = imin.x; x <= imax.x; ++x) {
