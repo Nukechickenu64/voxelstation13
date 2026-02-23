@@ -128,6 +128,14 @@ build CMakeFiles/vs13.dir/src/render/ui_renderer.cpp.obj: CXX_COMPILER__vs13_uns
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\render
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
+build CMakeFiles/vs13.dir/src/render/ui_item_icons.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/ui_item_icons.cpp || cmake_object_order_depends_target_vs13
+  DEP_FILE = CMakeFiles\vs13.dir\src\render\ui_item_icons.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\render
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
+
 build CMakeFiles/vs13.dir/src/simulation/atmos.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/atmos.cpp || cmake_object_order_depends_target_vs13
   DEP_FILE = CMakeFiles\vs13.dir\src\simulation\atmos.cpp.obj.d
   FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
@@ -264,6 +272,14 @@ build CMakeFiles/vs13.dir/src/ui/context_menu.cpp.obj: CXX_COMPILER__vs13_unscan
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\ui
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
+build CMakeFiles/vs13.dir/src/ui/creative_menu.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/ui/creative_menu.cpp || cmake_object_order_depends_target_vs13
+  DEP_FILE = CMakeFiles\vs13.dir\src\ui\creative_menu.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\ui
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
+
 
 # =============================================================================
 # Link build statements for EXECUTABLE target vs13
@@ -272,7 +288,7 @@ build CMakeFiles/vs13.dir/src/ui/context_menu.cpp.obj: CXX_COMPILER__vs13_unscan
 #############################################
 # Link the executable vs13.exe
 
-build vs13.exe: CXX_EXECUTABLE_LINKER__vs13_ CMakeFiles/vs13.dir/src/main.cpp.obj CMakeFiles/vs13.dir/src/stb_impl.cpp.obj CMakeFiles/vs13.dir/src/core/game_loop.cpp.obj CMakeFiles/vs13.dir/src/core/world.cpp.obj CMakeFiles/vs13.dir/src/core/entity_manager.cpp.obj CMakeFiles/vs13.dir/src/render/renderer.cpp.obj CMakeFiles/vs13.dir/src/render/chunk_mesher.cpp.obj CMakeFiles/vs13.dir/src/render/lighting.cpp.obj CMakeFiles/vs13.dir/src/render/ui_renderer.cpp.obj CMakeFiles/vs13.dir/src/simulation/atmos.cpp.obj CMakeFiles/vs13.dir/src/simulation/power.cpp.obj CMakeFiles/vs13.dir/src/simulation/pipes.cpp.obj CMakeFiles/vs13.dir/src/simulation/physics.cpp.obj CMakeFiles/vs13.dir/src/simulation/world_items.cpp.obj CMakeFiles/vs13.dir/src/input/input_manager.cpp.obj CMakeFiles/vs13.dir/src/input/alt_mode.cpp.obj CMakeFiles/vs13.dir/src/inventory/inventory.cpp.obj CMakeFiles/vs13.dir/src/inventory/item_registry.cpp.obj CMakeFiles/vs13.dir/src/network/server.cpp.obj CMakeFiles/vs13.dir/src/network/client.cpp.obj CMakeFiles/vs13.dir/src/audio/audio_manager.cpp.obj CMakeFiles/vs13.dir/src/data/voxel_registry.cpp.obj CMakeFiles/vs13.dir/src/data/data_validator.cpp.obj CMakeFiles/vs13.dir/src/ui/hud.cpp.obj CMakeFiles/vs13.dir/src/ui/inventory_panel.cpp.obj CMakeFiles/vs13.dir/src/ui/context_menu.cpp.obj | C$:/Program$ Files/SDL3/lib/libSDL3.dll.a _deps/glm-build/glm/libglm.a || _deps/glm-build/glm/libglm.a gen_font_data gen_shaders
+build vs13.exe: CXX_EXECUTABLE_LINKER__vs13_ CMakeFiles/vs13.dir/src/main.cpp.obj CMakeFiles/vs13.dir/src/stb_impl.cpp.obj CMakeFiles/vs13.dir/src/core/game_loop.cpp.obj CMakeFiles/vs13.dir/src/core/world.cpp.obj CMakeFiles/vs13.dir/src/core/entity_manager.cpp.obj CMakeFiles/vs13.dir/src/render/renderer.cpp.obj CMakeFiles/vs13.dir/src/render/chunk_mesher.cpp.obj CMakeFiles/vs13.dir/src/render/lighting.cpp.obj CMakeFiles/vs13.dir/src/render/ui_renderer.cpp.obj CMakeFiles/vs13.dir/src/render/ui_item_icons.cpp.obj CMakeFiles/vs13.dir/src/simulation/atmos.cpp.obj CMakeFiles/vs13.dir/src/simulation/power.cpp.obj CMakeFiles/vs13.dir/src/simulation/pipes.cpp.obj CMakeFiles/vs13.dir/src/simulation/physics.cpp.obj CMakeFiles/vs13.dir/src/simulation/world_items.cpp.obj CMakeFiles/vs13.dir/src/input/input_manager.cpp.obj CMakeFiles/vs13.dir/src/input/alt_mode.cpp.obj CMakeFiles/vs13.dir/src/inventory/inventory.cpp.obj CMakeFiles/vs13.dir/src/inventory/item_registry.cpp.obj CMakeFiles/vs13.dir/src/network/server.cpp.obj CMakeFiles/vs13.dir/src/network/client.cpp.obj CMakeFiles/vs13.dir/src/audio/audio_manager.cpp.obj CMakeFiles/vs13.dir/src/data/voxel_registry.cpp.obj CMakeFiles/vs13.dir/src/data/data_validator.cpp.obj CMakeFiles/vs13.dir/src/ui/hud.cpp.obj CMakeFiles/vs13.dir/src/ui/inventory_panel.cpp.obj CMakeFiles/vs13.dir/src/ui/context_menu.cpp.obj CMakeFiles/vs13.dir/src/ui/creative_menu.cpp.obj | C$:/Program$ Files/SDL3/lib/libSDL3.dll.a _deps/glm-build/glm/libglm.a || _deps/glm-build/glm/libglm.a gen_font_data gen_shaders
   LINK_LIBRARIES = "C:/Program Files/SDL3/lib/libSDL3.dll.a"  _deps/glm-build/glm/libglm.a  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
   OBJECT_DIR = CMakeFiles\vs13.dir
   POST_BUILD = cd .

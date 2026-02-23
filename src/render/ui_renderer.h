@@ -2,7 +2,10 @@
 #include <glm/glm.hpp>
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <SDL3/SDL.h>
+
+class ItemRegistry; // forward decl — avoids dragging in inventory headers
 
 // Immediate-mode 2-D renderer layered over the 3-D world pass.
 // Usage per frame:
@@ -38,6 +41,13 @@ public:
 
     // Load a PNG → SDL_GPUTexture (owned by UIRenderer, freed in shutdown).
     SDL_GPUTexture* load_texture(const char* path);
+
+    // Load one texture per item icon from the registry.  Call once after init.
+    // Icons are looked up via item_icon(item_id).
+    void load_item_icons(const ItemRegistry& reg, const char* texture_dir);
+
+    // Return the pre-loaded icon texture for an item id, or nullptr if not found.
+    SDL_GPUTexture* item_icon(const std::string& item_id) const;
 
     // Draw a loaded texture. flip_x mirrors horizontally (e.g. left hand).
     void image(glm::vec2 pos, glm::vec2 size, SDL_GPUTexture* tex,
@@ -79,6 +89,9 @@ private:
 
     // ── Loaded textures (freed on shutdown) ────────────────────────────────
     std::vector<SDL_GPUTexture*> m_owned_textures;
+
+    // ── Per-item icon cache (values point into m_owned_textures) ───────────
+    std::unordered_map<std::string, SDL_GPUTexture*> m_item_icons;
 
     int m_fb_w = 0, m_fb_h = 0;
 

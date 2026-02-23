@@ -1,0 +1,135 @@
+[
+  {
+    "id":               "satchel",
+    "name":             "Satchel",
+    "icon":             "items/satchel",
+    "tags":             ["bag", "small", "satchel"],
+    "weight":           0.6,
+    "volume":           3.0,
+    "stack_max":        1,
+    "is_container":     true,
+    "container_volume": 20.0,
+    "verbs": [
+      { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
+      { "name": "Close",   "range": 1.5, "handler": "verb_close"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":               "duffel_bag",
+    "name":             "Duffel Bag",
+    "icon":             "items/duffel_bag",
+    "tags":             ["bag", "back", "backpack"],
+    "weight":           0.9,
+    "volume":           5.0,
+    "stack_max":        1,
+    "is_container":     true,
+    "container_volume": 60.0,
+    "equip_slot":       "back",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
+      { "name": "Close",   "range": 1.5, "handler": "verb_close"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":               "briefcase",
+    "name":             "Briefcase",
+    "icon":             "items/briefcase",
+    "tags":             ["bag", "briefcase"],
+    "weight":           1.2,
+    "volume":           5.0,
+    "stack_max":        1,
+    "is_container":     true,
+    "container_volume": 15.0,
+    "verbs": [
+      { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
+      { "name": "Close",   "range": 1.5, "handler": "verb_close"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":               "secure_briefcase",
+    "name":             "Secure Briefcase",
+    "icon":             "items/secure_briefcase",
+    "tags":             ["bag", "briefcase"],
+    "weight":           1.8,
+    "volume":           5.0,
+    "stack_max":        1,
+    "is_container":     true,
+    "container_volume": 15.0,
+    "verbs": [
+      { "name": "Open",      "range": 1.5, "handler": "verb_open"        },
+      { "name": "Close",     "range": 1.5, "handler": "verb_close"       },
+      { "name": "Set Code",  "range": 1.5, "handler": "verb_set_lock"    },
+      { "name": "Examine",   "range": 99,  "handler": "verb_examine"     }
+    ]
+  },
+  {
+    "id":               "medical_kit",
+    "name":             "Medical Kit",
+    "icon":             "items/medical_kit",
+    "tags":             ["bag", "medical_bag"],
+    "weight":           1.5,
+    "volume":           5.0,
+    "stack_max":        1,
+    "is_container":     true,
+    "container_volume": 25.0,
+    "container_accepts_tags": ["medical", "small"],
+    "verbs": [
+      { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
+      { "name": "Close",   "range": 1.5, "handler": "verb_close"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":               "storage_crate",
+    "name":             "Storage Crate",
+    "icon":             "items/storage_crate",
+    "tags":             ["bag", "crate"],
+    "weight":           8.0,
+    "volume":           20.0,
+    "stack_max":        1,
+    "is_container":     true,
+    "container_volume": 100.0,
+    "two_handed":       true,
+    "verbs": [
+      { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
+      { "name": "Close",   "range": 1.5, "handler": "verb_close"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":               "junk_box",
+    "name":             "Junk Box",
+    "icon":             "items/junk_box",
+    "tags":             ["bag"],
+    "weight":           0.5,
+    "volume":           3.0,
+    "stack_max":        1,
+    "is_container":     true,
+    "container_volume": 30.0,
+    "verbs": [
+      { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
+      { "name": "Close",   "range": 1.5, "handler": "verb_close"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":               "evidence_bag",
+    "name":             "Evidence Bag",
+    "icon":             "items/evidence_bag",
+    "tags":             ["bag", "small"],
+    "weight":           0.1,
+    "volume":           0.5,
+    "stack_max":        1,
+    "is_container":     true,
+    "container_volume":  8.0,
+    "verbs": [
+      { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
+      { "name": "Seal",    "range": 1.5, "handler": "verb_seal"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  }
+]

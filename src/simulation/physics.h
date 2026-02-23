@@ -18,12 +18,13 @@ struct CharacterControllerComponent {
     float move_speed  = 4.5f;
     float sprint_mult = 1.8f;
     float jump_vel    = 6.f;
-    float height      = 1.0f;
+    float height      = 0.9f;   // < 1.0 so player fits in 1-tile-tall passages
     float radius      = 0.3f;   // 0.6 total width — fits in a 1-voxel gap
     bool  on_ground   = false;
     bool  crouching   = false;
     bool  sprinting   = false;
     bool  zero_g      = false;  // true when player is in vacuum / space
+    bool  noclip      = false;  // ghost mode: no collision, no gravity
 };
 
 // Kinematic character physics and projectile movement.

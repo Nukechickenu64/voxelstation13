@@ -51,7 +51,15 @@
     "id":    "catwalk",
     "name":  "Catwalk",
     "icon":  "tiles/catwalk",
-    "flags": ["SOLID"],
+    "flags": ["FLAT_PLANE"],
+    "health": 100,
+    "material": "steel"
+  },
+  {
+    "id":    "catwalk_floor",
+    "name":  "Catwalk Floor",
+    "icon":  "tiles/catwalk",
+    "flags": ["SOLID", "FLAT_TOP"],
     "health": 100,
     "material": "steel"
   },

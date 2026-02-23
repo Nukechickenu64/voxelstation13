@@ -22,8 +22,12 @@ struct ItemDef {
     int                      stack_max        = 1;
     bool                     is_container     = false;
     float                    container_volume = 0.f;    // litres capacity when container
+    // Tags that items must match to be placed inside this container (empty = any)
+    std::vector<std::string> container_accepts_tags;
     // Which equipment slot this auto-equips to ("" = hand/general)
     std::string              equip_slot;
+    // Requires both hand slots to be free when equipping to a hand
+    bool                     two_handed       = false;
     std::vector<ItemVerb>    verbs;
 };
 
@@ -33,7 +37,18 @@ struct ItemStack {
     // Per-instance data (damage, custom name, etc.)
     std::string    custom_name;
     float          integrity = 1.f;  // 0-1
+
+    // Container state — only meaningful when def->is_container == true
+    bool                   container_open = false;
+    std::vector<ItemStack> contents;       // items stored inside this container
+    // Lock state — used by secure_briefcase and similar items
+    bool                   locked    = false;
+    std::string            lock_code;        // empty = no code set
 };
+
+// Returns a human-readable description of an item's condition based on integrity.
+// integrity is clamped to [0, 1]: 1.0 = pristine, 0.0 = destroyed.
+const char* condition_label(float integrity);
 
 // ── Inventory slot ────────────────────────────────────────────────────────────
 enum class SlotCategory {
@@ -89,9 +104,25 @@ public:
     // Auto-equip: try equip_slot first, then find_empty_accepting
     bool           auto_equip(ItemStack stack);
 
+    // Container management: open/close a container item in the given slot.
+    // open_container generates child slots from the item's contents list and
+    // sets slot->open = true.  Returns false if the slot has no container item.
+    bool open_container (const std::string& slot_id);
+    void close_container(const std::string& slot_id); // syncs children → contents
+
+    // Returns the first open container slot (used by the UI panel)
+    InventorySlot* first_open_container();
+
     // Aggregate stats
     float total_weight()  const; // sum of all held item weights * count
     float total_volume()  const; // sum of all held item volumes * count
+    // Deep versions include contents of every open container
+    float total_weight_deep() const;
+    float total_volume_deep() const;
+
+    // Returns a 0..1 speed penalty based on carried weight vs capacity.
+    // 0 = no penalty (under half capacity), 1 = fully encumbered (at or over max_carry_kg).
+    float mobility_penalty(float max_carry_kg = 25.f) const;
 
     const std::vector<InventorySlot>& slots() const { return m_slots; }
     std::vector<InventorySlot>&       slots()       { return m_slots; }

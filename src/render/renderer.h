@@ -95,12 +95,23 @@ public:
     int width()  const { return m_width; }
     int height() const { return m_height; }
 
+    // Verbose logging: when enabled, logs detailed per-frame render stats.
+    // Toggle with F8 at runtime.
+    void toggle_verbose_logging() {
+        m_verbose_logging = !m_verbose_logging;
+        SDL_Log("Verbose logging: %s", m_verbose_logging ? "ON" : "OFF");
+    }
+    bool verbose_logging() const { return m_verbose_logging; }
+
 private:
     // ── Window / device ──────────────────────────────────────────────────────
     SDL_Window*    m_window = nullptr;
     SDL_GPUDevice* m_gpu    = nullptr;
     int m_width  = 0;
     int m_height = 0;
+
+    // ── Debug / logging ───────────────────────────────────────────────────────
+    bool m_verbose_logging = false;
 
     // ── Pipeline ─────────────────────────────────────────────────────────────
     SDL_GPUGraphicsPipeline* m_world_pipeline     = nullptr;
@@ -177,24 +188,46 @@ private:
     bool create_mob_buffers();
     bool create_sky_pipeline();          // background Earth-orbit pass
     bool load_earth_gif(const char* path);
+    bool create_sky_util_texture();      // 2-layer: [0]=1×1 white, [1]=64×64 soft-circle cloud
+    bool build_star_geometry();          // generate + upload static star quads
+    bool build_cloud_geometry();         // generate + upload static nebula quads
     void upload_highlight_geometry();   // copy pass before render pass
     void upload_item_geometry();        // copy pass before render pass
     void upload_mob_geometry();         // copy pass before render pass
-    void upload_sky_geometry();         // copy pass before render pass
+    void upload_sky_geometry();         // copy pass before render pass (earth verts only)
     void release_gpu_mesh(GPUMesh& gm);
     static bool aabb_in_frustum(const glm::mat4& mvp, glm::vec3 mn, glm::vec3 mx);
 
-    // ── Sky / space background (Earth orbit) ─────────────────────────────────
+    // ── Sky / space background (Earth orbit, stars, nebulae) ─────────────────
     SDL_GPUGraphicsPipeline* m_sky_pipeline    = nullptr;
-    SDL_GPUBuffer*           m_sky_vbuf        = nullptr;  // 4 verts × ItemVert
-    SDL_GPUBuffer*           m_sky_ibuf        = nullptr;  // 6 uint32 indices
+
+    // Earth GIF
+    SDL_GPUBuffer*           m_sky_vbuf        = nullptr;  // 4 verts × ItemVert (Earth quad)
+    SDL_GPUBuffer*           m_sky_ibuf        = nullptr;  // 6 uint32 indices (Earth quad)
     SDL_GPUTexture*          m_earth_tex_array = nullptr;  // GIF frames as 2D-array layers
     SDL_GPUSampler*          m_earth_sampler   = nullptr;
     uint32_t                 m_earth_num_frames = 0;
-    uint32_t                 m_earth_frame      = 0;       // current animation frame index
-    std::vector<int>         m_earth_delays;               // ms per frame
-    uint32_t                 m_earth_accum_ms   = 0;       // elapsed ms in current frame
-    ItemVert                 m_sky_verts[4]     = {};      // CPU quad geometry, updated per-frame
-    glm::mat4                m_sky_mvp          = glm::mat4(1.f); // rotation-only VP (no translation)
-    bool                     m_sky_pending      = false;
+    uint32_t                 m_earth_frame      = 0;
+    std::vector<int>         m_earth_delays;
+    uint32_t                 m_earth_accum_ms   = 0;
+    ItemVert                 m_sky_verts[4]     = {};      // Earth quad, updated per-frame
+    bool                     m_earth_geo_pending= false;   // earth verts need upload
+
+    // Utility texture: layer 0 = white 1×1, layer 1 = 64×64 soft-circle alpha
+    SDL_GPUTexture*          m_sky_util_tex     = nullptr;
+    SDL_GPUSampler*          m_sky_util_sampler = nullptr;
+
+    // Stars (static, generated once at init)
+    SDL_GPUBuffer*           m_star_vbuf        = nullptr;
+    SDL_GPUBuffer*           m_star_ibuf        = nullptr;
+    uint32_t                 m_star_index_count = 0;
+
+    // Nebula dust clouds (static, generated once at init)
+    SDL_GPUBuffer*           m_cloud_vbuf       = nullptr;
+    SDL_GPUBuffer*           m_cloud_ibuf       = nullptr;
+    uint32_t                 m_cloud_index_count= 0;
+
+    glm::mat4                m_sky_mvp          = glm::mat4(1.f); // rotation-only VP
+    bool                     m_sky_mvp_ready    = false;   // MVP valid this frame
+    bool                     m_sky_pending      = false;   // legacy alias (earth geo)
 };

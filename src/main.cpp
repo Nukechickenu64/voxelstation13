@@ -24,6 +24,7 @@
 #include "ui/hud.h"
 #include "ui/inventory_panel.h"
 #include "ui/context_menu.h"
+#include "ui/creative_menu.h"
 #include "network/server.h"
 #include "network/client.h"
 
@@ -66,6 +67,7 @@ int main(int /*argc*/, char* /*argv*/[])
         SDL_Log("UIRenderer init failed.");
         return 1;
     }
+    ui_renderer.load_item_icons(item_reg, "textures");
 
     // ── 4. Chunk mesher ───────────────────────────────────────────────────────
     ChunkMesher mesher;
@@ -98,6 +100,7 @@ int main(int /*argc*/, char* /*argv*/[])
     HUD            hud(ui_renderer);
     InventoryPanel inv_panel(ui_renderer);
     ContextMenu    ctx_menu(ui_renderer);
+    CreativeMenu   creative_menu(ui_renderer);
 
     // ── 11. Player inventory ──────────────────────────────────────────────────
     Inventory player_inv = make_player_inventory();
@@ -211,6 +214,20 @@ int main(int /*argc*/, char* /*argv*/[])
             server.world().set_voxel({LOCK_WALL_HI, y, LOCK_Z_OUT + 1}, wall_voxel);
         }
 
+        // ── Space platform: catwalk_floor grating replaces solid plating ─────
+        // catwalk_floor renders as a thin plane at the TOP of the voxel cell
+        // and is solid (player walks on it) but see-through (no opaque fill).
+        uint16_t catwalk_id = voxel_reg.id_of("catwalk_floor");
+        if (catwalk_id != 0) {
+            Voxel catwalk_voxel;
+            catwalk_voxel.type_id = catwalk_id;
+            catwalk_voxel.flags   = VFLAG_SOLID | VFLAG_FLAT_TOP;
+
+            for (int cx = LOCK_WALL_LO; cx <= LOCK_WALL_HI; ++cx)
+                for (int cz = LOCK_Z_OUT + 1; cz <= SPACE_FAR; ++cz)
+                    server.world().set_voxel({cx, 0, cz}, catwalk_voxel);
+        }
+
         // Place the player above the floor so they aren't embedded in it
         EntityID player_ent = client.local_player();
         if (player_ent != NULL_ENTITY) {
@@ -264,6 +281,17 @@ int main(int /*argc*/, char* /*argv*/[])
     std::vector<EntityID> item_candidates;   // all items in selection area, sorted nearest-first
     int scroll_item_idx = 0;                 // which candidate is selected (scroll wheel cycles)
 
+    // ── 14b. Build mode state ─────────────────────────────────────────────────
+    bool build_mode = false;
+    Voxel build_voxel;
+    {
+        uint16_t bv_id = voxel_reg.id_of("reinforced_wall");
+        if (bv_id == 0) bv_id = voxel_reg.id_of("wall");
+        if (bv_id == 0) bv_id = 2;
+        build_voxel.type_id = bv_id;
+        build_voxel.flags   = VFLAG_SOLID | VFLAG_OPAQUE;
+    }
+
     // ── 15. Game loop ─────────────────────────────────────────────────────────
     GameLoop loop(1.0 / 60.0);
 
@@ -295,18 +323,91 @@ int main(int /*argc*/, char* /*argv*/[])
                 cam_pitch  = glm::clamp(cam_pitch - mdelta.y * SENSITIVITY, -89.f, 89.f);
             }
 
-            // Movement wish direction (camera-relative XZ)
+            // F1: toggle noclip
+            EntityID player = client.local_player();
+            {
+                const bool* ks = SDL_GetKeyboardState(nullptr);
+                // F1 noclip
+                if (player != NULL_ENTITY) {
+                    auto* cc_f1 = server.entities().get_component<CharacterControllerComponent>(player);
+                    if (cc_f1) {
+                        static bool s_f1_prev = false;
+                        bool f1_now = ks[SDL_SCANCODE_F1];
+                        if (f1_now && !s_f1_prev) {
+                            cc_f1->noclip = !cc_f1->noclip;
+                            SDL_Log("Noclip: %s", cc_f1->noclip ? "ON" : "OFF");
+                        }
+                        s_f1_prev = f1_now;
+                    }
+                }
+                // F2 creative menu
+                {
+                    static bool s_f2_prev = false;
+                    bool f2_now = ks[SDL_SCANCODE_F2];
+                    if (f2_now && !s_f2_prev) {
+                        if (creative_menu.is_open()) {
+                            creative_menu.close();
+                            // Re-capture cursor unless alt-mode is also active
+                            if (!alt_mode.active())
+                                input.capture_cursor(renderer.window(), true);
+                        } else {
+                            creative_menu.open(item_reg, voxel_reg);
+                            // Free the cursor so the player can click items
+                            input.capture_cursor(renderer.window(), false);
+                        }
+                    }
+                    s_f2_prev = f2_now;
+                }
+                // F3 build mode
+                {
+                    static bool s_f3_prev = false;
+                    bool f3_now = ks[SDL_SCANCODE_F3];
+                    if (f3_now && !s_f3_prev) {
+                        build_mode = !build_mode;
+                        SDL_Log("Build mode: %s", build_mode ? "ON" : "OFF");
+                    }
+                    s_f3_prev = f3_now;
+                }
+                // F8: toggle verbose renderer logging
+                {
+                    static bool s_f8_prev = false;
+                    bool f8_now = ks[SDL_SCANCODE_F8];
+                    if (f8_now && !s_f8_prev) {
+                        renderer.toggle_verbose_logging();
+                    }
+                    s_f8_prev = f8_now;
+                }
+            }
+
+            // Movement wish direction – full 3D when noclip, XZ-only otherwise
             glm::vec3 wish = {};
-            float yaw_rad = glm::radians(cam_yaw);
-            glm::vec3 fwd = {std::sin(yaw_rad), 0.f, -std::cos(yaw_rad)};
-            glm::vec3 right = glm::cross(fwd, {0,1,0});
+            float yaw_rad   = glm::radians(cam_yaw);
+            float pitch_rad = glm::radians(cam_pitch);
+            // Check noclip state for movement building
+            bool noclip_active = false;
+            if (player != NULL_ENTITY) {
+                auto* cc_nc = server.entities().get_component<CharacterControllerComponent>(player);
+                if (cc_nc) noclip_active = cc_nc->noclip;
+            }
+            glm::vec3 fwd, right;
+            if (noclip_active) {
+                // Full 3D camera forward (pitch included)
+                fwd = {
+                    std::cos(pitch_rad) * std::sin(yaw_rad),
+                    std::sin(pitch_rad),
+                   -std::cos(pitch_rad) * std::cos(yaw_rad)
+                };
+                right = glm::normalize(glm::cross(fwd, {0.f, 1.f, 0.f}));
+            } else {
+                fwd   = {std::sin(yaw_rad), 0.f, -std::cos(yaw_rad)};
+                right = glm::cross(fwd, {0.f, 1.f, 0.f});
+            }
             if (input.is_held(Action::MoveForward)) wish += fwd;
             if (input.is_held(Action::MoveBack))    wish -= fwd;
             if (input.is_held(Action::MoveRight))   wish += right;
             if (input.is_held(Action::MoveLeft))    wish -= right;
 
             // Submit movement input to server
-            EntityID player = client.local_player();
             if (player != NULL_ENTITY) {
                 server.queue_player_input(player, PlayerInput{
                     wish,
@@ -388,13 +489,40 @@ int main(int /*argc*/, char* /*argv*/[])
                 }
             }
 
+            // ── Item throw (F) ────────────────────────────────────────────────
+            // Tosses the active-hand item forward in the camera direction.
+            // The item spawns as a floating entity ~1 m in front of the player;
+            // gravity / physics will carry it from there.
+            if (input.is_pressed(Action::ThrowItem)) {
+                auto maybe_item = player_inv.take(player_inv.active_hand_id());
+                if (maybe_item) {
+                    float yr = glm::radians(cam_yaw), pr = glm::radians(cam_pitch);
+                    glm::vec3 throw_dir = {
+                        std::cos(pr) * std::sin(yr),
+                        std::sin(pr),
+                       -std::cos(pr) * std::cos(yr)
+                    };
+                    // Clamp downward pitch so the item doesn't launch into the floor
+                    if (throw_dir.y < -0.3f) throw_dir.y = -0.3f;
+                    throw_dir = glm::normalize(throw_dir);
+
+                    // Spawn 1 m in front of the player at eye height
+                    glm::vec3 spawn_pos = cam_pos + throw_dir * 1.0f;
+                    EntityID thrown = world_items.spawn_floating(spawn_pos, std::move(*maybe_item));
+
+                    // TODO: apply throw velocity to the entity via PhysicsComponent
+                    (void)thrown;
+                    SDL_Log("Throw: item tossed forward");
+                }
+            }
+
             // ── LMB / E: interact with world based on active hand ─────────────
             // Empty hand  + item  → pick up
             // Empty hand  + turf  → nothing (can't pick up turf)
             // Held item   + item  → item-on-item interaction
             // Held item   + turf  → knock on the wall with held item
             {
-                bool fps_lmb = !alt_mode.active() && input.is_pressed(Action::PrimaryInteract);
+                bool fps_lmb = !alt_mode.active() && !build_mode && input.is_pressed(Action::PrimaryInteract);
                 bool e_press = !alt_mode.active() && input.is_pressed(Action::PickUp);
                 if (fps_lmb || e_press) {
                     constexpr float ITEM_REACH = 1.5f;
@@ -465,6 +593,41 @@ int main(int /*argc*/, char* /*argv*/[])
                                 active_slot->item->def->name.c_str(),
                                 wic->item.def->name.c_str());
                         audio.play("click", cam_pos);
+                    }
+                }
+            }
+
+            // ── Build mode: LMB destroys, RMB places ─────────────────────────────
+            if (build_mode && !alt_mode.active()) {
+                float yr = glm::radians(cam_yaw), pr = glm::radians(cam_pitch);
+                glm::vec3 rdir = {
+                    std::cos(pr) * std::sin(yr),
+                    std::sin(pr),
+                   -std::cos(pr) * std::cos(yr)
+                };
+                // LMB: destroy voxel
+                if (input.is_pressed(Action::PrimaryInteract)) {
+                    RayHit bhit = server.world().raycast(cam_pos, rdir, 8.f);
+                    if (bhit.valid) {
+                        server.world().set_voxel(bhit.voxel, Voxel{});
+                        for (Chunk* c : server.world().dirty_chunks())
+                            mesher.enqueue(c->chunk_pos(), server.world());
+                        SDL_Log("Build: destroyed voxel at (%d,%d,%d)",
+                                bhit.voxel.x, bhit.voxel.y, bhit.voxel.z);
+                    }
+                }
+                // RMB: place voxel on adjacent face
+                if (input.is_pressed(Action::SecondaryInteract)) {
+                    RayHit bhit = server.world().raycast(cam_pos, rdir, 8.f);
+                    if (bhit.valid) {
+                        glm::ivec3 place_pos = bhit.voxel + face_normal(bhit.face);
+                        if (server.world().get_voxel(place_pos).type_id == 0) {
+                            server.world().set_voxel(place_pos, build_voxel);
+                            for (Chunk* c : server.world().dirty_chunks())
+                                mesher.enqueue(c->chunk_pos(), server.world());
+                            SDL_Log("Build: placed voxel at (%d,%d,%d)",
+                                    place_pos.x, place_pos.y, place_pos.z);
+                        }
                     }
                 }
             }
@@ -597,25 +760,41 @@ int main(int /*argc*/, char* /*argv*/[])
 
                 bool shift_held = input.is_held(Action::Sprint);
                 auto interaction = inv_panel.draw(
-                    player_inv, cursor, lmb_down, lmb_released, shift_held, ov_alpha);
+                    player_inv, cursor, lmb_down, lmb_released, shift_held, rmb_pressed, ov_alpha);
 
                 if (interaction.type == PanelInteraction::Type::RightClick) {
                     // Build verb list for the item in that slot
                     const auto* slot = player_inv.find_slot_deep(interaction.slot_id);
                     if (slot && slot->item && slot->item->def) {
                         std::vector<ContextEntry> entries;
+                        std::string clicked_slot = interaction.slot_id;
                         for (const auto& verb : slot->item->def->verbs) {
-                            entries.push_back({verb.name, true, false,
-                                [name = verb.name]() {
-                                    SDL_Log("Verb: %s", name.c_str());
-                                }});
+                            // Wire Open/Close container verbs to actual logic
+                            if (verb.handler == "verb_open" ||
+                                verb.name == "Open") {
+                                entries.push_back({verb.name, true, false,
+                                    [&player_inv, clicked_slot]() {
+                                        player_inv.open_container(clicked_slot);
+                                    }});
+                            } else if (verb.handler == "verb_close" ||
+                                       verb.name == "Close") {
+                                entries.push_back({verb.name, true, false,
+                                    [&player_inv, clicked_slot]() {
+                                        player_inv.close_container(clicked_slot);
+                                    }});
+                            } else {
+                                entries.push_back({verb.name, true, false,
+                                    [name = verb.name]() {
+                                        SDL_Log("Verb: %s", name.c_str());
+                                    }});
+                            }
                         }
                         ctx_menu.open(cursor, std::move(entries));
                     }
                 }
 
-                // Also open ctx menu on right-click in world face
-                if (rmb_pressed && !alt_mode.active() && hit.valid) {
+                // Also open ctx menu on right-click on a world face in alt-mode
+                if (rmb_pressed && alt_mode.active() && hit.valid) {
                     (void)hit; // TODO: populate verb list from voxel type
                 }
             } else {
@@ -624,6 +803,35 @@ int main(int /*argc*/, char* /*argv*/[])
 
             ctx_menu.draw(input.mouse_pos(),
                           input.is_pressed(Action::PrimaryInteract));
+
+            // ── Creative menu (F2) ────────────────────────────────────────────
+            if (creative_menu.is_open()) {
+                bool esc_pressed = input.is_pressed(Action::Escape);
+                auto cr = creative_menu.draw(
+                    input.mouse_pos(),
+                    input.is_pressed(Action::PrimaryInteract),
+                    input.scroll_delta(),
+                    esc_pressed);
+                if (cr.give_item) {
+                    ItemStack st;
+                    st.def       = cr.give_item;
+                    st.count     = 1;
+                    st.integrity = 1.f;
+                    player_inv.auto_equip(std::move(st));
+                }
+                // Recapture cursor once the menu closes (escape, etc.)
+                if (!creative_menu.is_open() && !alt_mode.active())
+                    input.capture_cursor(renderer.window(), true);
+                // Update build voxel type when the player picks one from the menu
+                if (cr.place_voxel != 0) {
+                    const VoxelTypeDef* vdef = voxel_reg.get(cr.place_voxel);
+                    build_voxel.type_id = cr.place_voxel;
+                    build_voxel.flags   = vdef ? vdef->default_flags
+                                               : static_cast<uint8_t>(VFLAG_SOLID | VFLAG_OPAQUE);
+                    if (vdef)
+                        SDL_Log("Build voxel set to: %s", vdef->name.c_str());
+                }
+            }
 
             // End world pass before UI so swapchain texture is free for the UI pass
             renderer.end_world_pass();

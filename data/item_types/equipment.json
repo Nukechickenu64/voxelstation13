@@ -103,6 +103,7 @@
     "verbs": [
       { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
       { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
+      { "name": "Close",   "range": 1.5, "handler": "verb_close"   },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }
     ]
   },
@@ -283,6 +284,49 @@
     "volume":       1.2,
     "stack_max":    50,
     "verbs": [
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "bandage",
+    "name":         "Bandage",
+    "icon":         "items/bandage",
+    "tags":         ["medical", "small"],
+    "weight":       0.05,
+    "volume":       0.3,
+    "stack_max":    10,
+    "verbs": [
+      { "name": "Apply",   "range": 1.2, "handler": "verb_apply_bandage" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"       }
+    ]
+  },
+  {
+    "id":           "medipen",
+    "name":         "Medipen",
+    "icon":         "items/medipen",
+    "tags":         ["medical", "small"],
+    "weight":       0.04,
+    "volume":       0.2,
+    "stack_max":    5,
+    "verbs": [
+      { "name": "Inject",  "range": 1.2, "handler": "verb_inject"  },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "pill_bottle",
+    "name":         "Pill Bottle",
+    "icon":         "items/pill_bottle",
+    "tags":         ["medical", "small", "bag"],
+    "weight":       0.1,
+    "volume":       0.5,
+    "stack_max":    1,
+    "is_container": true,
+    "container_volume": 2.0,
+    "container_accepts_tags": ["medical"],
+    "verbs": [
+      { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
+      { "name": "Close",   "range": 1.5, "handler": "verb_close"   },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }
     ]
   }

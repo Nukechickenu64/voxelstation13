@@ -36,6 +36,7 @@
     "weight":   0.9,
     "volume":   3.0,
     "stack_max":1,
+    "two_handed": true,
     "verbs": [
       { "name": "Pry",     "range": 1.5, "handler": "verb_pry"     },
       { "name": "Hit",     "range": 1.2, "handler": "verb_hit"     },
@@ -70,6 +71,7 @@
     "verbs": [
       { "name": "Hit",     "range": 1.2, "handler": "verb_hit"     },
       { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
+      { "name": "Close",   "range": 1.5, "handler": "verb_close"   },
       { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }
     ]
@@ -100,6 +102,22 @@
     "verbs": [
       { "name": "Show",    "range": 2.0, "handler": "verb_show_id" },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "fire_extinguisher",
+    "name":       "Fire Extinguisher",
+    "icon":       "items/fire_extinguisher",
+    "tags":       ["tool", "extinguisher"],
+    "weight":     6.0,
+    "volume":     10.0,
+    "stack_max":  1,
+    "two_handed": true,
+    "verbs": [
+      { "name": "Spray",            "range": 3.0, "handler": "verb_spray_extinguisher" },
+      { "name": "Check Pressure",   "range": 1.5, "handler": "verb_check_pressure"    },
+      { "name": "Hit",              "range": 1.2, "handler": "verb_hit"               },
+      { "name": "Examine",          "range": 99,  "handler": "verb_examine"           }
     ]
   }
 ]

@@ -40,7 +40,7 @@ InventoryPanel::InventoryPanel(UIRenderer& ui)
 // ────────────────────────────────────────────────────────────────────────────
 PanelInteraction InventoryPanel::draw(Inventory& inv, glm::vec2 cursor,
                                        bool lmb_down, bool lmb_released,
-                                       bool shift_held, float alpha)
+                                       bool shift_held, bool rmb_pressed, float alpha)
 {
     PanelInteraction result;
     if (alpha <= 0.01f) return result;
@@ -70,8 +70,10 @@ PanelInteraction InventoryPanel::draw(Inventory& inv, glm::vec2 cursor,
     for (const auto& entry : k_equip_layout) {
         glm::vec2 pos  = eq_origin + entry.offset;
         auto* slot = inv.find_slot(entry.slot_id);
-        bool hov = draw_slot(slot, entry.icon_label, pos, entry.size,
-                             /*greyed=*/false, cursor, result);
+        // Show source slot as empty while its item is being dragged
+        bool dragging_from = m_drag.active && slot && slot->id == m_drag.src_slot;
+        bool hov = draw_slot(dragging_from ? nullptr : slot, entry.icon_label, pos, entry.size,
+                             /*greyed=*/false, cursor);
         if (hov) m_hovered_slot = entry.slot_id;
     }
 
@@ -107,8 +109,9 @@ PanelInteraction InventoryPanel::draw(Inventory& inv, glm::vec2 cursor,
                       {0.3f, 0.5f, 0.9f, 0.5f * alpha}, 5.f);
         }
 
-        bool hov = draw_slot(slot, hs.lbl, pos, {SZ, SZ},
-                             /*greyed=*/false, cursor, result);
+        bool dragging_from = m_drag.active && slot && slot->id == m_drag.src_slot;
+        bool hov = draw_slot(dragging_from ? nullptr : slot, hs.lbl, pos, {SZ, SZ},
+                             /*greyed=*/false, cursor);
         if (hov) m_hovered_slot = hs.id;
     }
 
@@ -133,9 +136,11 @@ PanelInteraction InventoryPanel::draw(Inventory& inv, glm::vec2 cursor,
 
             // Children are stored on belt_slot but we need a mutable pointer
             InventorySlot* child = const_cast<InventorySlot*>(&belt_slot->children[i]);
-            bool hov = draw_slot(child, std::to_string(i + 1).c_str(),
+            bool dragging_from = m_drag.active && child->id == m_drag.src_slot;
+            bool hov = draw_slot(dragging_from ? nullptr : child,
+                                 std::to_string(i + 1).c_str(),
                                  bpos, {BSZ, BSZ},
-                                 /*greyed=*/!belt_has_toolbelt, cursor, result);
+                                 /*greyed=*/!belt_has_toolbelt, cursor);
             if (hov) m_hovered_slot = child->id;
         }
     }
@@ -143,6 +148,12 @@ PanelInteraction InventoryPanel::draw(Inventory& inv, glm::vec2 cursor,
     // ── Stats ─────────────────────────────────────────────────────────────────
     const float stats_y = panel_tl.y + panel_h - 34.f;
     draw_stats(inv, {panel_tl.x, stats_y}, alpha);
+
+    // ── Open container panel (shown to the left of main panel) ────────────────
+    if (InventorySlot* con = inv.first_open_container()) {
+        draw_container_panel(inv, *con, panel_tl, panel_h,
+                             cursor, alpha);
+    }
 
     // ── Drag & drop logic ─────────────────────────────────────────────────────
     if (m_drag.active) {
@@ -185,6 +196,13 @@ PanelInteraction InventoryPanel::draw(Inventory& inv, glm::vec2 cursor,
         }
     }
 
+    // ── Right-click: open context menu for hovered slot ─────────────────────
+    if (rmb_pressed && !m_hovered_slot.empty() && !m_drag.active) {
+        result.type       = PanelInteraction::Type::RightClick;
+        result.slot_id    = m_hovered_slot;
+        result.screen_pos = cursor;
+    }
+
     // ── Tooltip ───────────────────────────────────────────────────────────────
     if (!m_drag.active && !m_hovered_slot.empty()) {
         const auto* slot = inv.find_slot_deep(m_hovered_slot);
@@ -197,7 +215,7 @@ PanelInteraction InventoryPanel::draw(Inventory& inv, glm::vec2 cursor,
 // ────────────────────────────────────────────────────────────────────────────
 bool InventoryPanel::draw_slot(InventorySlot* slot, const char* fallback_label,
                                 glm::vec2 pos, glm::vec2 size, bool greyed,
-                                glm::vec2 cursor, PanelInteraction& out)
+                                glm::vec2 cursor)
 {
     bool hovering = cursor.x >= pos.x && cursor.x <= pos.x + size.x &&
                     cursor.y >= pos.y && cursor.y <= pos.y + size.y;
@@ -217,13 +235,19 @@ bool InventoryPanel::draw_slot(InventorySlot* slot, const char* fallback_label,
 
     if (slot && slot->item && slot->item->def && !greyed) {
         const ItemDef& def = *slot->item->def;
-        // Icon placeholder (tinted rectangle)
-        m_ui.rect(pos + glm::vec2(4.f, 4.f), size - glm::vec2(8.f, 8.f),
-                  {0.25f, 0.38f, 0.58f, 0.75f}, 2.f);
-        // Item name (truncated)
-        std::string n = def.name;
-        if (n.size() > 7) n = n.substr(0, 6) + ".";
-        m_ui.text(pos + glm::vec2(3.f, size.y - 13.f), n, {1.f, 1.f, 1.f, 0.9f}, 9.f);
+        // Sprite icon (full slot area with small padding)
+        SDL_GPUTexture* icon_tex = m_ui.item_icon(def.id);
+        if (icon_tex) {
+            m_ui.image(pos + glm::vec2(3.f, 3.f), size - glm::vec2(6.f, 6.f),
+                       icon_tex, 1.f);
+        } else {
+            // Fallback: tinted rectangle + name text
+            m_ui.rect(pos + glm::vec2(4.f, 4.f), size - glm::vec2(8.f, 8.f),
+                      {0.25f, 0.38f, 0.58f, 0.75f}, 2.f);
+            std::string n = def.name;
+            if (n.size() > 7) n = n.substr(0, 6) + ".";
+            m_ui.text(pos + glm::vec2(3.f, size.y - 13.f), n, {1.f, 1.f, 1.f, 0.9f}, 9.f);
+        }
         // Stack count badge
         if (slot->item->count > 1) {
             std::string cnt = std::to_string(slot->item->count);
@@ -249,7 +273,6 @@ bool InventoryPanel::draw_slot(InventorySlot* slot, const char* fallback_label,
                   {0.3f, 0.35f, 0.45f, 0.6f}, 8.f);
     }
 
-    (void)out;
     return hovering;
 }
 
@@ -285,8 +308,8 @@ void InventoryPanel::draw_section_label(glm::vec2 pos, const char* text, float a
 // ────────────────────────────────────────────────────────────────────────────
 void InventoryPanel::draw_stats(Inventory& inv, glm::vec2 pos, float alpha)
 {
-    float w  = inv.total_weight();
-    float v  = inv.total_volume();
+    float w  = inv.total_weight_deep();
+    float v  = inv.total_volume_deep();
 
     std::ostringstream ss;
     ss << std::fixed << std::setprecision(1)
@@ -361,14 +384,101 @@ void InventoryPanel::draw_drag_ghost(glm::vec2 cursor)
     if (!m_drag.active || !m_drag.dragged_item.def) return;
     const float GZ = SZ * 0.9f;
     glm::vec2 gpos = cursor - glm::vec2(GZ * 0.5f);
-    m_ui.rect(gpos, {GZ, GZ}, {0.3f, 0.5f, 0.85f, 0.7f}, 4.f);
-    std::string n = m_drag.dragged_item.def->name;
-    if (n.size() > 7) n = n.substr(0, 6) + ".";
-    m_ui.text(gpos + glm::vec2(3.f, GZ - 13.f), n, {1.f, 1.f, 1.f, 0.95f}, 9.f);
-    if (m_drag.split_mode) {
-        m_ui.text(gpos,  "x" + std::to_string(m_drag.dragged_item.count / 2),
+
+    SDL_GPUTexture* icon_tex = m_ui.item_icon(m_drag.dragged_item.def->id);
+    if (icon_tex) {
+        m_ui.image(gpos, {GZ, GZ}, icon_tex, 0.8f);
+    } else {
+        m_ui.rect(gpos, {GZ, GZ}, {0.3f, 0.5f, 0.85f, 0.7f}, 4.f);
+        std::string n = m_drag.dragged_item.def->name;
+        if (n.size() > 7) n = n.substr(0, 6) + ".";
+        m_ui.text(gpos + glm::vec2(3.f, GZ - 13.f), n, {1.f, 1.f, 1.f, 0.95f}, 9.f);
+    }
+    if (m_drag.split_mode && m_drag.dragged_item.count > 1) {
+        m_ui.text(gpos, "x" + std::to_string(m_drag.dragged_item.count / 2),
                   {1.f, 1.f, 0.4f, 1.f}, 9.f);
     }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+void InventoryPanel::draw_container_panel(Inventory& inv, InventorySlot& con_slot,
+                                           glm::vec2 main_panel_tl, float panel_h,
+                                           glm::vec2 cursor,
+                                           float alpha)
+{
+    const float CON_W = CON_PANEL_W;
+    glm::vec2 con_tl = { main_panel_tl.x - CON_W - 8.f, main_panel_tl.y };
+
+    // Panel background
+    m_ui.rect(con_tl, {CON_W, panel_h},
+              {0.06f, 0.09f, 0.07f, 0.92f * alpha}, 8.f);
+
+    // Header
+    std::string header = "CONTENTS: ";
+    if (con_slot.item && con_slot.item->def)
+        header += con_slot.item->def->name;
+    m_ui.text(con_tl + glm::vec2(10.f, 8.f), header,
+              {0.55f, 1.f, 0.65f, alpha}, 12.f);
+
+    // Volume bar
+    if (con_slot.item && con_slot.item->def) {
+        float used = 0.f;
+        for (const auto& c : con_slot.children)
+            if (c.item && c.item->def)
+                used += c.item->def->volume * static_cast<float>(c.item->count);
+        float cap   = con_slot.item->def->container_volume;
+        float frac  = (cap > 0.f) ? std::min(used / cap, 1.f) : 0.f;
+        float bar_w = CON_W - 20.f;
+
+        m_ui.rect(con_tl + glm::vec2(10.f, 26.f), {bar_w, 6.f},
+                  {0.15f, 0.15f, 0.15f, 0.8f * alpha}, 2.f);
+        glm::vec4 bar_col = frac < 0.85f
+                            ? glm::vec4{0.2f, 0.8f, 0.35f, 0.9f}
+                            : glm::vec4{0.9f, 0.4f, 0.15f, 0.9f};
+        m_ui.rect(con_tl + glm::vec2(10.f, 26.f), {bar_w * frac, 6.f}, bar_col, 2.f);
+
+        std::ostringstream vs;
+        vs << std::fixed << std::setprecision(1) << used << " / " << cap << " L";
+        m_ui.text(con_tl + glm::vec2(10.f, 35.f), vs.str(),
+                  {0.65f, 0.85f, 0.7f, 0.9f * alpha}, 9.f);
+    }
+
+    // Slot grid — 4 columns
+    const float START_Y = 50.f;
+    const float STEP    = SZ + GAP;
+    const int   COLS    = 4;
+    int idx = 0;
+    for (auto& child : con_slot.children) {
+        if (idx >= static_cast<int>(con_slot.children.size())) break;
+        int col = idx % COLS;
+        int row = idx / COLS;
+        glm::vec2 spos = con_tl + glm::vec2(10.f + col * STEP, START_Y + row * STEP);
+
+        InventorySlot* cp = &child;
+        std::string lbl = std::to_string(idx + 1);
+        bool dragging_from = m_drag.active && cp->id == m_drag.src_slot;
+        bool hov = draw_slot(dragging_from ? nullptr : cp, lbl.c_str(),
+                             spos, {SZ, SZ}, false, cursor);
+        if (hov) m_hovered_slot = child.id;
+        ++idx;
+    }
+
+    // Container item weight info at footer
+    if (con_slot.item && con_slot.item->def) {
+        float item_w = 0.f;
+        for (const auto& c : con_slot.children)
+            if (c.item && c.item->def)
+                item_w += c.item->def->weight * static_cast<float>(c.item->count);
+        std::ostringstream ws;
+        ws << std::fixed << std::setprecision(2)
+           << "Contents weight: " << item_w << " kg";
+        m_ui.rect(con_tl + glm::vec2(10.f, panel_h - 34.f), {CON_W - 20.f, 24.f},
+                  {0.05f, 0.08f, 0.07f, 0.8f * alpha}, 4.f);
+        m_ui.text(con_tl + glm::vec2(16.f, panel_h - 29.f), ws.str(),
+                  {0.65f, 0.85f, 0.72f, 0.9f * alpha}, 10.f);
+    }
+
+    (void)inv;
 }
 
 // ────────────────────────────────────────────────────────────────────────────

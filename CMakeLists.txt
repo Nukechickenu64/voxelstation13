@@ -65,6 +65,7 @@ set(SRC_RENDER
     src/render/chunk_mesher.cpp
     src/render/lighting.cpp
     src/render/ui_renderer.cpp
+    src/render/ui_item_icons.cpp
 )
 
 set(SRC_SIM
@@ -103,6 +104,7 @@ set(SRC_UI
     src/ui/hud.cpp
     src/ui/inventory_panel.cpp
     src/ui/context_menu.cpp
+    src/ui/creative_menu.cpp
 )
 
 # ── Executable ────────────────────────────────────────────────────────────────

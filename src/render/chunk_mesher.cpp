@@ -107,6 +107,20 @@ void ChunkMesher::worker_loop()
                    z >= 0 && z < CHUNK_SIZE;
         };
 
+        // Flat-plane geometry: top (+Y) and bottom (-Y) faces at the floor of the cell (y=0)
+        // Used for catwalk, grating, etc.  Double-sided so visible from above and below.
+        static const FaceGeo k_flat[2] = {
+            // top  face at y=0, normal +Y (CCW from above)
+            { { {0,0,1},{1,0,1},{1,0,0},{0,0,0} }, { 0, 1, 0} },
+            // bottom face at y=0, normal -Y (CCW from below)
+            { { {0,0,0},{1,0,0},{1,0,1},{0,0,1} }, { 0,-1, 0} },
+        };
+        static const int k_flat_n[2][3] = {{0,1,0},{0,-1,0}};
+
+        static const float k_uvs[4][2] = {
+            {0.f, 0.f}, {1.f, 0.f}, {1.f, 1.f}, {0.f, 1.f}
+        };
+
         for (int z = 0; z < CHUNK_SIZE; ++z)
         for (int y = 0; y < CHUNK_SIZE; ++y)
         for (int x = 0; x < CHUNK_SIZE; ++x) {
@@ -116,22 +130,57 @@ void ChunkMesher::worker_loop()
             const float fx = static_cast<float>(x);
             const float fy = static_cast<float>(y);
             const float fz = static_cast<float>(z);
+            const bool is_flat = (v.flags & (VFLAG_FLAT_PLANE | VFLAG_FLAT_TOP)) != 0;
+
+            // ── Flat-plane voxel (catwalk / grating) ──────────────────────────
+            if (is_flat) {
+                // plane_off: 0 = bottom of cell (FLAT_PLANE), 1 = top of cell (FLAT_TOP)
+                const float plane_off = (v.flags & VFLAG_FLAT_TOP) ? 1.f : 0.f;
+                for (int fi = 0; fi < 2; ++fi) {
+                    int nx2 = x + k_flat_n[fi][0];
+                    int ny2 = y + k_flat_n[fi][1];
+                    int nz2 = z + k_flat_n[fi][2];
+                    // Cull only against solid cube neighbours (not other flat planes)
+                    bool blocked = in_bounds(nx2, ny2, nz2)
+                                && (at(nx2, ny2, nz2).type_id != 0)
+                                && !(at(nx2, ny2, nz2).flags & (VFLAG_FLAT_PLANE | VFLAG_FLAT_TOP));
+                    if (blocked) continue;
+                    const FaceGeo& fg = k_flat[fi];
+                    const float tex_idx = static_cast<float>(v.type_id);
+                    uint32_t base2 = static_cast<uint32_t>(mesh.vertices.size() / 9);
+                    for (int vi = 0; vi < 4; ++vi) {
+                        mesh.vertices.push_back(fx + fg.v[vi][0]);
+                        mesh.vertices.push_back(fy + fg.v[vi][1] + plane_off);
+                        mesh.vertices.push_back(fz + fg.v[vi][2]);
+                        mesh.vertices.push_back(fg.n[0]);
+                        mesh.vertices.push_back(fg.n[1]);
+                        mesh.vertices.push_back(fg.n[2]);
+                        mesh.vertices.push_back(k_uvs[vi][0]);
+                        mesh.vertices.push_back(k_uvs[vi][1]);
+                        mesh.vertices.push_back(tex_idx);
+                    }
+                    mesh.indices.insert(mesh.indices.end(), {
+                        base2, base2+1, base2+2,
+                        base2, base2+2, base2+3
+                    });
+                }
+                continue;  // skip cube meshing
+            }
 
             for (int f = 0; f < 6; ++f) {
                 int nx = x + k_offsets[f][0];
                 int ny = y + k_offsets[f][1];
                 int nz = z + k_offsets[f][2];
+                // Flat-plane neighbours don't occlude cube faces
                 bool neighbour_solid = in_bounds(nx, ny, nz)
-                                       && (at(nx, ny, nz).type_id != 0);
+                                       && (at(nx, ny, nz).type_id != 0)
+                                       && !(at(nx, ny, nz).flags & (VFLAG_FLAT_PLANE | VFLAG_FLAT_TOP));
                 if (neighbour_solid) continue;  // face hidden
 
                 const FaceGeo& fg = k_faces[f];
                 // 9 floats per vertex: pos(3) + normal(3) + uv(2) + texIndex(1)
                 // Standard quad UVs: v0=(0,0), v1=(1,0), v2=(1,1), v3=(0,1)
-                static const float k_uvs[4][2] = {
-                    {0.f, 0.f}, {1.f, 0.f}, {1.f, 1.f}, {0.f, 1.f}
-                };
-                const float tex_idx = static_cast<float>(v.type_id);
+const float tex_idx = static_cast<float>(v.type_id);
                 uint32_t base = static_cast<uint32_t>(mesh.vertices.size() / 9);
 
                 for (int vi = 0; vi < 4; ++vi) {
@@ -144,8 +193,7 @@ void ChunkMesher::worker_loop()
                     mesh.vertices.push_back(k_uvs[vi][0]);  // u
                     mesh.vertices.push_back(k_uvs[vi][1]);  // v
                     mesh.vertices.push_back(tex_idx);        // texIndex (= type_id)
-                }
-                mesh.indices.insert(mesh.indices.end(), {
+                }                mesh.indices.insert(mesh.indices.end(), {
                     base, base+1, base+2,
                     base, base+2, base+3
                 });

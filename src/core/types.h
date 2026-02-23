@@ -36,11 +36,13 @@ struct Voxel {
 };
 
 enum VoxelFlag : uint8_t {
-    VFLAG_SOLID    = 1 << 0,
-    VFLAG_OPAQUE   = 1 << 1,
-    VFLAG_PASSABLE = 1 << 2,
-    VFLAG_CLIMBABLE= 1 << 3,
-    VFLAG_LIGHT_SRC= 1 << 4,
+    VFLAG_SOLID     = 1 << 0,
+    VFLAG_OPAQUE    = 1 << 1,
+    VFLAG_PASSABLE  = 1 << 2,
+    VFLAG_CLIMBABLE = 1 << 3,
+    VFLAG_LIGHT_SRC = 1 << 4,
+    VFLAG_FLAT_PLANE= 1 << 5,  // thin plane at Y=0 of cell (no physics)
+    VFLAG_FLAT_TOP  = 1 << 6,  // thin plane at Y=1 of cell (solid floor)
 };
 
 // ── Face coordinate ───────────────────────────────────────────────────────────

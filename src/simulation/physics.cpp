@@ -18,6 +18,14 @@ void PhysicsSystem::tick(double dt)
         // Save previous position for interpolation
         tr.prev_pos = tr.pos;
 
+        // Noclip: bypass gravity and collision entirely
+        if (cc && cc->noclip) {
+            tr.pos += vel->linear * static_cast<float>(dt);
+            cc->on_ground = false;
+            vel->linear *= 0.85f;  // friction so movement stops when keys released
+            return;
+        }
+
         // Apply gravity to non-grounded entities (skip in zero-G / space)
         bool in_zero_g = cc && cc->zero_g;
         if (!in_zero_g && (!cc || !cc->on_ground))
@@ -63,6 +71,14 @@ void PhysicsSystem::prepare_character_movement(EntityID id, glm::vec3 wish_dir,
     cc->sprinting = sprint && !crouch;
 
     float speed = cc->move_speed * (cc->sprinting ? cc->sprint_mult : 1.f);
+
+    if (cc->noclip) {
+        // In noclip mode move freely in all 3 axes using the full wish vector
+        float nlen = glm::length(wish_dir);
+        if (nlen > 0.f) wish_dir /= nlen;
+        vel->linear = wish_dir * speed;
+        return;
+    }
 
     if (glm::length(wish_dir) > 0.f)
         wish_dir = glm::normalize(wish_dir);

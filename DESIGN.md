@@ -520,7 +520,7 @@ voxelstation13/
 | **M2 — Alt-Mode UI** | Alt-mode cursor unlock, inventory overlay, item tooltips. |
 | **M3 — Simulation** | Atmos zones and gas mixing, power grid, basic fire propagation. |
 | **M4 — Networking** | Client/server split, chunk streaming, entity replication, basic lag compensation. |
-| **M5 — Content** | Map editor, full SS13-parity item set, species definitions, game mode JSON. |
+| **M5 — Content** | Map editor, species definitions, game mode JSON. |
 | **M6 — Polish** | Spatial audio with vacuum attenuation, dynamic lighting, smooth lighting AO, chemistry. |
 | **M7 — Release Alpha** | Stable dedicated server, public test build, documentation. |
 

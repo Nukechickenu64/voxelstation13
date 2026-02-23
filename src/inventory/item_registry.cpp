@@ -54,10 +54,15 @@ bool ItemRegistry::load_from_json(const nlohmann::json& j, const std::string& sr
         def.is_container     = j.value("is_container", false);
         def.container_volume = j.value("container_volume", 0.f);
         def.equip_slot       = j.value("equip_slot", "");
+        def.two_handed       = j.value("two_handed", false);
 
         if (j.contains("tags"))
             for (const auto& t : j["tags"])
                 def.tags.push_back(t.get<std::string>());
+
+        if (j.contains("container_accepts_tags"))
+            for (const auto& t : j["container_accepts_tags"])
+                def.container_accepts_tags.push_back(t.get<std::string>());
 
         if (j.contains("verbs"))
             for (const auto& v : j["verbs"]) {
