@@ -70,6 +70,7 @@ set(SRC_RENDER
 
 set(SRC_SIM
     src/simulation/atmos.cpp
+    src/simulation/enclosure.cpp
     src/simulation/power.cpp
     src/simulation/pipes.cpp
     src/simulation/physics.cpp
@@ -102,6 +103,7 @@ set(SRC_DATA
 
 set(SRC_UI
     src/ui/hud.cpp
+    src/ui/debug_overlay.cpp
     src/ui/inventory_panel.cpp
     src/ui/context_menu.cpp
     src/ui/creative_menu.cpp

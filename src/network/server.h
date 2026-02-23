@@ -56,6 +56,7 @@ public:
     World&          world()    { return *m_world; }
     EntityManager&  entities() { return *m_entities; }
     PhysicsSystem&  physics()  { return *m_physics; }
+    AtmosSimulator& atmos()    { return *m_atmos; }
 
     // Queue a movement input; applied to physics at the start of the next tick.
     void queue_player_input(EntityID id, const PlayerInput& input);

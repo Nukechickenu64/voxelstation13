@@ -14,6 +14,7 @@
 #include "simulation/physics.h"
 #include "simulation/world_items.h"
 #include "simulation/mob_system.h"
+#include "simulation/enclosure.h"
 #include "input/input_manager.h"
 #include "input/alt_mode.h"
 #include "inventory/inventory.h"
@@ -25,6 +26,7 @@
 #include "ui/inventory_panel.h"
 #include "ui/context_menu.h"
 #include "ui/creative_menu.h"
+#include "ui/debug_overlay.h"
 #include "network/server.h"
 #include "network/client.h"
 
@@ -84,6 +86,9 @@ int main(int /*argc*/, char* /*argv*/[])
     Client client;
     client.connect_local(server);
 
+    // ── 6b. Enclosure detector ────────────────────────────────────────────────
+    EnclosureDetector enclosure_detector(server.world());
+
     // ── 7. Lighting ───────────────────────────────────────────────────────────
     LightingSystem lighting(server.world());
     lighting.rebuild();
@@ -104,6 +109,8 @@ int main(int /*argc*/, char* /*argv*/[])
     InventoryPanel inv_panel(ui_renderer);
     ContextMenu    ctx_menu(ui_renderer);
     CreativeMenu   creative_menu(ui_renderer);
+    DebugOverlay   debug_overlay(ui_renderer);
+    bool           debug_overlay_visible = false;
 
     // ── 11. Player inventory ──────────────────────────────────────────────────
     Inventory player_inv = make_player_inventory();
@@ -364,6 +371,8 @@ int main(int /*argc*/, char* /*argv*/[])
             // Poll SDL events
             SDL_Event e;
             input.begin_frame();
+            // Invalidate enclosure cache each tick so world changes are reflected
+            enclosure_detector.invalidate();
             while (SDL_PollEvent(&e)) {
                 if (e.type == SDL_EVENT_QUIT) { loop.stop(); return; }
                 if (e.type == SDL_EVENT_WINDOW_RESIZED) {
@@ -439,6 +448,16 @@ int main(int /*argc*/, char* /*argv*/[])
                         renderer.toggle_verbose_logging();
                     }
                     s_f8_prev = f8_now;
+                }
+                // F5: toggle debug overlay
+                {
+                    static bool s_f5_prev = false;
+                    bool f5_now = ks[SDL_SCANCODE_F5];
+                    if (f5_now && !s_f5_prev) {
+                        debug_overlay_visible = !debug_overlay_visible;
+                        SDL_Log("Debug overlay: %s", debug_overlay_visible ? "ON" : "OFF");
+                    }
+                    s_f5_prev = f5_now;
                 }
             }
 
@@ -951,6 +970,74 @@ int main(int /*argc*/, char* /*argv*/[])
 
             // Always-on HUD
             hud.draw(hud_state, player_inv);
+
+            // ── Debug overlay (F5) ────────────────────────────────────────────
+            if (debug_overlay_visible) {
+                DebugOverlayState dbg;
+                dbg.fps      = loop.fps();
+                dbg.frame_ms = (loop.fps() > 0.0) ? 1000.0 / loop.fps() : 0.0;
+                dbg.tick_count = loop.tick_count();
+                dbg.cam_pos  = cam_pos;
+                dbg.yaw      = cam_yaw;
+                dbg.pitch    = cam_pitch;
+
+                // Velocity from physics component
+                {
+                    EntityID plr = client.local_player();
+                    if (plr != NULL_ENTITY) {
+                        auto* vc = server.entities().get_component<VelocityComponent>(plr);
+                        if (vc) dbg.velocity = vc->linear;
+                        auto* cc = server.entities().get_component<CharacterControllerComponent>(plr);
+                        if (cc) {
+                            dbg.noclip    = cc->noclip;
+                            dbg.zero_g    = cc->zero_g;
+                            dbg.on_ground = cc->on_ground;
+                        }
+                    }
+                }
+
+                // Target voxel
+                dbg.has_hit = hit.valid;
+                if (hit.valid) {
+                    dbg.hit_voxel = hit.voxel;
+                    Voxel hv = server.world().get_voxel(hit.voxel);
+                    const VoxelTypeDef* hvd = voxel_reg.get(hv.type_id);
+                    dbg.hit_type_name = hvd ? hvd->id : std::to_string(hv.type_id);
+                }
+
+                // Build mode
+                dbg.build_mode = build_mode;
+                if (build_mode) {
+                    const VoxelTypeDef* bvd = voxel_reg.get(build_voxel.type_id);
+                    dbg.build_type_name = bvd ? bvd->id : std::to_string(build_voxel.type_id);
+                }
+
+                // Active hand
+                dbg.active_hand = (player_inv.active_hand_id() == "l_hand") ? "Left" : "Right";
+
+                // Atmosphere at player position
+                {
+                    glm::ivec3 feet_voxel = {
+                        static_cast<int>(std::floor(cam_pos.x)),
+                        static_cast<int>(std::floor(cam_pos.y - 0.5f)),
+                        static_cast<int>(std::floor(cam_pos.z))
+                    };
+                    dbg.zone_id = server.atmos().zone_at(feet_voxel);
+                    AtmosZone* zone_ptr = server.atmos().zone(dbg.zone_id);
+                    if (zone_ptr) dbg.gas_mix = zone_ptr->gas;
+
+                    // Enclosure — query the air cell at feet-level
+                    // Only run if the cell is actually air (avoids BFS from solid)
+                    glm::ivec3 air_cell = {
+                        static_cast<int>(std::floor(cam_pos.x)),
+                        static_cast<int>(std::floor(cam_pos.y)),
+                        static_cast<int>(std::floor(cam_pos.z))
+                    };
+                    dbg.enclosed = enclosure_detector.is_enclosed(air_cell);
+                }
+
+                debug_overlay.draw(dbg);
+            }
 
             // Alt-mode overlay
             float ov_alpha = alt_mode.overlay_alpha();
