@@ -461,19 +461,38 @@ int main(int /*argc*/, char* /*argv*/[])
                 }
             }
 
-            // Movement wish direction – full 3D when noclip, XZ-only otherwise
+            // Movement wish direction – full 3D when noclip or jetpack in zero-G,
+            // XZ-only otherwise.  No wish is sent when zero-G without a jetpack
+            // (the player is helpless; only collisions and existing momentum matter).
             glm::vec3 wish = {};
             float yaw_rad   = glm::radians(cam_yaw);
             float pitch_rad = glm::radians(cam_pitch);
-            // Check noclip state for movement building
-            bool noclip_active = false;
+
+            // Read and update controller state for this frame
+            bool noclip_active   = false;
+            bool zero_g_active   = false;
+            bool jetpack_present = false;
             if (player != NULL_ENTITY) {
-                auto* cc_nc = server.entities().get_component<CharacterControllerComponent>(player);
-                if (cc_nc) noclip_active = cc_nc->noclip;
+                auto* cc_r = server.entities().get_component<CharacterControllerComponent>(player);
+                if (cc_r) {
+                    noclip_active = cc_r->noclip;
+                    zero_g_active = cc_r->zero_g;
+
+                    // Detect jetpack in back slot (client inventory mirrors equipment)
+                    const auto* back = player_inv.find_slot("back");
+                    if (back && back->item && back->item->def) {
+                        for (const auto& tag : back->item->def->tags) {
+                            if (tag == "jetpack") { jetpack_present = true; break; }
+                        }
+                    }
+                    cc_r->jetpack_equipped = jetpack_present;
+                }
             }
+
+            // Use full 3D thrust direction in noclip or zero-G+jetpack
+            bool full_3d = noclip_active || (zero_g_active && jetpack_present);
             glm::vec3 fwd, right;
-            if (noclip_active) {
-                // Full 3D camera forward (pitch included)
+            if (full_3d) {
                 fwd = {
                     std::cos(pitch_rad) * std::sin(yaw_rad),
                     std::sin(pitch_rad),
@@ -484,10 +503,15 @@ int main(int /*argc*/, char* /*argv*/[])
                 fwd   = {std::sin(yaw_rad), 0.f, -std::cos(yaw_rad)};
                 right = glm::cross(fwd, {0.f, 1.f, 0.f});
             }
-            if (input.is_held(Action::MoveForward)) wish += fwd;
-            if (input.is_held(Action::MoveBack))    wish -= fwd;
-            if (input.is_held(Action::MoveRight))   wish += right;
-            if (input.is_held(Action::MoveLeft))    wish -= right;
+
+            // In zero-G without a jetpack the player cannot self-propel
+            bool can_move = !zero_g_active || jetpack_present || noclip_active;
+            if (can_move) {
+                if (input.is_held(Action::MoveForward)) wish += fwd;
+                if (input.is_held(Action::MoveBack))    wish -= fwd;
+                if (input.is_held(Action::MoveRight))   wish += right;
+                if (input.is_held(Action::MoveLeft))    wish -= right;
+            }
 
             // Submit movement input to server
             if (player != NULL_ENTITY) {
@@ -513,6 +537,7 @@ int main(int /*argc*/, char* /*argv*/[])
             // Server tick (applies pending inputs, steps physics + simulations)
             server.tick(dt);
             client.tick(dt);
+            world_items.tick(dt);  // settle floating items that have come to rest
 
             // Toggle zero-G when player crosses the airlock outer door (z > 12)
             if (player != NULL_ENTITY) {
@@ -588,13 +613,14 @@ int main(int /*argc*/, char* /*argv*/[])
                     if (throw_dir.y < -0.3f) throw_dir.y = -0.3f;
                     throw_dir = glm::normalize(throw_dir);
 
+                    // Throw speed in m/s
+                    constexpr float THROW_SPEED = 8.f;
+
                     // Spawn 1 m in front of the player at eye height
                     glm::vec3 spawn_pos = cam_pos + throw_dir * 1.0f;
-                    EntityID thrown = world_items.spawn_floating(spawn_pos, std::move(*maybe_item));
-
-                    // TODO: apply throw velocity to the entity via PhysicsComponent
-                    (void)thrown;
-                    SDL_Log("Throw: item tossed forward");
+                    world_items.spawn_floating(spawn_pos, std::move(*maybe_item),
+                                               throw_dir * THROW_SPEED);
+                    SDL_Log("Throw: item tossed forward at %.1f m/s", THROW_SPEED);
                 }
             }
 

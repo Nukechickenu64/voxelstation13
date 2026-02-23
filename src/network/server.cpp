@@ -73,9 +73,10 @@ void Server::queue_player_input(EntityID id, const PlayerInput& input)
 
 void Server::apply_pending_inputs(double dt)
 {
-    for (auto& [id, inp] : m_pending_inputs)
+    for (auto& [id, inp] : m_pending_inputs) {
         m_physics->prepare_character_movement(id, inp.wish_dir,
                                                inp.crouch, inp.sprint);
+    }
     (void)dt;
 }
 

@@ -25,6 +25,17 @@ struct CharacterControllerComponent {
     bool  sprinting   = false;
     bool  zero_g      = false;  // true when player is in vacuum / space
     bool  noclip      = false;  // ghost mode: no collision, no gravity
+
+    // Set each frame by the game loop; reflects whether a jetpack is equipped
+    // in the back slot.  In zero-G the player can only self-propel with a jetpack.
+    bool      jetpack_equipped = false;
+    // Normalised thrust direction supplied by prepare_character_movement;
+    // consumed (with dt) inside tick().  Reset to zero each tick.
+    glm::vec3 jetpack_input{};
+
+    // Desired horizontal velocity written by prepare_character_movement each frame.
+    // tick() accelerates the actual velocity toward this using GROUND/AIR_ACCEL.
+    glm::vec3 wish_move{};
 };
 
 // Kinematic character physics and projectile movement.
@@ -54,5 +65,8 @@ private:
 
     World&         m_world;
     EntityManager& m_entities;
-    static constexpr float GRAVITY = -9.8f;
+    static constexpr float GRAVITY          = -9.8f;
+    // Jetpack: acceleration (m/s²) and terminal speed (m/s) in zero-G
+    static constexpr float JETPACK_ACCEL    = 6.f;
+    static constexpr float JETPACK_MAX_SPEED= 8.f;
 };

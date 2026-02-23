@@ -68,13 +68,18 @@ EntityID WorldItemSystem::spawn(glm::ivec3 face_voxel, FaceDir face, ItemStack i
     return id;
 }
 
-EntityID WorldItemSystem::spawn_floating(glm::vec3 pos, ItemStack item)
+EntityID WorldItemSystem::spawn_floating(glm::vec3 pos, ItemStack item,
+                                         glm::vec3 velocity)
 {
     EntityID id = m_entities.create();
 
     auto& tr = m_entities.add_component<TransformComponent>(id);
     tr.pos = pos; tr.prev_pos = pos;
     tr.yaw = tr.pitch = 0.f;
+
+    // Velocity component so PhysicsSystem applies gravity and collisions
+    auto& vel = m_entities.add_component<VelocityComponent>(id);
+    vel.linear = velocity;
 
     WorldItemComponent wic;
     wic.item       = std::move(item);
@@ -92,6 +97,55 @@ std::optional<ItemStack> WorldItemSystem::pick_up(EntityID id)
     ItemStack item = std::move(wic->item);
     m_entities.destroy(id);
     return item;
+}
+
+void WorldItemSystem::tick(double /*dt*/)
+{
+    // Speed threshold below which a floating item is considered at rest (m/s)
+    constexpr float SETTLE_SPEED_SQ = 0.02f * 0.02f;
+    constexpr float ITEM_RADIUS     = 0.15f;
+
+    m_entities.each<WorldItemComponent>([&](EntityID id, WorldItemComponent& wic) {
+        if (wic.is_resting) return;
+
+        auto* vel = m_entities.get_component<VelocityComponent>(id);
+        auto* tr  = m_entities.get_component<TransformComponent>(id);
+        if (!vel || !tr) return;
+
+        // Only settle when moving slowly
+        float speed_sq = vel->linear.x * vel->linear.x
+                       + vel->linear.y * vel->linear.y
+                       + vel->linear.z * vel->linear.z;
+        if (speed_sq > SETTLE_SPEED_SQ) return;
+
+        // Scan the voxels immediately below for a solid floor
+        using std::floor;
+        glm::vec3 below_min = tr->pos + glm::vec3(-ITEM_RADIUS, -0.15f, -ITEM_RADIUS);
+        glm::vec3 below_max = tr->pos + glm::vec3( ITEM_RADIUS,  0.0f,   ITEM_RADIUS);
+        glm::ivec3 imin{ (int)floor(below_min.x), (int)floor(below_min.y), (int)floor(below_min.z) };
+        glm::ivec3 imax{ (int)floor(below_max.x), (int)floor(below_max.y), (int)floor(below_max.z) };
+
+        bool      found = false;
+        glm::ivec3 floor_voxel{};
+        for (int z = imin.z; z <= imax.z && !found; ++z)
+        for (int y = imin.y; y <= imax.y && !found; ++y)
+        for (int x = imin.x; x <= imax.x && !found; ++x) {
+            if (m_world.get_voxel({x, y, z}).flags & VFLAG_SOLID) {
+                found = true;
+                floor_voxel = {x, y, z};
+            }
+        }
+        if (!found) return;
+
+        // Snap to the top face of the floor voxel and mark as resting
+        vel->linear   = {};
+        wic.is_resting = true;
+        wic.rest_face  = FaceDir::PosY;
+        wic.rest_voxel = floor_voxel;
+        glm::vec3 settled = face_centre(floor_voxel, FaceDir::PosY);
+        tr->pos      = settled;
+        tr->prev_pos = settled;
+    });
 }
 
 EntityID WorldItemSystem::ray_cast_items(glm::vec3 origin, glm::vec3 dir,

@@ -44,7 +44,13 @@ public:
     EntityID spawn(glm::ivec3 face_voxel, FaceDir face, ItemStack item);
 
     // Spawn a floating (non-resting) item at a world position.
-    EntityID spawn_floating(glm::vec3 pos, ItemStack item);
+    // An initial velocity can be supplied (e.g. for thrown items).
+    EntityID spawn_floating(glm::vec3 pos, ItemStack item,
+                            glm::vec3 velocity = {});
+
+    // Advance floating item physics: settle items that come to rest.
+    // Call once per simulation tick after PhysicsSystem::tick().
+    void tick(double dt);
 
     // Remove and return the item from the entity; entity is destroyed.
     // Returns std::nullopt if entity has no WorldItemComponent.
