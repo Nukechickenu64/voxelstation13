@@ -43,6 +43,7 @@ enum VoxelFlag : uint8_t {
     VFLAG_LIGHT_SRC = 1 << 4,
     VFLAG_FLAT_PLANE= 1 << 5,  // thin plane at Y=0 of cell (no physics)
     VFLAG_FLAT_TOP  = 1 << 6,  // thin plane at Y=1 of cell (solid floor)
+    VFLAG_VERT_PLANE_Z = 1 << 7, // double-sided vertical plane facing Z, centred in cell
 };
 
 // ── Face coordinate ───────────────────────────────────────────────────────────

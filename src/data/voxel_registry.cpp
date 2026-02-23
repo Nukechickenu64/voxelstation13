@@ -51,8 +51,9 @@ bool VoxelRegistry::load_file(const std::string& path)
                     if (fs == "OPAQUE")     def.default_flags |= VFLAG_OPAQUE;
                     if (fs == "PASSABLE")   def.default_flags |= VFLAG_PASSABLE;
                     if (fs == "CLIMBABLE")  def.default_flags |= VFLAG_CLIMBABLE;
-                    if (fs == "FLAT_PLANE") def.default_flags |= VFLAG_FLAT_PLANE;
-                    if (fs == "FLAT_TOP")   def.default_flags |= VFLAG_FLAT_TOP;
+                    if (fs == "FLAT_PLANE")    def.default_flags |= VFLAG_FLAT_PLANE;
+                    if (fs == "FLAT_TOP")       def.default_flags |= VFLAG_FLAT_TOP;
+                    if (fs == "VERT_PLANE_Z")   def.default_flags |= VFLAG_VERT_PLANE_Z;
                 }
 
             def.type_id = m_next_id++;

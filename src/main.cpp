@@ -31,6 +31,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
+#include <unordered_set>
 
 // Player inventory is now built by make_player_inventory() in inventory.cpp
 
@@ -61,6 +62,8 @@ int main(int /*argc*/, char* /*argv*/[])
     renderer.load_tile_textures(voxel_reg, "textures");
     renderer.load_item_textures(item_reg,  "textures");
     renderer.load_mob_textures("textures");
+    renderer.load_door_anim("textures/specialtile/door_opening.gif",
+                             voxel_reg.id_of("door_anim"));
 
     UIRenderer ui_renderer(renderer.gpu());
     if (!ui_renderer.init(renderer.window(), renderer.width(), renderer.height())) {
@@ -197,6 +200,25 @@ int main(int /*argc*/, char* /*argv*/[])
                 if (x < LOCK_X_LO || x > LOCK_X_HI || y > LOCK_DOOR_TOP)
                     server.world().set_voxel({x, y, LOCK_Z_OUT}, wall_voxel);
 
+        // ── Airlock doors ──────────────────────────────────────────────────────
+        // Close off both wall gaps with double-sided planar door voxels.
+        uint16_t door_id = voxel_reg.id_of("door");
+        if (door_id != 0) {
+            Voxel door_voxel;
+            door_voxel.type_id = door_id;
+            door_voxel.flags   = VFLAG_SOLID | VFLAG_VERT_PLANE_Z;
+
+            // Inner door (station side at z=LOCK_Z_IN)
+            for (int x = LOCK_X_LO; x <= LOCK_X_HI; ++x)
+                for (int y = 1; y <= LOCK_DOOR_TOP; ++y)
+                    server.world().set_voxel({x, y, LOCK_Z_IN}, door_voxel);
+
+            // Outer door (space side at z=LOCK_Z_OUT)
+            for (int x = LOCK_X_LO; x <= LOCK_X_HI; ++x)
+                for (int y = 1; y <= LOCK_DOOR_TOP; ++y)
+                    server.world().set_voxel({x, y, LOCK_Z_OUT}, door_voxel);
+        }
+
         // Ceiling over airlock
         for (int x = LOCK_WALL_LO; x <= LOCK_WALL_HI; ++x)
             for (int z = LOCK_Z_IN + 1; z <= LOCK_Z_OUT; ++z)
@@ -291,6 +313,47 @@ int main(int /*argc*/, char* /*argv*/[])
         build_voxel.type_id = bv_id;
         build_voxel.flags   = VFLAG_SOLID | VFLAG_OPAQUE;
     }
+
+    // ── 14c. Door state ───────────────────────────────────────────────────────
+    // Three voxel type IDs for the door state machine:
+    //   door      → closed, solid, shows door.png
+    //   door_anim → animating, solid, tile layer updated frame-by-frame from GIF
+    //   door_open → fully open, passable, shows door_open.png
+    const uint16_t door_type_id      = voxel_reg.id_of("door");
+    const uint16_t door_anim_type_id = voxel_reg.id_of("door_anim");
+    const uint16_t door_open_type_id = voxel_reg.id_of("door_open");
+
+    // Per-panel door animation state (one entry per door group currently animating).
+    struct DoorGroup {
+        std::vector<glm::ivec3> voxels;
+        int   frame    = 0;
+        float accum_ms = 0.f;
+        bool  closing  = false;  // true = playing frames in reverse toward door state
+    };
+    std::vector<DoorGroup> animating_doors;
+
+    // Flood-fill: find all adjacent voxels of target_type in the same Z-plane.
+    auto flood_fill_door = [&](glm::ivec3 seed, uint16_t target_type) {
+        std::vector<glm::ivec3>             group;
+        std::unordered_set<glm::ivec3> visited;
+        std::vector<glm::ivec3>             queue;
+        auto try_push = [&](glm::ivec3 p) {
+            if (p.z != seed.z) return;
+            if (!visited.insert(p).second) return;
+            if (server.world().get_voxel(p).type_id == target_type)
+                queue.push_back(p);
+        };
+        try_push(seed);
+        while (!queue.empty() && static_cast<int>(group.size()) < 64) {
+            glm::ivec3 cur = queue.back(); queue.pop_back();
+            group.push_back(cur);
+            try_push(cur + glm::ivec3{ 1, 0, 0});
+            try_push(cur + glm::ivec3{-1, 0, 0});
+            try_push(cur + glm::ivec3{ 0, 1, 0});
+            try_push(cur + glm::ivec3{ 0,-1, 0});
+        }
+        return group;
+    };
 
     // ── 15. Game loop ─────────────────────────────────────────────────────────
     GameLoop loop(1.0 / 60.0);
@@ -516,6 +579,70 @@ int main(int /*argc*/, char* /*argv*/[])
                 }
             }
 
+            // ── Door animation tick ──────────────────────────────────────────
+            // Advance each animating door panel, update door_anim tile layer,
+            // and finalise to door_open when all frames have played.
+            if (door_anim_type_id != 0 && renderer.door_anim_frame_count() > 0) {
+                const float dt_ms = static_cast<float>(dt * 1000.0);
+                int last_frame = -1;
+                for (auto it = animating_doors.begin(); it != animating_doors.end(); ) {
+                    DoorGroup& grp = *it;
+                    grp.accum_ms += dt_ms;
+
+                    if (!grp.closing) {
+                        // Opening: advance forward
+                        while (grp.frame < renderer.door_anim_frame_count()) {
+                            int delay = renderer.door_anim_frame_delay_ms(grp.frame);
+                            if (grp.accum_ms < static_cast<float>(delay)) break;
+                            grp.accum_ms -= static_cast<float>(delay);
+                            ++grp.frame;
+                        }
+                        if (grp.frame >= renderer.door_anim_frame_count()) {
+                            // All frames played → switch voxels to door_open
+                            if (door_open_type_id != 0) {
+                                Voxel open_v;
+                                open_v.type_id = door_open_type_id;
+                                open_v.flags   = VFLAG_VERT_PLANE_Z;  // passable
+                                for (auto& p : grp.voxels)
+                                    server.world().set_voxel(p, open_v);
+                                for (Chunk* c : server.world().dirty_chunks())
+                                    mesher.enqueue(c->chunk_pos(), server.world());
+                            }
+                            it = animating_doors.erase(it);
+                            continue;
+                        }
+                    } else {
+                        // Closing: play frames in reverse
+                        while (grp.frame >= 0) {
+                            int delay = renderer.door_anim_frame_delay_ms(grp.frame);
+                            if (grp.accum_ms < static_cast<float>(delay)) break;
+                            grp.accum_ms -= static_cast<float>(delay);
+                            --grp.frame;
+                        }
+                        if (grp.frame < 0) {
+                            // All reversed frames played → switch voxels to door (closed)
+                            if (door_type_id != 0) {
+                                Voxel closed_v;
+                                closed_v.type_id = door_type_id;
+                                closed_v.flags   = VFLAG_SOLID | VFLAG_VERT_PLANE_Z;
+                                for (auto& p : grp.voxels)
+                                    server.world().set_voxel(p, closed_v);
+                                for (Chunk* c : server.world().dirty_chunks())
+                                    mesher.enqueue(c->chunk_pos(), server.world());
+                            }
+                            it = animating_doors.erase(it);
+                            continue;
+                        }
+                    }
+
+                    last_frame = grp.frame;
+                    ++it;
+                }
+                if (last_frame >= 0)
+                    renderer.update_tile_layer(door_anim_type_id,
+                                               renderer.door_anim_frame_pixels(last_frame));
+            }
+
             // ── LMB / E: interact with world based on active hand ─────────────
             // Empty hand  + item  → pick up
             // Empty hand  + turf  → nothing (can't pick up turf)
@@ -542,11 +669,14 @@ int main(int /*argc*/, char* /*argv*/[])
                         fhit.valid ? fhit.distance : ITEM_REACH, item_dist);
 
                     if (item_ent != NULL_ENTITY) {
-                        if (hand_empty) {
-                            // Pick up
+                        if (hand_empty || e_press) {
+                            // Pick up — auto_equip tries all slots; re-spawn if no room
                             auto picked = world_items.pick_up(item_ent);
-                            if (picked && picked->def)
-                                player_inv.put(player_inv.active_hand_id(), std::move(*picked));
+                            if (picked && picked->def) {
+                                auto leftover = player_inv.auto_equip(std::move(*picked));
+                                if (leftover)
+                                    world_items.spawn_floating(cam_pos, std::move(*leftover));
+                            }
                         } else {
                             // Use held item on world item
                             auto* wic = server.entities().get_component<WorldItemComponent>(item_ent);
@@ -557,16 +687,93 @@ int main(int /*argc*/, char* /*argv*/[])
                                 audio.play("click", cam_pos);
                             }
                         }
-                    } else if (fhit.valid && !hand_empty) {
-                        // Use held item on turf → knock
-                        glm::vec3 hit_world = glm::vec3(fhit.voxel) + glm::vec3(0.5f);
-                        SDL_Log("Knock: %s on wall",
-                                active_slot->item->def
-                                    ? active_slot->item->def->name.c_str() : "item");
-                        audio.play("knock", hit_world);
+                    } else if (fhit.valid) {
+                        Voxel hit_v = server.world().get_voxel(fhit.voxel);
+                        bool has_id = active_slot && active_slot->item && active_slot->item->def
+                            && [&]{
+                                for (auto& t : active_slot->item->def->tags)
+                                    if (t == "id_card") return true;
+                                return false;
+                            }();
+
+                        // ── Open door ───────────────────────────────────
+                        if (door_type_id != 0 && hit_v.type_id == door_type_id
+                            && (hand_empty || has_id)) {
+                            auto grp_voxels = flood_fill_door(fhit.voxel, door_type_id);
+                            if (!grp_voxels.empty() && door_anim_type_id != 0) {
+                                Voxel anim_v;
+                                anim_v.type_id = door_anim_type_id;
+                                anim_v.flags   = VFLAG_SOLID | VFLAG_VERT_PLANE_Z;
+                                for (auto& p : grp_voxels)
+                                    server.world().set_voxel(p, anim_v);
+                                for (Chunk* c : server.world().dirty_chunks())
+                                    mesher.enqueue(c->chunk_pos(), server.world());
+                                DoorGroup dg;
+                                dg.voxels = std::move(grp_voxels);
+                                animating_doors.push_back(std::move(dg));
+                                audio.play("click", glm::vec3(fhit.voxel) + glm::vec3(0.5f));
+                                SDL_Log("Door: opening at (%d,%d,%d)",
+                                        fhit.voxel.x, fhit.voxel.y, fhit.voxel.z);
+                            }
+                        // ── Close door ───────────────────────────────────
+                        } else if (door_open_type_id != 0
+                                   && hit_v.type_id == door_open_type_id
+                                   && (hand_empty || has_id)) {
+                            auto grp_voxels = flood_fill_door(fhit.voxel, door_open_type_id);
+                            if (!grp_voxels.empty() && door_anim_type_id != 0) {
+                                // Player hitbox check: feet at cam_pos - (0,0.5,0),
+                                // AABB half-extents: radius=0.3 in XZ, height=0.9 in Y.
+                                constexpr float PLR_R = 0.3f;
+                                constexpr float PLR_H = 0.9f;
+                                glm::vec3 feet = cam_pos - glm::vec3(0.f, 0.5f, 0.f);
+                                glm::vec3 pmin = feet + glm::vec3(-PLR_R, 0.f,   -PLR_R);
+                                glm::vec3 pmax = feet + glm::vec3( PLR_R, PLR_H,  PLR_R);
+
+                                bool player_inside = false;
+                                for (auto& p : grp_voxels) {
+                                    // Cell AABB is [p, p+1]
+                                    glm::vec3 cmin(p.x, p.y, p.z);
+                                    glm::vec3 cmax(p.x+1.f, p.y+1.f, p.z+1.f);
+                                    if (pmin.x < cmax.x && pmax.x > cmin.x &&
+                                        pmin.y < cmax.y && pmax.y > cmin.y &&
+                                        pmin.z < cmax.z && pmax.z > cmin.z) {
+                                        player_inside = true;
+                                        break;
+                                    }
+                                }
+
+                                if (!player_inside) {
+                                    // Play closing animation backwards
+                                    Voxel anim_v;
+                                    anim_v.type_id = door_anim_type_id;
+                                    anim_v.flags   = VFLAG_SOLID | VFLAG_VERT_PLANE_Z;
+                                    for (auto& p : grp_voxels)
+                                        server.world().set_voxel(p, anim_v);
+                                    for (Chunk* c : server.world().dirty_chunks())
+                                        mesher.enqueue(c->chunk_pos(), server.world());
+                                    DoorGroup dg;
+                                    dg.voxels  = std::move(grp_voxels);
+                                    dg.frame   = renderer.door_anim_frame_count() - 1;
+                                    dg.closing = true;
+                                    animating_doors.push_back(std::move(dg));
+                                    audio.play("click", glm::vec3(fhit.voxel) + glm::vec3(0.5f));
+                                    SDL_Log("Door: closing at (%d,%d,%d)",
+                                            fhit.voxel.x, fhit.voxel.y, fhit.voxel.z);
+                                } else {
+                                    SDL_Log("Door: cannot close — player is in doorway");
+                                }
+                            }
+                        } else if (!hand_empty) {
+                            // Use held item on turf → knock
+                            glm::vec3 hit_world = glm::vec3(fhit.voxel) + glm::vec3(0.5f);
+                            SDL_Log("Knock: %s on wall",
+                                    active_slot->item->def
+                                        ? active_slot->item->def->name.c_str() : "item");
+                            audio.play("knock", hit_world);
+                        }
                     }
-                }
-            }
+                }  // end if (fps_lmb || e_press)
+            }  // end interaction block
 
             // ── Alt-mode LMB click on world item ─────────────────────────────
             if (alt_mode.active() && input.is_pressed(Action::PrimaryInteract)
@@ -577,13 +784,9 @@ int main(int /*argc*/, char* /*argv*/[])
                     auto picked = world_items.pick_up(hovered_item_entity);
                     hovered_item_entity = NULL_ENTITY;
                     if (picked && picked->def) {
-                        auto* hand = player_inv.active_hand();
-                        if (hand && !hand->item)
-                            player_inv.put(player_inv.active_hand_id(), std::move(*picked));
-                        else {
-                            auto* slot = player_inv.find_empty_accepting(*picked->def);
-                            if (slot) player_inv.put(slot->id, std::move(*picked));
-                        }
+                        auto leftover = player_inv.auto_equip(std::move(*picked));
+                        if (leftover)
+                            world_items.spawn_floating(cam_pos, std::move(*leftover));
                     }
                 } else {
                     // Use held item on hovered world item
@@ -817,7 +1020,9 @@ int main(int /*argc*/, char* /*argv*/[])
                     st.def       = cr.give_item;
                     st.count     = 1;
                     st.integrity = 1.f;
-                    player_inv.auto_equip(std::move(st));
+                    auto leftover = player_inv.auto_equip(std::move(st));
+                    if (leftover)
+                        world_items.spawn_floating(cam_pos, std::move(*leftover));
                 }
                 // Recapture cursor once the menu closes (escape, etc.)
                 if (!creative_menu.is_open() && !alt_mode.active())

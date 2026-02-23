@@ -92,6 +92,26 @@ bool Inventory::put(const std::string& slot_id, ItemStack stack)
             return false;
     }
 
+    // Volume check for Container-category child slots:
+    // The parent slot (whose .children contains this slot) holds the pool volume_capacity.
+    if (slot->category == SlotCategory::Container && stack.def) {
+        for (auto& ps : m_slots) {
+            bool found = false;
+            for (auto& c : ps.children)
+                if (&c == slot) { found = true; break; }
+            if (!found) continue;
+            if (ps.volume_capacity > 0.f) {
+                float used = 0.f;
+                for (auto& c : ps.children)
+                    if (&c != slot && c.item && c.item->def)
+                        used += c.item->def->volume * static_cast<float>(c.item->count);
+                if (used + stack.def->volume * stack.count > ps.volume_capacity)
+                    return false;
+            }
+            break;
+        }
+    }
+
     // Stack merging: if same item and stackable
     if (slot->item.has_value() && stack.def &&
         slot->item->def == stack.def && stack.def->stack_max > 1)
@@ -126,16 +146,32 @@ void Inventory::swap(const std::string& a, const std::string& b)
 {
     InventorySlot* sa = find_slot_deep(a);
     InventorySlot* sb = find_slot_deep(b);
-    if (!sa || !sb) return;
-    // Check cross-slot compatibility
-    if (sa->item && sb->item) {
-        // Both occupied: only swap if each accepts the other
-        bool sa_accepts = !sa->item->def || sb->accepts(*sa->item->def) ||
-                          sa->accepts_tags == sb->accepts_tags;
-        bool sb_accepts = !sb->item->def || sa->accepts(*sb->item->def) ||
-                          sa->accepts_tags == sb->accepts_tags;
-        (void)sa_accepts; (void)sb_accepts;
+    if (!sa || !sb || sa == sb) return;
+
+    // Verify each slot accepts the incoming item (accepts_tags {"*"} always passes).
+    const ItemDef* def_a = sa->item ? sa->item->def : nullptr;
+    const ItemDef* def_b = sb->item ? sb->item->def : nullptr;
+    if (def_a && !sb->accepts(*def_a)) return;
+    if (def_b && !sa->accepts(*def_b)) return;
+
+    // Two-handed enforcement for hand slots.
+    // If both sides are hand slots we skip the check — both will change at once.
+    bool both_hands = (a == "l_hand" || a == "r_hand") &&
+                      (b == "l_hand" || b == "r_hand");
+    if (!both_hands) {
+        auto hand_ok = [&](const std::string& hand_id, const ItemDef* incoming) -> bool {
+            if (hand_id != "l_hand" && hand_id != "r_hand") return true;
+            const std::string other_id = (hand_id == "l_hand") ? "r_hand" : "l_hand";
+            InventorySlot* other = find_slot(other_id);
+            if (!other || !other->item) return true;
+            if (incoming && incoming->two_handed) return false;   // needs free other hand
+            if (other->item->def && other->item->def->two_handed) return false;
+            return true;
+        };
+        if (!hand_ok(a, def_b)) return;
+        if (!hand_ok(b, def_a)) return;
     }
+
     std::swap(sa->item, sb->item);
 }
 
@@ -160,25 +196,26 @@ InventorySlot* Inventory::find_empty_accepting(const ItemDef& def)
     return nullptr;
 }
 
-bool Inventory::auto_equip(ItemStack stack)
+std::optional<ItemStack> Inventory::auto_equip(ItemStack stack)
 {
-    if (!stack.def) return false;
+    if (!stack.def) return std::nullopt;  // bogus item — silently discard
     // 1. Try the designated equip slot
     if (!stack.def->equip_slot.empty()) {
-        if (put(stack.def->equip_slot, stack)) return true;
+        if (put(stack.def->equip_slot, stack)) return std::nullopt;
     }
     // 2. Try active hand
-    if (put(m_active_hand, stack)) return true;
+    if (put(m_active_hand, stack)) return std::nullopt;
     // 3. Try other hand
     const std::string other = (m_active_hand == "r_hand") ? "l_hand" : "r_hand";
-    if (put(other, stack)) return true;
+    if (put(other, stack)) return std::nullopt;
     // 4. Try pockets
-    if (put("l_pocket", stack)) return true;
-    if (put("r_pocket", stack)) return true;
+    if (put("l_pocket", stack)) return std::nullopt;
+    if (put("r_pocket", stack)) return std::nullopt;
     // 5. Any accepting empty slot
     InventorySlot* s = find_empty_accepting(*stack.def);
-    if (s) { s->item = stack; return true; }
-    return false;
+    if (s && put(s->id, stack)) return std::nullopt;
+    // Could not place — return the item so the caller can handle it
+    return stack;
 }
 
 float Inventory::total_weight() const
@@ -246,7 +283,30 @@ InventorySlot* Inventory::active_hand()
 
 void Inventory::cycle_active_hand()
 {
+    // If a two-handed item is held, force active hand to stay on the holding hand.
+    const std::string th = two_handed_hand_id();
+    if (!th.empty()) {
+        m_active_hand = th;
+        return;
+    }
     m_active_hand = (m_active_hand == "r_hand") ? "l_hand" : "r_hand";
+}
+
+std::string Inventory::two_handed_hand_id() const
+{
+    for (const std::string& id : {std::string("r_hand"), std::string("l_hand")}) {
+        const InventorySlot* s = find_slot(id);
+        if (s && s->item && s->item->def && s->item->def->two_handed)
+            return id;
+    }
+    return {};
+}
+
+std::string Inventory::gripped_hand_id() const
+{
+    const std::string th = two_handed_hand_id();
+    if (th.empty()) return {};
+    return (th == "r_hand") ? "l_hand" : "r_hand";
 }
 
 // ── Container open/close ──────────────────────────────────────────────────────

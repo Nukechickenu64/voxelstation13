@@ -161,15 +161,22 @@ bool Renderer::create_pipeline()
     vattrs[2] = { 2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, 24 }; // location 2 = uv
     vattrs[3] = { 3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT,  32 }; // location 3 = texIndex
 
-    // ── Colour target format (matches the swapchain) ──────────────────────────
+    // ── Colour target format (matches the swapchain) + alpha blending ────────
     SDL_GPUColorTargetDescription ctd{};
     ctd.format = SDL_GetGPUSwapchainTextureFormat(m_gpu, m_window);
     if (ctd.format == SDL_GPU_TEXTUREFORMAT_INVALID) {
         SDL_Log("create_pipeline: invalid swapchain format, aborting");
         return false;
     }
-
-    // ── Build pipeline ────────────────────────────────────────────────────────
+    // Enable src-alpha blending so tile textures with partial alpha (e.g. doors)
+    // render transparently.  The shader already outputs tc.a unchanged.
+    ctd.blend_state.enable_blend          = true;
+    ctd.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+    ctd.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+    ctd.blend_state.color_blend_op        = SDL_GPU_BLENDOP_ADD;
+    ctd.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+    ctd.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+    ctd.blend_state.alpha_blend_op        = SDL_GPU_BLENDOP_ADD;
     SDL_GPUGraphicsPipelineCreateInfo pci{};
     pci.vertex_shader   = m_vert_shader;
     pci.fragment_shader = m_frag_shader;
@@ -1873,6 +1880,124 @@ bool Renderer::load_earth_gif(const char* path)
     SDL_Log("load_earth_gif: loaded %u frames (%dx%d) from '%s'",
             m_earth_num_frames, w, h, path);
     return true;
+}
+
+// ── Door animation ────────────────────────────────────────────────────────────
+
+bool Renderer::load_door_anim(const char* gif_path, uint16_t /*door_anim_type_id*/)
+{
+    FILE* f = std::fopen(gif_path, "rb");
+    if (!f) {
+        SDL_Log("load_door_anim: cannot open '%s'", gif_path);
+        return false;
+    }
+    std::fseek(f, 0, SEEK_END);
+    long fsize = std::ftell(f);
+    std::rewind(f);
+    if (fsize <= 0) { std::fclose(f); return false; }
+
+    std::vector<uint8_t> buf(static_cast<size_t>(fsize));
+    std::fread(buf.data(), 1, buf.size(), f);
+    std::fclose(f);
+
+    int w = 0, h = 0, frame_count = 0, comp = 0;
+    int* delays_raw = nullptr;
+    stbi_uc* pixels = stbi_load_gif_from_memory(
+        buf.data(), static_cast<int>(buf.size()),
+        &delays_raw, &w, &h, &frame_count, &comp, 4);
+
+    if (!pixels || frame_count <= 0 || w <= 0 || h <= 0) {
+        SDL_Log("load_door_anim: stbi_load_gif_from_memory failed for '%s': %s",
+                gif_path, stbi_failure_reason());
+        if (pixels) stbi_image_free(pixels);
+        if (delays_raw) stbi_image_free(delays_raw);
+        return false;
+    }
+
+    constexpr uint32_t TEX_W = 32, TEX_H = 32;
+    constexpr uint32_t LAYER_BYTES = TEX_W * TEX_H * 4;
+    const size_t src_frame_bytes = static_cast<size_t>(w * h * 4);
+
+    m_door_anim_frames.resize(static_cast<size_t>(frame_count));
+    m_door_anim_delays.resize(static_cast<size_t>(frame_count));
+
+    for (int i = 0; i < frame_count; ++i) {
+        // stb GIF delays are in centiseconds → multiply by 10 for ms.
+        m_door_anim_delays[i] = (delays_raw && delays_raw[i] > 0) ? delays_raw[i] * 10 : 100;
+
+        m_door_anim_frames[i].resize(LAYER_BYTES);
+        uint8_t* dst    = m_door_anim_frames[i].data();
+        const stbi_uc* src = pixels + i * src_frame_bytes;
+
+        // Nearest-neighbor scale to 32×32
+        for (uint32_t py = 0; py < TEX_H; ++py)
+        for (uint32_t px = 0; px < TEX_W; ++px) {
+            int sx = static_cast<int>(px) * w / static_cast<int>(TEX_W);
+            int sy = static_cast<int>(py) * h / static_cast<int>(TEX_H);
+            const stbi_uc* sp = src + (sy * w + sx) * 4;
+            uint8_t*       dp = dst + (py * TEX_W + px) * 4;
+            dp[0] = sp[0]; dp[1] = sp[1]; dp[2] = sp[2]; dp[3] = sp[3];
+        }
+    }
+
+    if (delays_raw) stbi_image_free(delays_raw);
+    stbi_image_free(pixels);
+
+    SDL_Log("load_door_anim: loaded %d frames from '%s'", frame_count, gif_path);
+    return true;
+}
+
+void Renderer::update_tile_layer(uint16_t type_id, const uint8_t* rgba32x32_pixels)
+{
+    if (!m_tile_array || !rgba32x32_pixels) return;
+
+    constexpr uint32_t TEX_W = 32, TEX_H = 32;
+    constexpr uint32_t LAYER_BYTES = TEX_W * TEX_H * 4;
+
+    SDL_GPUTransferBufferCreateInfo tbci{};
+    tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    tbci.size  = LAYER_BYTES;
+    auto* tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &tbci);
+    if (!tbuf) return;
+
+    auto* ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
+    std::memcpy(ptr, rgba32x32_pixels, LAYER_BYTES);
+    SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
+
+    auto* cmd       = SDL_AcquireGPUCommandBuffer(m_gpu);
+    auto* copy_pass = SDL_BeginGPUCopyPass(cmd);
+
+    SDL_GPUTextureTransferInfo src{};
+    src.transfer_buffer = tbuf;
+    src.offset          = 0;
+    src.pixels_per_row  = TEX_W;
+    src.rows_per_layer  = TEX_H;
+
+    SDL_GPUTextureRegion dst{};
+    dst.texture   = m_tile_array;
+    dst.mip_level = 0;
+    dst.layer     = static_cast<Uint32>(type_id);
+    dst.x = dst.y = dst.z = 0;
+    dst.w = TEX_W;
+    dst.h = TEX_H;
+    dst.d = 1;
+
+    SDL_UploadToGPUTexture(copy_pass, &src, &dst, false);
+    SDL_EndGPUCopyPass(copy_pass);
+    SDL_SubmitGPUCommandBuffer(cmd);
+    SDL_ReleaseGPUTransferBuffer(m_gpu, tbuf);
+}
+
+int Renderer::door_anim_frame_delay_ms(int frm) const
+{
+    if (frm < 0 || frm >= static_cast<int>(m_door_anim_delays.size())) return 100;
+    return m_door_anim_delays[static_cast<size_t>(frm)];
+}
+
+const uint8_t* Renderer::door_anim_frame_pixels(int frm) const
+{
+    if (frm < 0 || frm >= static_cast<int>(m_door_anim_frames.size())) return nullptr;
+    return m_door_anim_frames[static_cast<size_t>(frm)].data();
 }
 
 void Renderer::queue_earth_background(glm::vec3 /*cam_pos*/, float yaw, float pitch)

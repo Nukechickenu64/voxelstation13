@@ -102,7 +102,9 @@ public:
     InventorySlot* find_empty_accepting(const ItemDef& def);
 
     // Auto-equip: try equip_slot first, then find_empty_accepting
-    bool           auto_equip(ItemStack stack);
+    // Tries to place `stack` into the best available slot.
+    // Returns nullopt on success; returns the item back on failure (nothing was modified).
+    std::optional<ItemStack> auto_equip(ItemStack stack);
 
     // Container management: open/close a container item in the given slot.
     // open_container generates child slots from the item's contents list and
@@ -131,6 +133,17 @@ public:
     InventorySlot* active_hand();
     void           cycle_active_hand();
     const std::string& active_hand_id() const { return m_active_hand; }
+
+    // Returns the hand slot id that currently holds a two-handed item,
+    // or "" if neither hand holds one.
+    std::string two_handed_hand_id() const;
+
+    // True if either hand holds a two-handed item (the other hand is gripped).
+    bool is_two_handed_held() const { return !two_handed_hand_id().empty(); }
+
+    // Returns the id of the hand that is gripped (not the primary holder).
+    // Returns "" if no two-handed item is held.
+    std::string gripped_hand_id() const;
 
 private:
     std::vector<InventorySlot> m_slots;

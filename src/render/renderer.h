@@ -68,6 +68,21 @@ public:
     // Must be called after init(), before the first queue_mobs().
     bool load_mob_textures(const char* texture_dir);
 
+    // Load door opening GIF frames into CPU memory (scaled to 32×32).
+    // door_anim_type_id is the tile atlas layer that will be patched in-place
+    // each tick to show the current frame.  Call after load_tile_textures().
+    bool load_door_anim(const char* gif_path, uint16_t door_anim_type_id);
+
+    // Overwrite one layer of the tile 2D-array texture in-place on the GPU.
+    // rgba32x32_pixels must point to exactly 32*32*4 = 4096 bytes (RGBA8).
+    // Submits a one-shot copy command; safe to call outside a render pass.
+    void update_tile_layer(uint16_t type_id, const uint8_t* rgba32x32_pixels);
+
+    // Door animation accessors (valid after load_door_anim succeeds).
+    int            door_anim_frame_count()           const { return static_cast<int>(m_door_anim_frames.size()); }
+    int            door_anim_frame_delay_ms(int frm) const;
+    const uint8_t* door_anim_frame_pixels  (int frm) const;
+
     // Queue Doom-style billboard sprites for all MobComponent entities.
     // Selects one of 4 rotation sprites based on camera-to-mob angle.
     // Call BEFORE begin_frame().
@@ -230,4 +245,8 @@ private:
     glm::mat4                m_sky_mvp          = glm::mat4(1.f); // rotation-only VP
     bool                     m_sky_mvp_ready    = false;   // MVP valid this frame
     bool                     m_sky_pending      = false;   // legacy alias (earth geo)
+
+    // ── Door GIF animation (CPU-side frames) ─────────────────────────────────
+    std::vector<std::vector<uint8_t>> m_door_anim_frames;  // [frame][32*32*4 bytes]
+    std::vector<int>                  m_door_anim_delays;  // ms per frame
 };

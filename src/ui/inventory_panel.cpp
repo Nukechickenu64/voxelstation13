@@ -97,51 +97,50 @@ PanelInteraction InventoryPanel::draw(Inventory& inv, glm::vec2 cursor,
         { "r_pocket",249.f,  "R.PKT" },
     };
 
-    const std::string& active = inv.active_hand_id();
+    const std::string& active      = inv.active_hand_id();
+    const std::string  grip_hand   = inv.gripped_hand_id();   // "" if no two-hander
+    const std::string  th_hand     = inv.two_handed_hand_id(); // holding slot
+    const bool two_hander = !th_hand.empty();
+
     for (const auto& hs : hand_slots) {
         glm::vec2 pos = { eq_origin.x + hs.x, hand_row_y };
         bool is_active_hand = (std::string(hs.id) == active);
+        bool is_grip_hand   = two_hander && (std::string(hs.id) == grip_hand);
         auto* slot = inv.find_slot(hs.id);
 
-        // Highlight active hand
+        // Highlight active hand (blue ring)
         if (is_active_hand) {
             m_ui.rect(pos - glm::vec2(2.f), {SZ + 4.f, SZ + 4.f},
                       {0.3f, 0.5f, 0.9f, 0.5f * alpha}, 5.f);
         }
 
+        // Gripped hand: amber ring + no item (visually gripping the two-handed item)
+        if (is_grip_hand) {
+            m_ui.rect(pos - glm::vec2(2.f), {SZ + 4.f, SZ + 4.f},
+                      {0.7f, 0.45f, 0.05f, 0.55f * alpha}, 5.f);
+        }
+
         bool dragging_from = m_drag.active && slot && slot->id == m_drag.src_slot;
-        bool hov = draw_slot(dragging_from ? nullptr : slot, hs.lbl, pos, {SZ, SZ},
-                             /*greyed=*/false, cursor);
-        if (hov) m_hovered_slot = hs.id;
-    }
 
-    // ── Belt tool sub-slots ───────────────────────────────────────────────────
-    const float belt_section_y = hand_row_y + SZ + GAP + 10.f;
-    const auto* belt_slot = inv.find_slot("belt");
-    bool belt_has_toolbelt = belt_slot && belt_slot->item.has_value();
-
-    draw_section_label({panel_tl.x + 10.f, belt_section_y}, "BELT SLOTS", alpha);
-
-    if (belt_slot && !belt_slot->children.empty()) {
-        const float bs_row_y = belt_section_y + 18.f;
-        // Draw 8 sub-slots in 2 rows of 4
-        for (int i = 0; i < static_cast<int>(belt_slot->children.size()) && i < 8; ++i) {
-            int col = i % 4;
-            int row = i / 4;
-            float bx = eq_origin.x + 25.f + static_cast<float>(col) * (SZ + GAP);
-            float by = bs_row_y + static_cast<float>(row) * (SZ + GAP);
-            // Use a slightly smaller slot for belt tools
-            const float BSZ = SZ - 4.f;
-            glm::vec2 bpos  = {bx, by};
-
-            // Children are stored on belt_slot but we need a mutable pointer
-            InventorySlot* child = const_cast<InventorySlot*>(&belt_slot->children[i]);
-            bool dragging_from = m_drag.active && child->id == m_drag.src_slot;
-            bool hov = draw_slot(dragging_from ? nullptr : child,
-                                 std::to_string(i + 1).c_str(),
-                                 bpos, {BSZ, BSZ},
-                                 /*greyed=*/!belt_has_toolbelt, cursor);
-            if (hov) m_hovered_slot = child->id;
+        if (is_grip_hand) {
+            // Show the gripped hand as an occupied-but-locked slot with amber tint
+            const auto* holding = inv.find_slot(th_hand);
+            m_ui.rect(pos, {SZ, SZ}, {0.35f, 0.22f, 0.03f, 0.8f * alpha}, 4.f);
+            if (holding && holding->item) {
+                SDL_GPUTexture* icon = m_ui.item_icon(holding->item->def->id);
+                if (icon)
+                    m_ui.image(pos + glm::vec2(4.f), {SZ - 8.f, SZ - 8.f}, icon, 0.6f * alpha);
+            }
+            m_ui.text(pos + glm::vec2(4.f, 2.f), "GRIP",
+                      {1.f, 0.75f, 0.1f, alpha}, 9.f);
+            // Still make it hoverable so tooltips/RMB work
+            if (cursor.x >= pos.x && cursor.x < pos.x + SZ &&
+                cursor.y >= pos.y && cursor.y < pos.y + SZ)
+                m_hovered_slot = hs.id;
+        } else {
+            bool hov = draw_slot(dragging_from ? nullptr : slot, hs.lbl, pos, {SZ, SZ},
+                                 /*greyed=*/false, cursor);
+            if (hov) m_hovered_slot = hs.id;
         }
     }
 

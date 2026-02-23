@@ -140,10 +140,11 @@ void ChunkMesher::worker_loop()
                     int nx2 = x + k_flat_n[fi][0];
                     int ny2 = y + k_flat_n[fi][1];
                     int nz2 = z + k_flat_n[fi][2];
-                    // Cull only against solid cube neighbours (not other flat planes)
+                    // Cull only against solid cube neighbours (not flat planes or doors)
                     bool blocked = in_bounds(nx2, ny2, nz2)
                                 && (at(nx2, ny2, nz2).type_id != 0)
-                                && !(at(nx2, ny2, nz2).flags & (VFLAG_FLAT_PLANE | VFLAG_FLAT_TOP));
+                                && (at(nx2, ny2, nz2).flags & VFLAG_OPAQUE)         // transparent neighbours never cull
+                                && !(at(nx2, ny2, nz2).flags & (VFLAG_FLAT_PLANE | VFLAG_FLAT_TOP | VFLAG_VERT_PLANE_Z));
                     if (blocked) continue;
                     const FaceGeo& fg = k_flat[fi];
                     const float tex_idx = static_cast<float>(v.type_id);
@@ -167,14 +168,51 @@ void ChunkMesher::worker_loop()
                 continue;  // skip cube meshing
             }
 
+            // ── Vertical-plane door (VFLAG_VERT_PLANE_Z) ──────────────────────
+            // Double-sided plane at z=0.5 of the cell, spanning full X and Y.
+            // Visible from both +Z and -Z so the door shows from either side.
+            if (v.flags & VFLAG_VERT_PLANE_Z) {
+                // Door plane geometry: two faces at fz+0.5, spanning x=0..1, y=0..1
+                // Vertex order places y=1 (top) at UV (0,0) so the texture is right-side-up.
+                static const FaceGeo k_door[2] = {
+                    // NegZ face: top-left=(0,1), top-right=(1,1), bot-right=(1,0), bot-left=(0,0)
+                    // CCW from -Z view → normal -Z; UV (0,0)=top-left in texture space
+                    { { {0,1,0.5f},{1,1,0.5f},{1,0,0.5f},{0,0,0.5f} }, { 0, 0,-1} },
+                    // PosZ face: looking from +Z, left=+X; top-left=(1,1), top-right=(0,1)
+                    { { {1,1,0.5f},{0,1,0.5f},{0,0,0.5f},{1,0,0.5f} }, { 0, 0, 1} },
+                };
+                const float tex_idx = static_cast<float>(v.type_id);
+                for (int fi = 0; fi < 2; ++fi) {
+                    const FaceGeo& fg = k_door[fi];
+                    uint32_t base_d = static_cast<uint32_t>(mesh.vertices.size() / 9);
+                    for (int vi = 0; vi < 4; ++vi) {
+                        mesh.vertices.push_back(fx + fg.v[vi][0]);
+                        mesh.vertices.push_back(fy + fg.v[vi][1]);
+                        mesh.vertices.push_back(fz + fg.v[vi][2]);
+                        mesh.vertices.push_back(fg.n[0]);
+                        mesh.vertices.push_back(fg.n[1]);
+                        mesh.vertices.push_back(fg.n[2]);
+                        mesh.vertices.push_back(k_uvs[vi][0]);
+                        mesh.vertices.push_back(k_uvs[vi][1]);
+                        mesh.vertices.push_back(tex_idx);
+                    }
+                    mesh.indices.insert(mesh.indices.end(), {
+                        base_d, base_d+1, base_d+2,
+                        base_d, base_d+2, base_d+3
+                    });
+                }
+                continue;  // skip cube meshing
+            }
+
             for (int f = 0; f < 6; ++f) {
                 int nx = x + k_offsets[f][0];
                 int ny = y + k_offsets[f][1];
                 int nz = z + k_offsets[f][2];
-                // Flat-plane neighbours don't occlude cube faces
+                // Flat-plane and door neighbours don't occlude cube faces
                 bool neighbour_solid = in_bounds(nx, ny, nz)
                                        && (at(nx, ny, nz).type_id != 0)
-                                       && !(at(nx, ny, nz).flags & (VFLAG_FLAT_PLANE | VFLAG_FLAT_TOP));
+                                       && (at(nx, ny, nz).flags & VFLAG_OPAQUE)         // transparent neighbours never cull
+                                       && !(at(nx, ny, nz).flags & (VFLAG_FLAT_PLANE | VFLAG_FLAT_TOP | VFLAG_VERT_PLANE_Z));
                 if (neighbour_solid) continue;  // face hidden
 
                 const FaceGeo& fg = k_faces[f];

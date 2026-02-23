@@ -90,6 +90,10 @@ OP_IMAGE_SAMPLE_IMPLICIT_LOD = 87
 OP_F_ORD_GREATER_THAN  = 186
 OP_F_ORD_LESS_THAN     = 184
 OP_SELECT              = 169
+OP_SELECTION_MERGE     = 247
+OP_BRANCH              = 249
+OP_BRANCH_CONDITIONAL  = 250
+OP_KILL                = 252
 
 
 def f2w(f):
@@ -323,6 +327,7 @@ def build_fragment():
             vec3  L    = vec3(0.57735, 0.57735, 0.57735);
             float diff = dot(fragNormal, L) * 0.45 + 0.55;
             vec4  tc   = texture(tex, vec3(fragUV, fragTexIndex));
+            if (tc.a < 0.05) discard;   // alpha test: no depth write for invisible pixels
             outColor   = vec4(tc.rgb * diff, tc.a);
         }
     """
@@ -375,6 +380,12 @@ def build_fragment():
     ID_OUT_G        = s.new()
     ID_OUT_B        = s.new()
     ID_OUT_COLOR    = s.new()
+    # Alpha test
+    ID_BOOL         = s.new()   # TypeBool
+    ID_ALPHA_THRESH = s.new()   # constant 0.05
+    ID_ALPHA_CMP    = s.new()   # tc.a < threshold (bool result)
+    ID_DISCARD_LBL  = s.new()   # branch target → OpKill
+    ID_CONTINUE_LBL = s.new()   # merge / continue block
 
     # ── Capabilities ─────────────────────────────────────────────────────────
     s.emit(OP_CAPABILITY, CAP_SHADER)
@@ -422,9 +433,11 @@ def build_fragment():
 
     s.emit(OP_CONSTANT,           ID_FLOAT, ID_LC,   f2w(0.57735))
     s.emit(OP_CONSTANT_COMPOSITE, ID_VEC3,  ID_LIGHT, ID_LC, ID_LC, ID_LC)
+    s.emit(OP_TYPE_BOOL,          ID_BOOL)
     s.emit(OP_CONSTANT,           ID_FLOAT, ID_C045, f2w(0.45))
     s.emit(OP_CONSTANT,           ID_FLOAT, ID_C055, f2w(0.55))
     s.emit(OP_CONSTANT,           ID_FLOAT, ID_C1,   f2w(1.0))
+    s.emit(OP_CONSTANT,           ID_FLOAT, ID_ALPHA_THRESH, f2w(0.05))
 
     # ── Function ──────────────────────────────────────────────────────────────
     s.emit(OP_FUNCTION, ID_VOID, ID_MAIN, FC_NONE, ID_FN_VT)
@@ -452,6 +465,15 @@ def build_fragment():
     s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_TC_G, ID_TC, 1)
     s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_TC_B, ID_TC, 2)
     s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_TC_A, ID_TC, 3)
+
+    # Alpha test: discard fully-transparent fragments so they don't write the depth buffer,
+    # which would hide opaque geometry behind them (e.g. walls visible through door glass).
+    s.emit(OP_F_ORD_LESS_THAN,     ID_BOOL,  ID_ALPHA_CMP,   ID_TC_A, ID_ALPHA_THRESH)
+    s.emit(OP_SELECTION_MERGE,     ID_CONTINUE_LBL, 0)
+    s.emit(OP_BRANCH_CONDITIONAL,  ID_ALPHA_CMP, ID_DISCARD_LBL, ID_CONTINUE_LBL)
+    s.emit(OP_LABEL,               ID_DISCARD_LBL)
+    s.emit(OP_KILL)
+    s.emit(OP_LABEL,               ID_CONTINUE_LBL)
 
     # Multiply RGB by diffuse factor
     s.emit(OP_F_MUL, ID_FLOAT, ID_OUT_R, ID_TC_R, ID_BIASED)

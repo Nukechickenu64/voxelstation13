@@ -71,5 +71,29 @@
     "health": 30,
     "emit_light": 14,
     "material": "glass"
+  },
+  {
+    "id":    "door",
+    "name":  "Airlock Door",
+    "icon":  "specialtile/door",
+    "flags": ["SOLID", "VERT_PLANE_Z"],
+    "health": 200,
+    "material": "steel"
+  },
+  {
+    "id":    "door_anim",
+    "name":  "Airlock Door (Animating)",
+    "icon":  "specialtile/door",
+    "flags": ["SOLID", "VERT_PLANE_Z"],
+    "health": 200,
+    "material": "steel"
+  },
+  {
+    "id":    "door_open",
+    "name":  "Airlock Door (Open)",
+    "icon":  "specialtile/door_open",
+    "flags": ["VERT_PLANE_Z"],
+    "health": 200,
+    "material": "steel"
   }
 ]
