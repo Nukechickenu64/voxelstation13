@@ -71,6 +71,7 @@ int main(int /*argc*/, char* /*argv*/[])
     renderer.load_tile_textures(voxel_reg, "textures");
     renderer.load_item_textures(item_reg,  "textures");
     renderer.load_mob_textures("textures");
+    renderer.load_human_bodyparts("legacysets/extracted");
     renderer.load_door_anim("textures/specialtile/door_opening.gif",
                              voxel_reg.id_of("door_anim"));
 
@@ -326,10 +327,19 @@ int main(int /*argc*/, char* /*argv*/[])
             tr.pos = { 4.f, 1.f, -2.f };
             tr.yaw = 0.f;   // faces -Z (same default as the camera)
             server.entities().add_component<TransformComponent>(dummy, tr);
+            // Legacy sprite fallback (still used if HumanAppearance is absent)
             MobComponent mob{};
             mob.species = "human";
             mob.variant = "female";
             server.entities().add_component<MobComponent>(dummy, mob);
+            // Overlay-assembled human appearance
+            HumanAppearance app{};
+            // Layer 0: greyscale human body parts tinted to a skin tone.
+            // sprite_dir = "bodyparts_greyscale", prefix = "human", gender = "_f",
+            // tint = a warm skin colour (can be changed per-entity for custom tones).
+            app.layers.push_back({ "bodyparts_greyscale", "human", "_f", {240, 195, 155, 255} });
+            app.dirty = true;
+            server.entities().add_component<HumanAppearance>(dummy, app);
         }
 
         // ── Atmospherics bootstrap ──────────────────────────────────────────
@@ -1218,10 +1228,10 @@ int main(int /*argc*/, char* /*argv*/[])
             renderer.begin_frame(alpha);
 
             renderer.draw_world(server.world(), cam_pos, cam_yaw, cam_pitch);
+            renderer.draw_models();       // solid geometry – must write depth before sprites
             renderer.draw_face_highlight(hit);
-            renderer.draw_world_items();
-            renderer.draw_mobs();
-            renderer.draw_models();
+            renderer.draw_world_items();  // sprites (depth_write=false)
+            renderer.draw_mobs();         // sprites (depth_write=false)
             renderer.draw_viewmodel(0); // TODO: held item type id
 
             // UI pass
@@ -1318,6 +1328,31 @@ int main(int /*argc*/, char* /*argv*/[])
                         static_cast<int>(std::floor(cam_pos.z))
                     };
                     dbg.enclosed = enclosure_detector.is_enclosed(air_cell);
+                }
+
+                // Mob facing arrows
+                dbg.view_proj = vp_mat;
+                dbg.fb_w      = renderer.width();
+                dbg.fb_h      = renderer.height();
+                {
+                    // Collect all mob entities (HumanAppearance or legacy MobComponent)
+                    auto push_mob = [&](EntityID eid, const char* name) {
+                        auto* tr = server.entities().get_component<TransformComponent>(eid);
+                        if (!tr) return;
+                        MobDebugInfo info;
+                        info.pos   = tr->pos;
+                        info.yaw   = tr->yaw;
+                        info.label = name;
+                        dbg.mobs.push_back(info);
+                    };
+                    server.entities().each<HumanAppearance>([&](EntityID eid, HumanAppearance&) {
+                        push_mob(eid, "human");
+                    });
+                    server.entities().each<MobComponent>([&](EntityID eid, MobComponent& mc) {
+                        // Skip entities that are also rendered as HumanAppearance (already added)
+                        if (server.entities().get_component<HumanAppearance>(eid)) return;
+                        push_mob(eid, mc.species.c_str());
+                    });
                 }
 
                 debug_overlay.draw(dbg);

@@ -1666,6 +1666,24 @@ uint32_t Renderer::get_or_assemble_human(HumanAppearance& app, int dir)
         }
     }
 
+    // ── Horizontal flip so that the mob's anatomical left appears on the
+    //    viewer's right when facing south (BYOND labels parts from the mob's
+    //    own perspective; we need to mirror to get the viewer's perspective).
+    {
+        const uint32_t row_bytes = W * 4;
+        for (uint32_t row = 0; row < H; ++row) {
+            uint8_t* row_ptr = canvas.data() + row * row_bytes;
+            for (uint32_t col = 0; col < W / 2; ++col) {
+                uint8_t* a = row_ptr + col * 4;
+                uint8_t* b = row_ptr + (W - 1 - col) * 4;
+                std::swap(a[0], b[0]);
+                std::swap(a[1], b[1]);
+                std::swap(a[2], b[2]);
+                std::swap(a[3], b[3]);
+            }
+        }
+    }
+
     // ── Upload to GPU and cache ───────────────────────────────────────────────
     if (m_assembly_used >= k_max_assembly_layers) {
         SDL_Log("get_or_assemble_human: assembly cache full (%u layers)", k_max_assembly_layers);

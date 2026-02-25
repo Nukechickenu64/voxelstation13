@@ -59,6 +59,7 @@ void DebugOverlay::draw(const DebugOverlayState& state)
 {
     draw_left_column(state);
     draw_right_column(state);
+    draw_mob_arrows(state);
 }
 
 void DebugOverlay::draw_left_column(const DebugOverlayState& s)
@@ -277,4 +278,88 @@ void DebugOverlay::draw_right_column(const DebugOverlayState& s)
         emit({x, y}, s.enclosed ? "Enclosed: YES" : "Enclosed: NO", enc_col);
     }
     next();
+}
+
+// ── draw_mob_arrows ───────────────────────────────────────────────────────────
+// For each mob in the state, project its world-space foot position to screen
+// and draw a small directional arrow pointing in the mob's yaw direction.
+void DebugOverlay::draw_mob_arrows(const DebugOverlayState& s)
+{
+    if (s.mobs.empty() || s.fb_w == 0 || s.fb_h == 0) return;
+
+    const float hw = static_cast<float>(s.fb_w) * 0.5f;
+    const float hh = static_cast<float>(s.fb_h) * 0.5f;
+
+    // Arrow appearance
+    const glm::vec4 arrow_col  = {1.0f, 0.9f, 0.1f, 0.9f};  // bright yellow
+    const glm::vec4 label_col  = {1.0f, 1.0f, 0.5f, 1.0f};
+    constexpr float k_arrow_len  = 22.f;   // stem length in screen-pixels
+    constexpr float k_head_len   = 9.f;    // arrowhead arm length
+    constexpr float k_line_w     = 2.f;
+
+    // Helper: project a world-space point to screen coords.
+    // Returns false if the point is behind the near plane (w <= 0).
+    auto project = [&](glm::vec3 wp, float& sx, float& sy) -> bool {
+        glm::vec4 clip = s.view_proj * glm::vec4(wp, 1.f);
+        if (clip.w <= 0.f) return false;
+        float ndcx = clip.x / clip.w;
+        float ndcy = clip.y / clip.w;
+        sx = (ndcx + 1.f) * hw;
+        sy = (1.f - ndcy) * hh;   // NDC +Y is up; screen +Y is down
+        return true;
+    };
+
+    for (const auto& mob : s.mobs) {
+        // Project the mob's foot position to the screen.
+        float cx, cy;
+        if (!project(mob.pos, cx, cy)) continue;
+
+        // Loose off-screen cull (generous margin so arrows near edges show)
+        if (cx < -60.f || cx > s.fb_w + 60.f) continue;
+        if (cy < -60.f || cy > s.fb_h + 60.f) continue;
+
+        // Compute screen-space direction from the world-space forward vector.
+        // We project a point slightly ahead of the mob and derive dx/dy.
+        float yaw_rad = glm::radians(mob.yaw);
+        float world_dx = std::sin(yaw_rad);   // +X component of forward
+        float world_dz = -std::cos(yaw_rad);  // -Z component of forward (yaw 0 = -Z)
+        glm::vec3 tip_world = mob.pos + glm::vec3(world_dx, 0.f, world_dz) * 0.5f;
+
+        float tx, ty;
+        if (!project(tip_world, tx, ty)) continue;
+
+        float sdx = tx - cx;
+        float sdy = ty - cy;
+        float slen = std::sqrt(sdx * sdx + sdy * sdy);
+        if (slen < 0.001f) continue;
+
+        // Unit direction in screen space
+        float ndx = sdx / slen;
+        float ndy = sdy / slen;
+
+        // Arrow: centre circle → tip
+        glm::vec2 origin = {cx, cy};
+        glm::vec2 tip    = {cx + ndx * k_arrow_len, cy + ndy * k_arrow_len};
+        m_ui.line(origin, tip, arrow_col, k_line_w);
+
+        // Small circle at the base (origin indicator)
+        // Draw as a tiny cross so we don't need a circle primitive
+        float cr = 3.f;
+        m_ui.line({cx - cr, cy}, {cx + cr, cy}, arrow_col, k_line_w);
+        m_ui.line({cx, cy - cr}, {cx, cy + cr}, arrow_col, k_line_w);
+
+        // Arrowhead: two arms going back-left and back-right from the tip
+        // perp = (-ndy, ndx)  (90° CCW rotation of (ndx, ndy))
+        float ax1 = tip.x - ndx * k_head_len + (-ndy) * k_head_len * 0.5f;
+        float ay1 = tip.y - ndy * k_head_len -  ndx  * k_head_len * 0.5f;
+        float ax2 = tip.x - ndx * k_head_len - (-ndy) * k_head_len * 0.5f;
+        float ay2 = tip.y - ndy * k_head_len +  ndx  * k_head_len * 0.5f;
+        m_ui.line(tip, {ax1, ay1}, arrow_col, k_line_w);
+        m_ui.line(tip, {ax2, ay2}, arrow_col, k_line_w);
+
+        // Cardinal label (e.g. "N", "SW") + optional mob name
+        std::string lbl = cardinal_from_yaw(mob.yaw);
+        if (!mob.label.empty()) lbl += " " + mob.label;
+        m_ui.text({cx + 6.f, cy - 16.f}, lbl, label_col, 10.f);
+    }
 }

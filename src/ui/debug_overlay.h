@@ -3,6 +3,15 @@
 #include "simulation/atmos.h"
 #include <glm/glm.hpp>
 #include <string>
+#include <vector>
+
+// ── MobDebugInfo ─────────────────────────────────────────────────────────────
+// Per-mob data for the facing-arrow visualisation in the debug overlay.
+struct MobDebugInfo {
+    glm::vec3   pos{};      // world-space foot position
+    float       yaw = 0.f; // degrees (0 = -Z / North)
+    std::string label;     // optional name; shown as small text near the arrow
+};
 
 // ── DebugOverlayState ──────────────────────────────────────────────────────────
 // All data fed into the debug overlay each frame.
@@ -50,6 +59,12 @@ struct DebugOverlayState {
 
     // ── Enclosure
     bool enclosed = false;
+
+    // ── Mob facing arrows (F5 overlay)
+    glm::mat4              view_proj{};  // VP matrix for 3D→screen projection
+    int                    fb_w = 0;    // framebuffer width  (pixels)
+    int                    fb_h = 0;    // framebuffer height (pixels)
+    std::vector<MobDebugInfo> mobs;     // all mobs to draw arrows for
 };
 
 // ── DebugOverlay ──────────────────────────────────────────────────────────────
@@ -64,6 +79,7 @@ public:
 private:
     void draw_left_column (const DebugOverlayState& s);
     void draw_right_column(const DebugOverlayState& s);
+    void draw_mob_arrows  (const DebugOverlayState& s);
 
     // Emit one line of text over a translucent background pill.
     // `x` is the left edge; the background widens to fit the text.
