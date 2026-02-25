@@ -15,6 +15,7 @@
 #include "simulation/world_items.h"
 #include "simulation/mob_system.h"
 #include "simulation/enclosure.h"
+#include "simulation/model_objects.h"
 #include "input/input_manager.h"
 #include "input/alt_mode.h"
 #include "inventory/inventory.h"
@@ -22,12 +23,14 @@
 #include "audio/audio_manager.h"
 #include "data/voxel_registry.h"
 #include "data/data_validator.h"
+#include "data/mob_species_registry.h"
 #include "ui/hud.h"
 #include "ui/inventory_panel.h"
 #include "ui/context_menu.h"
 #include "ui/creative_menu.h"
 #include "ui/debug_overlay.h"
 #include "ui/gas_overlay.h"
+#include "ui/player_stats_overlay.h"
 #include "network/server.h"
 #include "network/client.h"
 
@@ -56,6 +59,9 @@ int main(int /*argc*/, char* /*argv*/[])
     ItemRegistry item_reg;
     item_reg.load_directory("data/item_types");
 
+    MobSpeciesRegistry mob_species_reg;
+    mob_species_reg.load_directory("data/mob_species");
+
     // ── 3. Renderer + window ──────────────────────────────────────────────────
     Renderer renderer;
     if (!renderer.init("VoxelStation 13", 1280, 720)) {
@@ -75,6 +81,29 @@ int main(int /*argc*/, char* /*argv*/[])
     }
     ui_renderer.load_item_icons(item_reg, "textures");
 
+    // ── 3b. Static 3-D models + ModelObjectManager ─────────────────────────────
+    renderer.load_model("smes", "models/SMES.mesh", "textures/models/smes.png");
+
+    ModelObjectManager model_objs;
+    {
+        glm::vec3 mn, mx;
+        if (renderer.model_local_aabb("smes", mn, mx))
+            model_objs.register_extents("smes", mn, mx);
+
+        // Place one SMES in the centre of the test room, resting on the floor.
+        // cell {0,1,0} → world origin at (0.5, 1.0, 0.5).
+        //   blocks_mobs = true  (players cannot walk through it)
+        //   blocks_gas  = false (gas flows around it; set true to seal a room)
+        StaticModelObject smes_def;
+        smes_def.name        = "smes";
+        smes_def.cell        = {0, 1, 0};
+        smes_def.yaw         = 0.f;
+        smes_def.scale       = 1.f;
+        smes_def.blocks_mobs = true;
+        smes_def.blocks_gas  = false;
+        model_objs.add(smes_def);
+    }
+
     // ── 4. Chunk mesher ───────────────────────────────────────────────────────
     ChunkMesher mesher;
     mesher.start(2);
@@ -83,6 +112,8 @@ int main(int /*argc*/, char* /*argv*/[])
     // ── 5. Server (local single-player) ──────────────────────────────────────
     Server server;
     server.start(0); // port 0 = loopback / no networking
+    server.set_species_registry(&mob_species_reg);
+    server.set_model_objects(&model_objs);
 
     // ── 6. Client ─────────────────────────────────────────────────────────────
     Client client;
@@ -115,6 +146,8 @@ int main(int /*argc*/, char* /*argv*/[])
     bool           debug_overlay_visible = false;
     GasOverlay     gas_overlay(ui_renderer);
     bool           gas_overlay_visible   = false;
+    PlayerStatsOverlay player_stats_overlay(ui_renderer);
+    bool               player_stats_visible = false;
     double         sim_time              = 0.0;  // monotonic seconds, for overlay animations
 
     // ── 11. Player inventory ──────────────────────────────────────────────────
@@ -307,6 +340,8 @@ int main(int /*argc*/, char* /*argv*/[])
 
     // ── 13. HUD state ─────────────────────────────────────────────────────────
     HUDState hud_state;
+    // health values are synced each tick from HealthComponent — initialise
+    // to sensible defaults in case the component isn't ready yet.
     hud_state.health     = 100.f;
     hud_state.health_max = 100.f;
 
@@ -319,6 +354,14 @@ int main(int /*argc*/, char* /*argv*/[])
     EntityID hovered_item_entity = NULL_ENTITY;
     std::vector<EntityID> item_candidates;   // all items in selection area, sorted nearest-first
     int scroll_item_idx = 0;                 // which candidate is selected (scroll wheel cycles)
+
+    // Alt-mode world drag: entity whose item is being dragged into a panel slot
+    EntityID alt_drag_entity = NULL_ENTITY;
+
+    // True while a context menu was opened via FPS right-click (not alt-mode).
+    bool fps_ctx_rclick      = false;
+    bool fps_ctx_just_opened = false;
+    EntityID fps_ctx_entity  = NULL_ENTITY; // entity the menu was opened on
 
     // ── 14b. Build mode state ─────────────────────────────────────────────────
     bool build_mode = false;
@@ -479,6 +522,16 @@ int main(int /*argc*/, char* /*argv*/[])
                     }
                     s_f5_prev = f5_now;
                 }
+                // F6: toggle player stats overlay
+                {
+                    static bool s_f6_prev = false;
+                    bool f6_now = ks[SDL_SCANCODE_F6];
+                    if (f6_now && !s_f6_prev) {
+                        player_stats_visible = !player_stats_visible;
+                        SDL_Log("Player stats overlay: %s", player_stats_visible ? "ON" : "OFF");
+                    }
+                    s_f6_prev = f6_now;
+                }
             }
 
             // Movement wish direction – full 3D when noclip or jetpack in zero-G,
@@ -509,8 +562,9 @@ int main(int /*argc*/, char* /*argv*/[])
                 }
             }
 
-            // Use full 3D thrust direction in noclip or zero-G+jetpack
-            bool full_3d = noclip_active || (zero_g_active && jetpack_present);
+            // Use full 3D thrust direction in noclip, zero-G+jetpack, or wall-grab
+            bool grab_wall_held = input.is_held(Action::GrabWall);
+            bool full_3d = noclip_active || (zero_g_active && jetpack_present) || (zero_g_active && grab_wall_held);
             glm::vec3 fwd, right;
             if (full_3d) {
                 fwd = {
@@ -524,8 +578,9 @@ int main(int /*argc*/, char* /*argv*/[])
                 right = glm::cross(fwd, {0.f, 1.f, 0.f});
             }
 
-            // In zero-G without a jetpack the player cannot self-propel
-            bool can_move = !zero_g_active || jetpack_present || noclip_active;
+            // In zero-G without a jetpack the player cannot self-propel,
+            // unless they are wall-grabbing (Ctrl) — then WASD crawls along surfaces
+            bool can_move = !zero_g_active || jetpack_present || noclip_active || grab_wall_held;
             if (can_move) {
                 if (input.is_held(Action::MoveForward)) wish += fwd;
                 if (input.is_held(Action::MoveBack))    wish -= fwd;
@@ -537,18 +592,19 @@ int main(int /*argc*/, char* /*argv*/[])
             if (player != NULL_ENTITY) {
                 server.queue_player_input(player, PlayerInput{
                     wish,
-                    input.is_held   (Action::Crouch),
-                    input.is_held   (Action::Sprint),
+                    input.is_held(Action::Sprint),
+                    grab_wall_held,
                 });
             }
 
-            // Switch active hand (Space)
+            // Switch active hand (Space) — always available
             if (input.is_pressed(Action::SwitchHand))
                 player_inv.cycle_active_hand();
 
             // Scroll wheel cycles through overlapping items in the selection area
+            // (suppress when the context menu is open — it owns the scroll there)
             float scroll = input.scroll_delta();
-            if (scroll != 0.f && !item_candidates.empty()) {
+            if (scroll != 0.f && !item_candidates.empty() && !ctx_menu.is_open()) {
                 scroll_item_idx -= (scroll > 0.f ? 1 : -1);
                 int n = static_cast<int>(item_candidates.size());
                 scroll_item_idx = ((scroll_item_idx % n) + n) % n;
@@ -562,17 +618,25 @@ int main(int /*argc*/, char* /*argv*/[])
             client.tick(dt);
             world_items.tick(dt);  // settle floating items that have come to rest
 
-            // Toggle zero-G when player crosses the airlock outer door (z > 12)
+            // ── Zero-G: anywhere outside a pressurised room is zero-G ──────────
+            // Untracked cells (null zone) = open space → zero-G ON.
+            // Only cells inside an explicit non-space atmos zone have gravity.
             if (player != NULL_ENTITY) {
                 auto* cc2 = server.entities().get_component<CharacterControllerComponent>(player);
                 auto* tr2 = server.entities().get_component<TransformComponent>(player);
                 if (cc2 && tr2) {
-                    bool in_space = (tr2->pos.z > 12.f);
+                    glm::ivec3 cell = {
+                        static_cast<int>(std::floor(tr2->pos.x)),
+                        static_cast<int>(std::floor(tr2->pos.y)),
+                        static_cast<int>(std::floor(tr2->pos.z))
+                    };
+                    AtmosZoneID az        = server.atmos().zone_at(cell);
+                    const AtmosZone* zptr = server.atmos().zone(az);
+                    // In space if: no tracked zone (open void) OR zone is explicitly space
+                    bool in_space = !zptr || zptr->is_space;
                     if (in_space != cc2->zero_g) {
                         cc2->zero_g = in_space;
-                        SDL_Log("Airlock: player %s space (zero_g=%s)",
-                                in_space ? "entered" : "left",
-                                in_space ? "on" : "off");
+                        SDL_Log("Zero-G: %s", in_space ? "entered space" : "left space");
                     }
                 }
             }
@@ -613,6 +677,15 @@ int main(int /*argc*/, char* /*argv*/[])
             hud_state.clock_str          = "00:00"; // TODO: round timer
             hud_state.cam_pitch          = cam_pitch;
             hud_state.active_hand_is_left = (player_inv.active_hand_id() == "l_hand");
+
+            // ── Player health from HealthComponent ───────────────────────────
+            if (player != NULL_ENTITY) {
+                auto* hp = server.entities().get_component<HealthComponent>(player);
+                if (hp) {
+                    hud_state.health     = hp->current();
+                    hud_state.health_max = hp->health_max;
+                }
+            }
 
             // ── Suit sensors: read atmos at player feet ───────────────────────
             {
@@ -765,8 +838,8 @@ int main(int /*argc*/, char* /*argv*/[])
             // Held item   + item  → item-on-item interaction
             // Held item   + turf  → knock on the wall with held item
             {
-                bool fps_lmb = !alt_mode.active() && !build_mode && input.is_pressed(Action::PrimaryInteract);
-                bool e_press = !alt_mode.active() && input.is_pressed(Action::PickUp);
+                bool fps_lmb = !alt_mode.active() && !build_mode && !ctx_menu.is_open() && input.is_pressed(Action::PrimaryInteract);
+                bool e_press = !alt_mode.active() && !ctx_menu.is_open() && input.is_pressed(Action::PickUp);
                 if (fps_lmb || e_press) {
                     constexpr float ITEM_REACH = 1.5f;
                     float yr = glm::radians(cam_yaw), pr = glm::radians(cam_pitch);
@@ -895,18 +968,115 @@ int main(int /*argc*/, char* /*argv*/[])
                 }  // end if (fps_lmb || e_press)
             }  // end interaction block
 
-            // ── Alt-mode LMB click on world item ─────────────────────────────
+            // ── FPS RMB on world item → scrollable context menu ───────────────
+            if (!alt_mode.active() && !build_mode && !ctx_menu.is_open()
+                && input.is_pressed(Action::SecondaryInteract)) {
+                constexpr float CTX_REACH = 5.f;
+                float yr2 = glm::radians(cam_yaw), pr2 = glm::radians(cam_pitch);
+                glm::vec3 rdir2 = {
+                    std::cos(pr2) * std::sin(yr2),
+                    std::sin(pr2),
+                   -std::cos(pr2) * std::cos(yr2)
+                };
+                RayHit fhit2 = server.world().raycast(cam_pos, rdir2, CTX_REACH);
+                float ict_dist = 0.f;
+                EntityID ctx_ent = world_items.ray_cast_items(
+                    cam_pos, rdir2, CTX_REACH,
+                    fhit2.valid ? fhit2.distance : CTX_REACH, ict_dist);
+                SDL_Log("CTX RMB: alt=%d build=%d open=%d ent=%u dist=%.2f",
+                    (int)alt_mode.active(), (int)build_mode, (int)ctx_menu.is_open(),
+                    (unsigned)ctx_ent, ict_dist);
+
+                if (ctx_ent != NULL_ENTITY) {
+                    auto* wic = server.entities().get_component<WorldItemComponent>(ctx_ent);
+                    if (wic && wic->item.def) {
+                        std::vector<ContextEntry> entries;
+                        EntityID eid = ctx_ent;
+                        constexpr float PICKUP_REACH = 1.5f;  // must match ITEM_REACH
+
+                        // Pick Up — only enabled when close enough
+                        entries.push_back({"Pick Up", ict_dist <= PICKUP_REACH, false,
+                            [&player_inv, &world_items, eid, &cam_pos]() {
+                                auto picked = world_items.pick_up(eid);
+                                if (picked && picked->def) {
+                                    auto leftover = player_inv.auto_equip(std::move(*picked));
+                                    if (leftover)
+                                        world_items.spawn_floating(cam_pos, std::move(*leftover));
+                                }
+                            }});
+
+                        // Examine
+                        {
+                            const ItemDef* idef = wic->item.def;
+                            std::string item_name  = idef->name;
+                            float item_w    = idef->weight;
+                            float item_v    = idef->volume;
+                            int   item_cnt  = wic->item.count;
+                            float item_intg = wic->item.integrity;
+                            std::string cust = wic->item.custom_name;
+                            entries.push_back({"Examine", true, false,
+                                [&hud_state, item_name, item_w, item_v,
+                                 item_cnt, item_intg, cust]() {
+                                    std::string display = cust.empty()
+                                        ? item_name : item_name + ' ' + '\"' + cust + '\"';
+                                    if (item_cnt > 1) display += " x" + std::to_string(item_cnt);
+                                    char buf[160];
+                                    std::snprintf(buf, sizeof(buf),
+                                        "[Examine] %s \xe2\x80\x94 %.2f kg / %.1f L \xe2\x80\x94 %s",
+                                        display.c_str(), item_w, item_v,
+                                        condition_label(item_intg));
+                                    if (hud_state.radio_log.size() >= 30)
+                                        hud_state.radio_log.pop_front();
+                                    hud_state.radio_log.push_back(buf);
+                                }});
+                        }
+
+                        // Separator + item-specific verbs (only within verb.range)
+                        {
+                            std::vector<ContextEntry> verb_entries;
+                            for (const auto& verb : wic->item.def->verbs) {
+                                if (ict_dist <= verb.range)
+                                    verb_entries.push_back({verb.name, true, false,
+                                        [name = verb.name]() { SDL_Log("Verb: %s", name.c_str()); }});
+                            }
+                            if (!verb_entries.empty()) {
+                                entries.push_back({"", false, true, nullptr}); // separator
+                                for (auto& ve : verb_entries)
+                                    entries.push_back(std::move(ve));
+                            }
+                        }
+
+                        // Open menu at screen center (FPS — no cursor yet)
+                        glm::vec2 menu_pos = {
+                            renderer.width()  * 0.5f - 86.f,
+                            renderer.height() * 0.5f - 20.f
+                        };
+                        SDL_Log("CTX: opening for ent=%u n=%d pos=(%.0f,%.0f)",
+                            (unsigned)ctx_ent, (int)entries.size(), menu_pos.x, menu_pos.y);
+                        ctx_menu.open(menu_pos, std::move(entries));
+                        fps_ctx_rclick      = true;
+                        fps_ctx_just_opened = true;
+                        fps_ctx_entity      = ctx_ent;
+                        SDL_Log("CTX: is_open=%d", (int)ctx_menu.is_open());
+                    }
+                }
+            }
+
+            // ── Alt-mode LMB on world item ───────────────────────────────────
+            // Rising-edge press: begin a panel world-drag so the player can
+            // drag the item into any inventory slot, or start an item-on-item
+            // interaction when holding something.
             if (alt_mode.active() && input.is_pressed(Action::PrimaryInteract)
                 && hovered_item_entity != NULL_ENTITY) {
                 auto*  active_slot = player_inv.active_hand();
                 bool   hand_empty  = !active_slot || !active_slot->item;
                 if (hand_empty) {
-                    auto picked = world_items.pick_up(hovered_item_entity);
-                    hovered_item_entity = NULL_ENTITY;
-                    if (picked && picked->def) {
-                        auto leftover = player_inv.auto_equip(std::move(*picked));
-                        if (leftover)
-                            world_items.spawn_floating(cam_pos, std::move(*leftover));
+                    // Start world drag: show ghost item following cursor;
+                    // the panel will place it on drop.  Don't pick up yet.
+                    auto* wic = server.entities().get_component<WorldItemComponent>(hovered_item_entity);
+                    if (wic && wic->item.def && !inv_panel.is_dragging()) {
+                        inv_panel.begin_world_drag(wic->item, alt_mode.cursor_pos());
+                        alt_drag_entity = hovered_item_entity;
                     }
                 } else {
                     // Use held item on hovered world item
@@ -1041,6 +1211,9 @@ int main(int /*argc*/, char* /*argv*/[])
                                        cam_pos, cam_yaw, cam_pitch);
             renderer.queue_mobs(server.entities(), cam_pos, cam_yaw);
             renderer.queue_earth_background(cam_pos, cam_yaw, cam_pitch);
+            // Queue all placed model objects for rendering
+            for (const auto& obj : model_objs.objects())
+                renderer.queue_model(obj.name.c_str(), obj.world_pos, obj.yaw, obj.scale);
 
             renderer.begin_frame(alpha);
 
@@ -1048,6 +1221,7 @@ int main(int /*argc*/, char* /*argv*/[])
             renderer.draw_face_highlight(hit);
             renderer.draw_world_items();
             renderer.draw_mobs();
+            renderer.draw_models();
             renderer.draw_viewmodel(0); // TODO: held item type id
 
             // UI pass
@@ -1159,6 +1333,63 @@ int main(int /*argc*/, char* /*argv*/[])
                 gas_overlay.draw(server.atmos(), gs, sim_time);
             }
 
+            // ── Player stats overlay (F6) ─────────────────────────────────────
+            if (player_stats_visible) {
+                PlayerStatsOverlayState ps;
+                EntityID plr = client.local_player();
+
+                // Species / variant from MobComponent if present, else defaults
+                if (plr != NULL_ENTITY) {
+                    auto* mc = server.entities().get_component<MobComponent>(plr);
+                    if (mc) { ps.species = mc->species; ps.variant = mc->variant; }
+                }
+
+                // Health
+                if (plr != NULL_ENTITY) {
+                    auto* hp = server.entities().get_component<HealthComponent>(plr);
+                    if (hp) {
+                        ps.health_max = hp->health_max;
+                        ps.dmg_brute  = hp->brute;
+                        ps.dmg_burn   = hp->burn;
+                        ps.dmg_tox    = hp->tox;
+                        ps.dmg_oxy    = hp->oxy;
+                        ps.dead       = hp->dead;
+                    }
+                }
+
+                // Suit sensors — copy from already-computed HUD state
+                ps.oxy_sat           = hud_state.oxy_sat;
+                ps.suit_pressure_kpa = hud_state.suit_pressure_kpa;
+                ps.tox_level         = hud_state.tox_level;
+                ps.suit_temp_str     = hud_state.suit_temp_str;
+
+                // Controller
+                if (plr != NULL_ENTITY) {
+                    auto* cc = server.entities().get_component<CharacterControllerComponent>(plr);
+                    if (cc) {
+                        ps.move_speed       = cc->move_speed;
+                        ps.sprint_mult      = cc->sprint_mult;
+                        ps.jump_vel         = cc->jump_vel;
+                        ps.height           = cc->height;
+                        ps.radius           = cc->radius;
+                        ps.on_ground        = cc->on_ground;
+                        ps.sprinting        = cc->sprinting;
+                        ps.zero_g           = cc->zero_g;
+                        ps.noclip           = cc->noclip;
+                        ps.jetpack_equipped = cc->jetpack_equipped;
+                        ps.grab_wall        = cc->grab_wall;
+                    }
+                }
+
+                // Active hand item
+                ps.active_hand_id = player_inv.active_hand_id();
+                const auto* hand_slot = player_inv.active_hand();
+                if (hand_slot && hand_slot->item && hand_slot->item->def)
+                    ps.active_hand_name = hand_slot->item->def->name;
+
+                player_stats_overlay.draw(ps);
+            }
+
             // Alt-mode overlay
             float ov_alpha = alt_mode.overlay_alpha();
             if (ov_alpha > 0.01f) {
@@ -1172,6 +1403,24 @@ int main(int /*argc*/, char* /*argv*/[])
                 auto interaction = inv_panel.draw(
                     player_inv, cursor, lmb_down, lmb_released, shift_held, rmb_pressed, ov_alpha);
 
+                // ── SlotClicked: short click on a slot → swap with active hand ─
+                if (interaction.type == PanelInteraction::Type::SlotClicked) {
+                    player_inv.swap(interaction.slot_id, player_inv.active_hand_id());
+                }
+
+                // ── World drag completion / cancellation ──────────────────────
+                // The panel drag has just ended (active → inactive this frame).
+                if (alt_drag_entity != NULL_ENTITY && !inv_panel.is_dragging()) {
+                    if (interaction.type == PanelInteraction::Type::DragDrop
+                        && interaction.slot_id.empty()) {
+                        // Successful world-to-slot drop: panel already placed a
+                        // copy — now remove the original world entity.
+                        world_items.pick_up(alt_drag_entity);
+                    }
+                    // If drag was cancelled (no drop), entity stays in the world.
+                    alt_drag_entity = NULL_ENTITY;
+                }
+
                 if (interaction.type == PanelInteraction::Type::RightClick) {
                     // Build verb list for the item in that slot
                     const auto* slot = player_inv.find_slot_deep(interaction.slot_id);
@@ -1179,18 +1428,74 @@ int main(int /*argc*/, char* /*argv*/[])
                         std::vector<ContextEntry> entries;
                         std::string clicked_slot = interaction.slot_id;
                         for (const auto& verb : slot->item->def->verbs) {
-                            // Wire Open/Close container verbs to actual logic
-                            if (verb.handler == "verb_open" ||
-                                verb.name == "Open") {
+                            // ── Open / Close container ──────────────────────
+                            if (verb.handler == "verb_open" || verb.name == "Open") {
                                 entries.push_back({verb.name, true, false,
                                     [&player_inv, clicked_slot]() {
                                         player_inv.open_container(clicked_slot);
                                     }});
-                            } else if (verb.handler == "verb_close" ||
-                                       verb.name == "Close") {
+                            } else if (verb.handler == "verb_close" || verb.name == "Close") {
                                 entries.push_back({verb.name, true, false,
                                     [&player_inv, clicked_slot]() {
                                         player_inv.close_container(clicked_slot);
+                                    }});
+                            // ── Wear: move item to its designated equip slot ─
+                            } else if (verb.handler == "verb_wear" || verb.name == "Wear") {
+                                entries.push_back({verb.name, true, false,
+                                    [&player_inv, clicked_slot]() {
+                                        auto item = player_inv.take(clicked_slot);
+                                        if (!item || !item->def || item->def->equip_slot.empty()) {
+                                            if (item) player_inv.put(clicked_slot, std::move(*item));
+                                            return;
+                                        }
+                                        const std::string& equip_sl = item->def->equip_slot;
+                                        // Pull out whatever is already in that slot
+                                        auto displaced = player_inv.take(equip_sl);
+                                        if (player_inv.put(equip_sl, std::move(*item))) {
+                                            // Return any displaced item to the source slot
+                                            if (displaced) {
+                                                if (!player_inv.put(clicked_slot, std::move(*displaced)))
+                                                    player_inv.auto_equip(std::move(*displaced));
+                                            }
+                                        } else {
+                                            // Couldn't equip — restore everything
+                                            player_inv.put(clicked_slot, std::move(*item));
+                                            if (displaced) player_inv.put(equip_sl, std::move(*displaced));
+                                        }
+                                    }});
+                            // ── Remove: take item out of equip slot → active hand
+                            } else if (verb.handler == "verb_remove" || verb.name == "Remove") {
+                                entries.push_back({verb.name, true, false,
+                                    [&player_inv, clicked_slot]() {
+                                        // Swap equipment slot contents with active hand
+                                        player_inv.swap(clicked_slot, player_inv.active_hand_id());
+                                    }});
+                            // ── Examine: print description to radio log ────────
+                            } else if (verb.handler == "verb_examine" || verb.name == "Examine") {
+                                // Snapshot item info at menu-open time
+                                const ItemDef* idef = slot->item->def;
+                                std::string item_name  = idef->name;
+                                float       item_w     = idef->weight;
+                                float       item_v     = idef->volume;
+                                int         item_cnt   = slot->item->count;
+                                float       item_integ = slot->item->integrity;
+                                std::string cust_name  = slot->item->custom_name;
+                                entries.push_back({verb.name, true, false,
+                                    [&hud_state, item_name, item_w, item_v,
+                                     item_cnt, item_integ, cust_name]() {
+                                        char buf[160];
+                                        std::string display = cust_name.empty()
+                                            ? item_name
+                                            : item_name + " (\"" + cust_name + "\")"; 
+                                        if (item_cnt > 1)
+                                            display += " x" + std::to_string(item_cnt);
+                                        std::snprintf(buf, sizeof(buf),
+                                            "[Examine] %s — %.2f kg / %.1f L — %s",
+                                            display.c_str(), item_w, item_v,
+                                            condition_label(item_integ));
+                                        if (hud_state.radio_log.size() >= 30)
+                                            hud_state.radio_log.pop_front();
+                                        hud_state.radio_log.push_back(buf);
                                     }});
                             } else {
                                 entries.push_back({verb.name, true, false,
@@ -1208,11 +1513,61 @@ int main(int /*argc*/, char* /*argv*/[])
                     (void)hit; // TODO: populate verb list from voxel type
                 }
             } else {
-                ctx_menu.close();
+                // Only auto-close if the menu was opened from alt-mode (not FPS RMB)
+                if (!fps_ctx_rclick)
+                    ctx_menu.close();
             }
 
-            ctx_menu.draw(input.mouse_pos(),
-                          input.is_pressed(Action::PrimaryInteract));
+            {
+                bool was_ctx_open = ctx_menu.is_open();
+                // Suppress all dismiss signals on the exact frame the menu opens
+                bool suppress = fps_ctx_just_opened;
+                fps_ctx_just_opened = false;
+                // In FPS mode cursor is captured — pass offscreen pos so
+                // hover and click-outside logic never fires.
+                // Dismiss via Escape (not RMB — that's what opened the menu).
+                glm::vec2 ctx_cursor = fps_ctx_rclick
+                    ? glm::vec2{-9999.f, -9999.f}
+                    : input.mouse_pos();
+                bool dismiss = fps_ctx_rclick
+                    ? input.is_pressed(Action::Escape)
+                    : (suppress ? false : input.is_pressed(Action::SecondaryInteract));
+                // Clamp scroll to ±1 step per frame so the menu doesn't fly past entries
+                float raw_scroll = input.consume_scroll();
+                float clamped_scroll = (raw_scroll > 0.f) ? 1.f : (raw_scroll < 0.f) ? -1.f : 0.f;
+                ctx_menu.draw(
+                    ctx_cursor,
+                    (fps_ctx_rclick || suppress) ? false : input.is_pressed(Action::PrimaryInteract),
+                    clamped_scroll,
+                    suppress ? false : input.is_pressed(Action::PickUp),  // E = confirm
+                    dismiss);
+                if (fps_ctx_rclick && was_ctx_open && !ctx_menu.is_open()) {
+                    fps_ctx_rclick = false;
+                    fps_ctx_entity = NULL_ENTITY;
+                }
+                // Look-away dismiss — checked AFTER draw so the menu always
+                // renders for at least one frame before being auto-closed.
+                // Also skip on the opening frame (suppress) to avoid immediate closure.
+                if (fps_ctx_rclick && ctx_menu.is_open() && !suppress) {
+                    constexpr float CTX_REACH2 = 5.f;
+                    float yrc = glm::radians(cam_yaw), prc = glm::radians(cam_pitch);
+                    glm::vec3 rdc = {
+                        std::cos(prc) * std::sin(yrc),
+                        std::sin(prc),
+                       -std::cos(prc) * std::cos(yrc)
+                    };
+                    RayHit fhc = server.world().raycast(cam_pos, rdc, CTX_REACH2);
+                    float idc = 0.f;
+                    EntityID hit_ent = world_items.ray_cast_items(
+                        cam_pos, rdc, CTX_REACH2,
+                        fhc.valid ? fhc.distance : CTX_REACH2, idc);
+                    if (hit_ent != fps_ctx_entity) {
+                        ctx_menu.close();
+                        fps_ctx_rclick = false;
+                        fps_ctx_entity = NULL_ENTITY;
+                    }
+                }
+            }
 
             // ── Creative menu (F2) ────────────────────────────────────────────
             if (creative_menu.is_open()) {

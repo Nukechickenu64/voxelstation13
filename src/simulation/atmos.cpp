@@ -13,6 +13,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #include "simulation/atmos.h"
 #include "simulation/physics.h"
+#include "simulation/model_objects.h"
 #include <SDL3/SDL.h>
 #include <queue>
 #include <algorithm>
@@ -34,9 +35,15 @@ AtmosSimulator::AtmosSimulator(World& world, EntityManager* entities)
 bool AtmosSimulator::voxel_is_passable(glm::ivec3 pos) const
 {
     const Voxel v = m_world.get_voxel(pos);
-    if (v.type_id == 0) return true;
+    if (v.type_id == 0) {
+        // Air cell — still blocked if a gas-blocking model object occupies it
+        if (m_model_objects && m_model_objects->blocks_gas_at(pos)) return false;
+        return true;
+    }
     // Explicit gas-passable flag (e.g. open door) overrides solidity for atmos.
     if (v.flags & VFLAG_GAS_PASSABLE) return true;
+    // Model objects with blocks_gas=true are opaque regardless of voxel flags
+    if (m_model_objects && m_model_objects->blocks_gas_at(pos)) return false;
     return (v.flags & VFLAG_VERT_PLANE_Z) && !(v.flags & VFLAG_SOLID);
 }
 

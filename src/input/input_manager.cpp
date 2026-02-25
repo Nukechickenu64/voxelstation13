@@ -16,7 +16,7 @@ void InputManager::build_default_bindings()
     m_key_map[SDL_SCANCODE_A]       = Action::MoveLeft;
     m_key_map[SDL_SCANCODE_D]       = Action::MoveRight;
     m_key_map[SDL_SCANCODE_SPACE]   = Action::SwitchHand;
-    m_key_map[SDL_SCANCODE_LCTRL]   = Action::Crouch;
+    m_key_map[SDL_SCANCODE_LCTRL]   = Action::GrabWall;
     m_key_map[SDL_SCANCODE_LSHIFT]  = Action::Sprint;
     m_key_map[SDL_SCANCODE_E]       = Action::PickUp;
     m_key_map[SDL_SCANCODE_F]       = Action::ThrowItem;

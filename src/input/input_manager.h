@@ -8,7 +8,7 @@
 // Named actions mapped to SDL keys / mouse buttons
 enum class Action : uint32_t {
     MoveForward, MoveBack, MoveLeft, MoveRight,
-    Crouch, Sprint,
+    GrabWall, Sprint,
     PrimaryInteract, SecondaryInteract,
     PickUp, ThrowItem, DropItem,
     SwitchHand,
@@ -44,6 +44,9 @@ public:
     glm::vec2 mouse_delta() const { return m_mouse_delta; }
     glm::vec2 mouse_pos()   const { return m_mouse_pos; }
     float     scroll_delta()const { return m_scroll_delta; }
+    // Like scroll_delta() but also clears the value — use in render callbacks
+    // so repeated render frames between fixed-ticks don't re-trigger scroll.
+    float     consume_scroll() { float v = m_scroll_delta; m_scroll_delta = 0.f; return v; }
 
     // Cursor capture control
     void capture_cursor(SDL_Window* window, bool capture);

@@ -5,6 +5,7 @@
 #include "render/shaders/highlight_frag_spv.h"
 #include "render/shaders/item_vert_spv.h"
 #include "render/shaders/item_frag_spv.h"
+#include "render/model_loader.h"
 #include "core/world.h"
 #include "data/voxel_registry.h"
 #include "simulation/physics.h"
@@ -71,6 +72,7 @@ bool Renderer::init(const char* title, int width, int height)
     if (!create_highlight_pipeline())  return false;
     if (!create_item_pipeline())       return false;
     if (!create_mob_buffers())         return false;
+    if (!create_assembly_texture())    return false;
     if (!create_sky_pipeline())        return false;
     load_earth_gif("textures/decoration/earthspin.gif");  // non-fatal if missing
 
@@ -236,6 +238,10 @@ void Renderer::shutdown()
         if (m_mob_ibuf)           { SDL_ReleaseGPUBuffer(m_gpu, m_mob_ibuf);                     m_mob_ibuf           = nullptr; }
         if (m_mob_tex_array)      { SDL_ReleaseGPUTexture(m_gpu, m_mob_tex_array);               m_mob_tex_array      = nullptr; }
         if (m_mob_sampler)        { SDL_ReleaseGPUSampler(m_gpu, m_mob_sampler);                 m_mob_sampler        = nullptr; }
+        if (m_asm_vbuf)           { SDL_ReleaseGPUBuffer(m_gpu, m_asm_vbuf);                     m_asm_vbuf           = nullptr; }
+        if (m_asm_ibuf)           { SDL_ReleaseGPUBuffer(m_gpu, m_asm_ibuf);                     m_asm_ibuf           = nullptr; }
+        if (m_assembly_tex)       { SDL_ReleaseGPUTexture(m_gpu, m_assembly_tex);                m_assembly_tex       = nullptr; }
+        if (m_assembly_sampler)   { SDL_ReleaseGPUSampler(m_gpu, m_assembly_sampler);            m_assembly_sampler   = nullptr; }
         if (m_vert_shader)        { SDL_ReleaseGPUShader(m_gpu, m_vert_shader);                  m_vert_shader        = nullptr; }
         if (m_frag_shader)        { SDL_ReleaseGPUShader(m_gpu, m_frag_shader);                  m_frag_shader        = nullptr; }
         if (m_tile_array)         { SDL_ReleaseGPUTexture(m_gpu, m_tile_array);                  m_tile_array         = nullptr; }
@@ -254,6 +260,15 @@ void Renderer::shutdown()
         if (m_star_ibuf)          { SDL_ReleaseGPUBuffer(m_gpu, m_star_ibuf);                    m_star_ibuf          = nullptr; }
         if (m_cloud_vbuf)         { SDL_ReleaseGPUBuffer(m_gpu, m_cloud_vbuf);                   m_cloud_vbuf         = nullptr; }
         if (m_cloud_ibuf)         { SDL_ReleaseGPUBuffer(m_gpu, m_cloud_ibuf);                   m_cloud_ibuf         = nullptr; }
+
+        // Release static 3-D model GPU resources
+        for (auto& [nm, gm] : m_models) {
+            if (gm.vbuf)    { SDL_ReleaseGPUBuffer  (m_gpu, gm.vbuf);    gm.vbuf    = nullptr; }
+            if (gm.ibuf)    { SDL_ReleaseGPUBuffer  (m_gpu, gm.ibuf);    gm.ibuf    = nullptr; }
+            if (gm.tex)     { SDL_ReleaseGPUTexture (m_gpu, gm.tex);     gm.tex     = nullptr; }
+            if (gm.sampler) { SDL_ReleaseGPUSampler (m_gpu, gm.sampler); gm.sampler = nullptr; }
+        }
+        m_models.clear();
 
         if (m_window) SDL_ReleaseWindowFromGPUDevice(m_gpu, m_window);
         SDL_DestroyGPUDevice(m_gpu);
@@ -306,11 +321,12 @@ void Renderer::begin_frame(double /*alpha*/)
     }
 
     // ── Upload pending highlight geometry (copy pass before render pass) ─────
-    VLOG("begin_frame: uploading pending geometry (highlight=%d item=%d mob=%d sky/earth pending)",
-         (int)m_hl_pending, (int)m_item_pending, (int)m_mob_pending);
+    VLOG("begin_frame: uploading pending geometry (highlight=%d item=%d mob=%d asm=%d sky/earth pending)",
+         (int)m_hl_pending, (int)m_item_pending, (int)m_mob_pending, (int)m_asm_pending);
     upload_highlight_geometry();
     upload_item_geometry();
     upload_mob_geometry();
+    upload_asm_geometry();
 
     // ── Upload pending sky/earth geometry (copy pass before render pass) ──────
     upload_sky_geometry();
@@ -1366,6 +1382,340 @@ bool Renderer::create_mob_buffers()
     return true;
 }
 
+// ── Assembly texture + buffers ────────────────────────────────────────────────
+
+bool Renderer::create_assembly_texture()
+{
+    // Pre-allocate a GPU 2-D array texture for assembled human sprites.
+    // Layer 0 is reserved as an opaque-white fallback.
+    SDL_GPUTextureCreateInfo tci{};
+    tci.type                 = SDL_GPU_TEXTURETYPE_2D_ARRAY;
+    tci.format               = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+    tci.usage                = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    tci.width                = k_assembly_w;
+    tci.height               = k_assembly_h;
+    tci.layer_count_or_depth = k_max_assembly_layers;
+    tci.num_levels           = 1;
+    tci.sample_count         = SDL_GPU_SAMPLECOUNT_1;
+    m_assembly_tex = SDL_CreateGPUTexture(m_gpu, &tci);
+    if (!m_assembly_tex) {
+        SDL_Log("create_assembly_texture: SDL_CreateGPUTexture failed: %s", SDL_GetError());
+        return false;
+    }
+
+    // Upload white fallback to layer 0
+    {
+        constexpr uint32_t LAYER_BYTES = k_assembly_w * k_assembly_h * 4;
+        std::vector<uint8_t> white(LAYER_BYTES, 0xFF);
+        SDL_GPUTransferBufferCreateInfo tbci{};
+        tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        tbci.size  = LAYER_BYTES;
+        auto* tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &tbci);
+        if (tbuf) {
+            auto* ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
+            std::memcpy(ptr, white.data(), LAYER_BYTES);
+            SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
+
+            auto* cmd  = SDL_AcquireGPUCommandBuffer(m_gpu);
+            auto* cp   = SDL_BeginGPUCopyPass(cmd);
+            SDL_GPUTextureTransferInfo src{};
+            src.transfer_buffer = tbuf;
+            src.offset          = 0;
+            src.pixels_per_row  = k_assembly_w;
+            src.rows_per_layer  = k_assembly_h;
+            SDL_GPUTextureRegion dst{};
+            dst.texture   = m_assembly_tex;
+            dst.mip_level = 0;
+            dst.layer     = 0;
+            dst.w = k_assembly_w; dst.h = k_assembly_h; dst.d = 1;
+            SDL_UploadToGPUTexture(cp, &src, &dst, false);
+            SDL_EndGPUCopyPass(cp);
+            SDL_SubmitGPUCommandBuffer(cmd);
+            SDL_ReleaseGPUTransferBuffer(m_gpu, tbuf);
+        }
+    }
+    m_assembly_used = 1;  // layer 0 consumed
+
+    // Sampler: nearest-neighbour for pixel-perfect sprites
+    SDL_GPUSamplerCreateInfo sci{};
+    sci.min_filter     = SDL_GPU_FILTER_NEAREST;
+    sci.mag_filter     = SDL_GPU_FILTER_NEAREST;
+    sci.mipmap_mode    = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+    sci.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+    sci.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+    sci.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+    m_assembly_sampler = SDL_CreateGPUSampler(m_gpu, &sci);
+    if (!m_assembly_sampler) {
+        SDL_Log("create_assembly_texture: sampler failed: %s", SDL_GetError());
+        return false;
+    }
+
+    // Pre-allocate GPU vertex/index buffers for assembled mob quads
+    {
+        SDL_GPUBufferCreateInfo vbi{};
+        vbi.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+        vbi.size  = k_max_asm_quads * 4 * sizeof(ItemVert);
+        m_asm_vbuf = SDL_CreateGPUBuffer(m_gpu, &vbi);
+
+        SDL_GPUBufferCreateInfo ibi{};
+        ibi.usage = SDL_GPU_BUFFERUSAGE_INDEX;
+        ibi.size  = k_max_asm_quads * 6 * sizeof(uint32_t);
+        m_asm_ibuf = SDL_CreateGPUBuffer(m_gpu, &ibi);
+
+        if (!m_asm_vbuf || !m_asm_ibuf) {
+            SDL_Log("create_assembly_texture: asm buffer alloc failed: %s", SDL_GetError());
+            return false;
+        }
+    }
+
+    SDL_Log("create_assembly_texture: %u layers of %ux%u RGBA pre-allocated",
+            k_max_assembly_layers, k_assembly_w, k_assembly_h);
+    return true;
+}
+
+// ── Bodypart sprite loading ───────────────────────────────────────────────────
+
+bool Renderer::load_human_bodyparts(const char* extracted_dir)
+{
+    namespace fs = std::filesystem;
+
+    // Sub-directories to scan (relative to extracted_dir/mob/human/)
+    static const char* k_subdirs[] = { "bodyparts", "bodyparts_greyscale" };
+
+    m_bodypart_pixels.clear();
+    int total_loaded = 0;
+
+    for (const char* sdir : k_subdirs) {
+        fs::path dir = fs::path(extracted_dir) / "mob" / "human" / sdir;
+        if (!fs::exists(dir)) {
+            SDL_Log("load_human_bodyparts: skipping missing dir: %s", dir.string().c_str());
+            continue;
+        }
+        for (const auto& entry : fs::directory_iterator(dir)) {
+            if (!entry.is_regular_file()) continue;
+            std::string ext = entry.path().extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+            if (ext != ".png") continue;
+
+            int w, h, ch;
+            unsigned char* data = stbi_load(entry.path().string().c_str(), &w, &h, &ch, 4);
+            if (!data) continue;
+
+            // Destination buffer: always k_assembly_w × k_assembly_h
+            constexpr uint32_t DW = k_assembly_w;
+            constexpr uint32_t DH = k_assembly_h;
+            std::vector<uint8_t> pixels(DW * DH * 4, 0);
+
+            if (w == (int)DW && h == (int)DH) {
+                std::memcpy(pixels.data(), data, DW * DH * 4);
+            } else {
+                // Nearest-neighbour scale-to-fit
+                for (uint32_t py = 0; py < DH; ++py)
+                for (uint32_t px = 0; px < DW; ++px) {
+                    int sx = (int)(px * w / DW);
+                    int sy = (int)(py * h / DH);
+                    const uint8_t* sp = data + (sy * w + sx) * 4;
+                    uint8_t*       dp = pixels.data() + (py * DW + px) * 4;
+                    dp[0]=sp[0]; dp[1]=sp[1]; dp[2]=sp[2]; dp[3]=sp[3];
+                }
+            }
+            stbi_image_free(data);
+
+            // Key = "{subdir}/{stem}", e.g. "bodyparts/default_human_chest_s"
+            std::string stem = entry.path().stem().string();
+            std::string key  = std::string(sdir) + "/" + stem;
+            m_bodypart_pixels[key] = std::move(pixels);
+            ++total_loaded;
+        }
+    }
+
+    SDL_Log("load_human_bodyparts: loaded %d bodypart sprites", total_loaded);
+    return true;
+}
+
+// ── Assembly layer upload (one-shot GPU copy) ─────────────────────────────────
+
+void Renderer::upload_assembly_layer(uint32_t layer_idx, const uint8_t* rgba_pixels)
+{
+    if (!m_assembly_tex || !rgba_pixels) return;
+
+    constexpr uint32_t LAYER_BYTES = k_assembly_w * k_assembly_h * 4;
+
+    SDL_GPUTransferBufferCreateInfo tbci{};
+    tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    tbci.size  = LAYER_BYTES;
+    auto* tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &tbci);
+    if (!tbuf) return;
+
+    auto* ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
+    std::memcpy(ptr, rgba_pixels, LAYER_BYTES);
+    SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
+
+    auto* cmd  = SDL_AcquireGPUCommandBuffer(m_gpu);
+    auto* cp   = SDL_BeginGPUCopyPass(cmd);
+
+    SDL_GPUTextureTransferInfo src{};
+    src.transfer_buffer = tbuf;
+    src.offset          = 0;
+    src.pixels_per_row  = k_assembly_w;
+    src.rows_per_layer  = k_assembly_h;
+
+    SDL_GPUTextureRegion dst{};
+    dst.texture   = m_assembly_tex;
+    dst.mip_level = 0;
+    dst.layer     = layer_idx;
+    dst.x = dst.y = dst.z = 0;
+    dst.w = k_assembly_w; dst.h = k_assembly_h; dst.d = 1;
+
+    SDL_UploadToGPUTexture(cp, &src, &dst, false);
+    SDL_EndGPUCopyPass(cp);
+    SDL_SubmitGPUCommandBuffer(cmd);
+    SDL_ReleaseGPUTransferBuffer(m_gpu, tbuf);
+}
+
+// ── Human appearance assembly + caching ──────────────────────────────────────
+
+// Standard body parts drawn bottom-to-top for correct overlap.
+// Names must match bodypart filename segments, e.g. "default_human_chest_s.png".
+static const char* k_asm_parts[] = {
+    "l_leg", "r_leg", "chest", "l_arm", "r_arm", "head", "l_hand", "r_hand"
+};
+// Parts that may carry a gender infix in greyscale sprites (chest, head)
+static const bool k_asm_part_has_gender[] = {
+    false, false, true, false, false, true, false, false
+};
+// Direction suffix for dir index 0=front 1=back 2=left 3=right
+// BYOND: south=front(s), north=back(n), east=left-of-camera(e), west=right-of-camera(w)
+static const char* k_asm_dir_suffix[] = { "_s", "_n", "_e", "_w" };
+static constexpr int k_asm_num_parts = 8;
+
+// "Source-over" alpha composite: blend src (with tint) onto dst in-place.
+static void alpha_composite(uint8_t* dst, const uint8_t* src,
+                             uint32_t num_pixels, SpriteColor tint)
+{
+    for (uint32_t i = 0; i < num_pixels; ++i) {
+        // Apply tint to source
+        uint32_t sr = (uint32_t)src[0] * tint.r / 255u;
+        uint32_t sg = (uint32_t)src[1] * tint.g / 255u;
+        uint32_t sb = (uint32_t)src[2] * tint.b / 255u;
+        uint32_t sa = (uint32_t)src[3] * tint.a / 255u;
+
+        if (sa == 0) { src += 4; dst += 4; continue; }
+
+        // Source-over blend
+        uint32_t inv_a = 255u - sa;
+        dst[0] = (uint8_t)((sr * sa + (uint32_t)dst[0] * inv_a) / 255u);
+        dst[1] = (uint8_t)((sg * sa + (uint32_t)dst[1] * inv_a) / 255u);
+        dst[2] = (uint8_t)((sb * sa + (uint32_t)dst[2] * inv_a) / 255u);
+        dst[3] = (uint8_t)(sa + (uint32_t)dst[3] * inv_a / 255u);
+        src += 4; dst += 4;
+    }
+}
+
+uint32_t Renderer::get_or_assemble_human(HumanAppearance& app, int dir)
+{
+    // ── Build cache key ───────────────────────────────────────────────────────
+    // Key encodes the full ordered layer list + direction so that any change
+    // in appearance produces a distinct key and a new GPU layer.
+    std::string cache_key;
+    cache_key.reserve(128);
+    for (const auto& ov : app.layers) {
+        cache_key += ov.sprite_dir + ':' + ov.prefix + ':' + ov.gender + ':';
+        cache_key += std::to_string(ov.tint.r) + ',' + std::to_string(ov.tint.g) + ','
+                   + std::to_string(ov.tint.b) + ',' + std::to_string(ov.tint.a) + '|';
+    }
+    cache_key += "d" + std::to_string(dir);
+
+    // ── Check cache ───────────────────────────────────────────────────────────
+    if (!app.dirty) {
+        auto it = m_assembly_cache.find(cache_key);
+        if (it != m_assembly_cache.end()) return it->second;
+    }
+
+    // ── Composite CPU pixels ──────────────────────────────────────────────────
+    constexpr uint32_t W = k_assembly_w;
+    constexpr uint32_t H = k_assembly_h;
+    constexpr uint32_t N = W * H;
+    std::vector<uint8_t> canvas(N * 4, 0u);  // transparent black
+
+    const char* dir_suf = k_asm_dir_suffix[dir];
+
+    for (const auto& ov : app.layers) {
+        for (int p = 0; p < k_asm_num_parts; ++p) {
+            const char* part = k_asm_parts[p];
+
+            // Try with gender infix for gender-specific parts, fall back without
+            std::string stem = ov.prefix + "_" + part;
+            if (k_asm_part_has_gender[p] && !ov.gender.empty())
+                stem += ov.gender;
+            stem += dir_suf;
+
+            std::string key = ov.sprite_dir + "/" + stem;
+            auto it = m_bodypart_pixels.find(key);
+
+            // Fall back to no gender suffix if gender variant not found
+            if (it == m_bodypart_pixels.end() && k_asm_part_has_gender[p] && !ov.gender.empty()) {
+                stem = ov.prefix + "_" + part + std::string(dir_suf);
+                key  = ov.sprite_dir + "/" + stem;
+                it   = m_bodypart_pixels.find(key);
+            }
+
+            if (it == m_bodypart_pixels.end()) continue;  // part not available
+
+            alpha_composite(canvas.data(), it->second.data(), N, ov.tint);
+        }
+    }
+
+    // ── Upload to GPU and cache ───────────────────────────────────────────────
+    if (m_assembly_used >= k_max_assembly_layers) {
+        SDL_Log("get_or_assemble_human: assembly cache full (%u layers)", k_max_assembly_layers);
+        return 0;  // fallback
+    }
+
+    uint32_t new_layer = m_assembly_used++;
+    upload_assembly_layer(new_layer, canvas.data());
+    m_assembly_cache[cache_key] = new_layer;
+    app.dirty = false;
+
+    VLOG("get_or_assemble_human: assembled new sprite layer %u (key=%s)", new_layer, cache_key.c_str());
+    return new_layer;
+}
+
+// ── Assembled mob quad upload ─────────────────────────────────────────────────
+
+void Renderer::upload_asm_geometry()
+{
+    if (!m_asm_pending || m_asm_verts.empty() || !m_asm_vbuf || !m_asm_ibuf || !m_cmd_buf)
+        return;
+
+    const Uint32 vsize = static_cast<Uint32>(m_asm_verts.size()   * sizeof(ItemVert));
+    const Uint32 isize = static_cast<Uint32>(m_asm_indices.size() * sizeof(uint32_t));
+    const Uint32 vbuf_cap = k_max_asm_quads * 4 * sizeof(ItemVert);
+    const Uint32 ibuf_cap = k_max_asm_quads * 6 * sizeof(uint32_t);
+    if (vsize > vbuf_cap || isize > ibuf_cap) return;
+
+    SDL_GPUTransferBufferCreateInfo tbi{};
+    tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    tbi.size  = vsize + isize;
+    auto* tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &tbi);
+    if (!tbuf) return;
+
+    auto* ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
+    std::memcpy(ptr,         m_asm_verts.data(),   vsize);
+    std::memcpy(ptr + vsize, m_asm_indices.data(), isize);
+    SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
+
+    auto* copy_pass = SDL_BeginGPUCopyPass(m_cmd_buf);
+    SDL_GPUTransferBufferLocation sv{ tbuf, 0 };
+    SDL_GPUBufferRegion           dv{ m_asm_vbuf, 0, vsize };
+    SDL_UploadToGPUBuffer(copy_pass, &sv, &dv, false);
+    SDL_GPUTransferBufferLocation si{ tbuf, vsize };
+    SDL_GPUBufferRegion           di{ m_asm_ibuf, 0, isize };
+    SDL_UploadToGPUBuffer(copy_pass, &si, &di, false);
+    SDL_EndGPUCopyPass(copy_pass);
+    SDL_ReleaseGPUTransferBuffer(m_gpu, tbuf);
+}
+
 bool Renderer::load_mob_textures(const char* texture_dir)
 {
     namespace fs = std::filesystem;
@@ -1566,76 +1916,102 @@ static int mob_sprite_dir(glm::vec3 mob_pos, float mob_yaw_deg, glm::vec3 cam_po
 
 void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_yaw)
 {
+    // Clear both staging buffers
     m_mob_verts.clear();
     m_mob_indices.clear();
     m_mob_pending = false;
 
-    if (!m_mob_tex_array) return;  // textures not loaded yet
+    m_asm_verts.clear();
+    m_asm_indices.clear();
+    m_asm_pending = false;
 
     // Camera forward (XZ only) for back-face culling
     float yaw_r = glm::radians(cam_yaw);
     glm::vec3 cam_fwd = { std::sin(yaw_r), 0.f, -std::cos(yaw_r) };
 
-    static constexpr float MOB_HALF_W = 0.3f;   // half-width  matches player radius
-    static constexpr float MOB_HEIGHT = .65f;   // full height matches player height
+    static constexpr float MOB_HALF_W = 0.3f;
+    static constexpr float MOB_HEIGHT = .65f;
 
-    entities.each<MobComponent>([&](EntityID eid, MobComponent& mob) {
-        if (m_mob_verts.size() / 4 >= k_max_mob_quads) return;
-
-        auto* tr = entities.get_component<TransformComponent>(eid);
-        if (!tr) return;
-
-        glm::vec3 feet = tr->pos;
-
-        // Discard mobs behind the camera
-        glm::vec3 to_mob = feet - cam_pos;
-        if (glm::dot(to_mob, cam_fwd) < -0.5f) return;
-
-        // Choose sprite direction
-        std::string key = mob.species + "/" + mob.variant;
-        auto it = m_mob_sprites.find(key);
-        uint32_t tex_layer = 0;
-        if (it != m_mob_sprites.end()) {
-            int dir = mob_sprite_dir(feet, tr->yaw, cam_pos);
-            tex_layer = it->second.layer[dir];
-        }
-
-        // Cylindrical billboard: vertical plane facing camera horizontally
-        glm::vec3 to_cam_xz = glm::vec3(cam_pos.x - feet.x, 0.f, cam_pos.z - feet.z);
+    // Helper: build a billboard quad and append verts/indices into the chosen lists
+    auto push_quad = [&](std::vector<ItemVert>& verts,
+                         std::vector<uint32_t>& indices,
+                         glm::vec3 feet,
+                         float half_w, float height,
+                         uint32_t tex_layer)
+    {
+        glm::vec3 to_cam_xz = { cam_pos.x - feet.x, 0.f, cam_pos.z - feet.z };
         float xz_len = glm::length(to_cam_xz);
-        glm::vec3 right;
-        if (xz_len > 0.001f) {
-            glm::vec3 to_cam_dir = to_cam_xz / xz_len;
-            right = glm::cross({0.f, 1.f, 0.f}, to_cam_dir);
-        } else {
-            // Camera directly above/below — use world right
-            right = { 1.f, 0.f, 0.f };
-        }
+        glm::vec3 right = (xz_len > 0.001f)
+            ? glm::cross(glm::vec3{0.f,1.f,0.f}, to_cam_xz / xz_len)
+            : glm::vec3{1.f, 0.f, 0.f};
 
-        glm::vec3 corners[4];
-        corners[0] = feet + (-right) * MOB_HALF_W;                      // bottom-left
-        corners[1] = feet + ( right) * MOB_HALF_W;                      // bottom-right
-        corners[2] = feet + ( right) * MOB_HALF_W + glm::vec3(0, MOB_HEIGHT, 0); // top-right
-        corners[3] = feet + (-right) * MOB_HALF_W + glm::vec3(0, MOB_HEIGHT, 0); // top-left
+        glm::vec3 c[4];
+        c[0] = feet + (-right) * half_w;
+        c[1] = feet + ( right) * half_w;
+        c[2] = feet + ( right) * half_w + glm::vec3(0, height, 0);
+        c[3] = feet + (-right) * half_w + glm::vec3(0, height, 0);
 
-        static const float k_uv[4][2] = {{0,1},{1,1},{1,0},{0,0}};  // V flipped (Y-down textures)
+        static const float k_uv[4][2] = {{0,1},{1,1},{1,0},{0,0}};
+        auto base = static_cast<uint32_t>(verts.size());
+        for (int i = 0; i < 4; ++i)
+            verts.push_back({ c[i].x, c[i].y, c[i].z,
+                              1.f, 1.f, 1.f, 1.f,
+                              k_uv[i][0], k_uv[i][1],
+                              static_cast<float>(tex_layer) });
+        indices.push_back(base+0); indices.push_back(base+1);
+        indices.push_back(base+2); indices.push_back(base+0);
+        indices.push_back(base+2); indices.push_back(base+3);
+    };
 
-        auto base = static_cast<uint32_t>(m_mob_verts.size());
-        for (int i = 0; i < 4; ++i) {
-            auto& c = corners[i];
-            m_mob_verts.push_back({ c.x, c.y, c.z,
-                                    1.f, 1.f, 1.f, 1.f,
-                                    k_uv[i][0], k_uv[i][1],
-                                    static_cast<float>(tex_layer) });
-        }
-        m_mob_indices.push_back(base+0); m_mob_indices.push_back(base+1);
-        m_mob_indices.push_back(base+2); m_mob_indices.push_back(base+0);
-        m_mob_indices.push_back(base+2); m_mob_indices.push_back(base+3);
-    });
+    // ── Overlay-assembled human mobs ─────────────────────────────────────────
+    if (m_assembly_tex) {
+        entities.each<HumanAppearance>([&](EntityID eid, HumanAppearance& app) {
+            if (m_asm_verts.size() / 4 >= k_max_asm_quads) return;
 
-    m_mob_pending = !m_mob_verts.empty();
-    VLOG("queue_mobs: queued %d mob sprites (pending=%d)",
-         (int)(m_mob_verts.size() / 4), (int)m_mob_pending);
+            auto* tr = entities.get_component<TransformComponent>(eid);
+            if (!tr) return;
+
+            glm::vec3 feet = tr->pos;
+            // Back-face cull
+            if (glm::dot(feet - cam_pos, cam_fwd) < -0.5f) return;
+
+            int dir = mob_sprite_dir(feet, tr->yaw, cam_pos);
+            uint32_t layer = get_or_assemble_human(app, dir);
+
+            push_quad(m_asm_verts, m_asm_indices, feet, MOB_HALF_W, MOB_HEIGHT, layer);
+        });
+        m_asm_pending = !m_asm_verts.empty();
+    }
+
+    // ── Legacy single-sprite mobs (MobComponent without HumanAppearance) ─────
+    if (m_mob_tex_array) {
+        entities.each<MobComponent>([&](EntityID eid, MobComponent& mob) {
+            if (m_mob_verts.size() / 4 >= k_max_mob_quads) return;
+            // Skip entities that are already rendered via HumanAppearance
+            if (entities.get_component<HumanAppearance>(eid)) return;
+
+            auto* tr = entities.get_component<TransformComponent>(eid);
+            if (!tr) return;
+
+            glm::vec3 feet = tr->pos;
+            if (glm::dot(feet - cam_pos, cam_fwd) < -0.5f) return;
+
+            std::string key = mob.species + "/" + mob.variant;
+            uint32_t tex_layer = 0;
+            auto it = m_mob_sprites.find(key);
+            if (it != m_mob_sprites.end()) {
+                int dir = mob_sprite_dir(feet, tr->yaw, cam_pos);
+                tex_layer = it->second.layer[dir];
+            }
+
+            push_quad(m_mob_verts, m_mob_indices, feet, MOB_HALF_W, MOB_HEIGHT, tex_layer);
+        });
+        m_mob_pending = !m_mob_verts.empty();
+    }
+
+    VLOG("queue_mobs: %d assembled, %d legacy (asm_pending=%d mob_pending=%d)",
+         (int)(m_asm_verts.size() / 4), (int)(m_mob_verts.size() / 4),
+         (int)m_asm_pending, (int)m_mob_pending);
 }
 
 void Renderer::upload_mob_geometry()
@@ -1676,29 +2052,53 @@ void Renderer::upload_mob_geometry()
 
 void Renderer::draw_mobs()
 {
-    if (m_mob_indices.empty() || !m_item_pipeline || !m_render_pass) {
-        VLOG("draw_mobs: skipped (indices=%d pipeline=%s pass=%s)",
-             (int)m_mob_indices.size(),
+    if (!m_item_pipeline || !m_render_pass) {
+        VLOG("draw_mobs: skipped (pipeline=%s pass=%s)",
              m_item_pipeline ? "ok" : "null",
              m_render_pass   ? "ok" : "null");
         return;
     }
-    VLOG("draw_mobs: drawing %d mob indices (%d sprites)",
-         (int)m_mob_indices.size(), (int)m_mob_indices.size() / 6);
 
     SDL_BindGPUGraphicsPipeline(m_render_pass, m_item_pipeline);
     SDL_PushGPUVertexUniformData(m_cmd_buf, 0, &m_current_mvp[0][0], sizeof(glm::mat4));
-    if (m_mob_tex_array && m_mob_sampler) {
+
+    // ── Legacy single-sprite mobs ─────────────────────────────────────────────
+    if (!m_mob_indices.empty() && m_mob_tex_array && m_mob_sampler &&
+        m_mob_vbuf && m_mob_ibuf)
+    {
+        VLOG("draw_mobs: drawing %d legacy mob indices (%d sprites)",
+             (int)m_mob_indices.size(), (int)m_mob_indices.size() / 6);
+
         SDL_GPUTextureSamplerBinding tsb{ m_mob_tex_array, m_mob_sampler };
         SDL_BindGPUFragmentSamplers(m_render_pass, 0, &tsb, 1);
+
+        SDL_GPUBufferBinding vb{ m_mob_vbuf, 0 };
+        SDL_GPUBufferBinding ib{ m_mob_ibuf, 0 };
+        SDL_BindGPUVertexBuffers(m_render_pass, 0, &vb, 1);
+        SDL_BindGPUIndexBuffer(m_render_pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        SDL_DrawGPUIndexedPrimitives(m_render_pass,
+                                     static_cast<uint32_t>(m_mob_indices.size()),
+                                     1, 0, 0, 0);
     }
-    SDL_GPUBufferBinding vb{ m_mob_vbuf, 0 };
-    SDL_GPUBufferBinding ib{ m_mob_ibuf, 0 };
-    SDL_BindGPUVertexBuffers(m_render_pass, 0, &vb, 1);
-    SDL_BindGPUIndexBuffer(m_render_pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
-    SDL_DrawGPUIndexedPrimitives(m_render_pass,
-                                  static_cast<uint32_t>(m_mob_indices.size()),
-                                  1, 0, 0, 0);
+
+    // ── Overlay-assembled human mobs ─────────────────────────────────────────
+    if (!m_asm_indices.empty() && m_assembly_tex && m_assembly_sampler &&
+        m_asm_vbuf && m_asm_ibuf)
+    {
+        VLOG("draw_mobs: drawing %d assembled mob indices (%d sprites)",
+             (int)m_asm_indices.size(), (int)m_asm_indices.size() / 6);
+
+        SDL_GPUTextureSamplerBinding tsb{ m_assembly_tex, m_assembly_sampler };
+        SDL_BindGPUFragmentSamplers(m_render_pass, 0, &tsb, 1);
+
+        SDL_GPUBufferBinding vb{ m_asm_vbuf, 0 };
+        SDL_GPUBufferBinding ib{ m_asm_ibuf, 0 };
+        SDL_BindGPUVertexBuffers(m_render_pass, 0, &vb, 1);
+        SDL_BindGPUIndexBuffer(m_render_pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        SDL_DrawGPUIndexedPrimitives(m_render_pass,
+                                     static_cast<uint32_t>(m_asm_indices.size()),
+                                     1, 0, 0, 0);
+    }
 }
 
 // ── Space background (animated Earth orbit) ───────────────────────────────────
@@ -2551,5 +2951,195 @@ bool Renderer::build_cloud_geometry()
 
     m_cloud_index_count = static_cast<uint32_t>(idx.size());
     SDL_Log("build_cloud_geometry: %d clouds (%u indices)", k_num_clouds, m_cloud_index_count);
+    return true;
+}
+
+// ── Static 3-D model rendering ────────────────────────────────────────────────
+
+bool Renderer::load_model(const char* name,
+                           const char* mesh_path,
+                           const char* tex_path)
+{
+    if (m_models.count(name)) {
+        SDL_Log("load_model: '%s' already loaded, skipping", name);
+        return true;
+    }
+
+    // ── Load mesh ─────────────────────────────────────────────────────────────
+    LoadedMesh lm;
+    if (!load_mesh_file(mesh_path, lm)) return false;
+
+    ModelGPU gm;
+    const Uint32 vsize = (Uint32)(lm.vertices.size() * sizeof(ModelVertex));
+    const Uint32 isize = (Uint32)(lm.indices.size()  * sizeof(uint32_t));
+
+    {
+        SDL_GPUBufferCreateInfo vbi{};
+        vbi.usage = SDL_GPU_BUFFERUSAGE_VERTEX; vbi.size = vsize;
+        gm.vbuf = SDL_CreateGPUBuffer(m_gpu, &vbi);
+
+        SDL_GPUBufferCreateInfo ibi{};
+        ibi.usage = SDL_GPU_BUFFERUSAGE_INDEX;  ibi.size = isize;
+        gm.ibuf = SDL_CreateGPUBuffer(m_gpu, &ibi);
+
+        if (!gm.vbuf || !gm.ibuf) {
+            SDL_Log("load_model '%s': buffer alloc failed: %s", name, SDL_GetError());
+            if (gm.vbuf) SDL_ReleaseGPUBuffer(m_gpu, gm.vbuf);
+            if (gm.ibuf) SDL_ReleaseGPUBuffer(m_gpu, gm.ibuf);
+            return false;
+        }
+
+        SDL_GPUTransferBufferCreateInfo tbi{};
+        tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; tbi.size = vsize + isize;
+        auto* tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &tbi);
+        if (!tbuf) {
+            SDL_Log("load_model '%s': transfer buf failed: %s", name, SDL_GetError());
+            SDL_ReleaseGPUBuffer(m_gpu, gm.vbuf);
+            SDL_ReleaseGPUBuffer(m_gpu, gm.ibuf);
+            return false;
+        }
+
+        auto* ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
+        std::memcpy(ptr,         lm.vertices.data(), vsize);
+        std::memcpy(ptr + vsize, lm.indices.data(),  isize);
+        SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
+
+        auto* cmd  = SDL_AcquireGPUCommandBuffer(m_gpu);
+        auto* cp   = SDL_BeginGPUCopyPass(cmd);
+        SDL_GPUTransferBufferLocation sv{ tbuf, 0 };
+        SDL_GPUBufferRegion           dv{ gm.vbuf, 0, vsize };
+        SDL_UploadToGPUBuffer(cp, &sv, &dv, false);
+        SDL_GPUTransferBufferLocation si{ tbuf, vsize };
+        SDL_GPUBufferRegion           di{ gm.ibuf, 0, isize };
+        SDL_UploadToGPUBuffer(cp, &si, &di, false);
+        SDL_EndGPUCopyPass(cp);
+        SDL_SubmitGPUCommandBuffer(cmd);
+        SDL_ReleaseGPUTransferBuffer(m_gpu, tbuf);
+        gm.num_indices = (uint32_t)lm.indices.size();
+    }
+
+    // ── Load texture (optional) ───────────────────────────────────────────────
+    if (tex_path) {
+        int w = 0, h = 0, ch = 0;
+        unsigned char* pixels = stbi_load(tex_path, &w, &h, &ch, 4);
+        if (pixels && w > 0 && h > 0) {
+            const Uint32 row_bytes  = (Uint32)w * 4;
+            const Uint32 img_bytes  = row_bytes * (Uint32)h;
+
+            SDL_GPUTextureCreateInfo tci{};
+            tci.type                 = SDL_GPU_TEXTURETYPE_2D_ARRAY;
+            tci.format               = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+            tci.usage                = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+            tci.width                = (Uint32)w;
+            tci.height               = (Uint32)h;
+            tci.layer_count_or_depth = 1;
+            tci.num_levels           = 1;
+            tci.sample_count         = SDL_GPU_SAMPLECOUNT_1;
+            gm.tex = SDL_CreateGPUTexture(m_gpu, &tci);
+
+            if (gm.tex) {
+                SDL_GPUTransferBufferCreateInfo tbi{};
+                tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; tbi.size = img_bytes;
+                auto* tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &tbi);
+                if (tbuf) {
+                    auto* ptr = static_cast<uint8_t*>(
+                        SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
+                    std::memcpy(ptr, pixels, img_bytes);
+                    SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
+
+                    auto* cmd = SDL_AcquireGPUCommandBuffer(m_gpu);
+                    auto* cp  = SDL_BeginGPUCopyPass(cmd);
+                    SDL_GPUTextureTransferInfo src{};
+                    src.transfer_buffer = tbuf;
+                    src.offset          = 0;
+                    src.pixels_per_row  = (Uint32)w;
+                    src.rows_per_layer  = (Uint32)h;
+                    SDL_GPUTextureRegion dst{};
+                    dst.texture = gm.tex; dst.mip_level = 0; dst.layer = 0;
+                    dst.x = dst.y = dst.z = 0;
+                    dst.w = (Uint32)w; dst.h = (Uint32)h; dst.d = 1;
+                    SDL_UploadToGPUTexture(cp, &src, &dst, false);
+                    SDL_EndGPUCopyPass(cp);
+                    SDL_SubmitGPUCommandBuffer(cmd);
+                    SDL_ReleaseGPUTransferBuffer(m_gpu, tbuf);
+                }
+            }
+            stbi_image_free(pixels);
+
+            SDL_GPUSamplerCreateInfo sci{};
+            sci.min_filter     = SDL_GPU_FILTER_LINEAR;
+            sci.mag_filter     = SDL_GPU_FILTER_LINEAR;
+            sci.mipmap_mode    = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+            sci.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+            sci.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+            sci.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+            gm.sampler = SDL_CreateGPUSampler(m_gpu, &sci);
+            if (!gm.sampler)
+                SDL_Log("load_model '%s': sampler failed: %s", name, SDL_GetError());
+        } else {
+            SDL_Log("load_model '%s': stbi_load failed for '%s'", name, tex_path);
+        }
+    }
+
+    SDL_Log("load_model: '%s' ready — %u verts, %u indices, tex=%s",
+            name, (uint32_t)lm.vertices.size(), gm.num_indices,
+            gm.tex ? "yes" : "no");
+    m_models[name] = std::move(gm);
+    return true;
+}
+
+void Renderer::queue_model(const char* name,
+                            glm::vec3   pos,
+                            float       yaw,
+                            float       scale)
+{
+    m_model_queue.push_back({ std::string(name), pos, yaw, scale });
+}
+
+void Renderer::draw_models()
+{
+    if (m_model_queue.empty() || !m_world_pipeline || !m_render_pass)
+        return;
+
+    SDL_BindGPUGraphicsPipeline(m_render_pass, m_world_pipeline);
+
+    for (const auto& inst : m_model_queue) {
+        auto it = m_models.find(inst.name);
+        if (it == m_models.end()) continue;
+        const ModelGPU& gm = it->second;
+        if (!gm.vbuf || !gm.ibuf || gm.num_indices == 0) continue;
+
+        // Bind model texture (or fall back to the tile array if none)
+        SDL_GPUTexture*  tex_to_bind = gm.tex     ? gm.tex     : m_tile_array;
+        SDL_GPUSampler*  smp_to_bind = gm.sampler ? gm.sampler : m_tile_sampler;
+        if (tex_to_bind && smp_to_bind) {
+            SDL_GPUTextureSamplerBinding tsb{ tex_to_bind, smp_to_bind };
+            SDL_BindGPUFragmentSamplers(m_render_pass, 0, &tsb, 1);
+        }
+
+        // Build model MVP
+        glm::mat4 model = glm::translate(glm::mat4(1.f), inst.pos);
+        model = glm::rotate(model, glm::radians(inst.yaw), {0.f, 1.f, 0.f});
+        model = glm::scale(model, glm::vec3(inst.scale));
+        glm::mat4 mvp = m_current_mvp * model;
+        SDL_PushGPUVertexUniformData(m_cmd_buf, 0, &mvp[0][0], sizeof(glm::mat4));
+
+        SDL_GPUBufferBinding vb{ gm.vbuf, 0 };
+        SDL_GPUBufferBinding ib{ gm.ibuf, 0 };
+        SDL_BindGPUVertexBuffers(m_render_pass, 0, &vb, 1);
+        SDL_BindGPUIndexBuffer(m_render_pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        SDL_DrawGPUIndexedPrimitives(m_render_pass, gm.num_indices, 1, 0, 0, 0);
+    }
+
+    m_model_queue.clear();
+}
+
+bool Renderer::model_local_aabb(const char* name,
+                                 glm::vec3& out_min, glm::vec3& out_max) const
+{
+    auto it = m_models.find(name);
+    if (it == m_models.end()) return false;
+    out_min = it->second.local_min;
+    out_max = it->second.local_max;
     return true;
 }

@@ -66,6 +66,7 @@ set(SRC_RENDER
     src/render/lighting.cpp
     src/render/ui_renderer.cpp
     src/render/ui_item_icons.cpp
+    src/render/model_loader.cpp
 )
 
 set(SRC_SIM
@@ -75,6 +76,7 @@ set(SRC_SIM
     src/simulation/pipes.cpp
     src/simulation/physics.cpp
     src/simulation/world_items.cpp
+    src/simulation/model_objects.cpp
 )
 
 set(SRC_INPUT
@@ -99,6 +101,7 @@ set(SRC_AUDIO
 set(SRC_DATA
     src/data/voxel_registry.cpp
     src/data/data_validator.cpp
+    src/data/mob_species_registry.cpp
 )
 
 set(SRC_UI
@@ -108,6 +111,7 @@ set(SRC_UI
     src/ui/context_menu.cpp
     src/ui/creative_menu.cpp
     src/ui/gas_overlay.cpp
+    src/ui/player_stats_overlay.cpp
 )
 
 # ── Executable ────────────────────────────────────────────────────────────────

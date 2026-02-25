@@ -49,6 +49,7 @@ public:
     // Notify the panel that a world-face item is being dragged to it
     void begin_world_drag(ItemStack item, glm::vec2 start_pos);
     void cancel_drag();
+    bool is_dragging() const { return m_drag.active; }
 
 private:
     // Draw one slot at absolute screen pos; returns true if hovered

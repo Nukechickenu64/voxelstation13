@@ -7,7 +7,6 @@ struct InputSnapshot {
     float     yaw   = 0.f;
     float     pitch = 0.f;
     bool      jump  = false;
-    bool      crouch= false;
     bool      sprint= false;
     bool      primary_interact  = false;
     bool      secondary_interact= false;

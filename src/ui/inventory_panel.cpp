@@ -161,23 +161,35 @@ PanelInteraction InventoryPanel::draw(Inventory& inv, glm::vec2 cursor,
 
         if (lmb_released) {
             if (!m_hovered_slot.empty()) {
-                result.type           = PanelInteraction::Type::DragDrop;
-                result.slot_id        = m_drag.src_slot;
-                result.target_slot_id = m_hovered_slot;
+                // Distinguish a short click (≤6 px movement, same slot) from a real drag
+                const bool is_click =
+                    !m_drag.src_slot.empty() &&
+                    (m_drag.src_slot == m_hovered_slot) &&
+                    (glm::distance(m_drag.origin, m_drag.current) < 6.f);
 
-                if (shift_held && m_drag.dragged_item.def &&
-                    m_drag.dragged_item.def->stack_max > 1 &&
-                    m_drag.dragged_item.count > 1 &&
-                    !m_drag.src_slot.empty())
-                {
-                    // Split half of the stack into target
-                    int half = m_drag.dragged_item.count / 2;
-                    inv.split(m_drag.src_slot, m_hovered_slot, half);
-                } else if (m_drag.src_slot.empty()) {
-                    // World drag: place into slot
-                    inv.put(m_hovered_slot, m_drag.dragged_item);
+                if (is_click) {
+                    // Emit SlotClicked so the caller can handle click-to-swap-with-hand
+                    result.type    = PanelInteraction::Type::SlotClicked;
+                    result.slot_id = m_drag.src_slot;
                 } else {
-                    inv.swap(m_drag.src_slot, m_hovered_slot);
+                    result.type           = PanelInteraction::Type::DragDrop;
+                    result.slot_id        = m_drag.src_slot;
+                    result.target_slot_id = m_hovered_slot;
+
+                    if (shift_held && m_drag.dragged_item.def &&
+                        m_drag.dragged_item.def->stack_max > 1 &&
+                        m_drag.dragged_item.count > 1 &&
+                        !m_drag.src_slot.empty())
+                    {
+                        // Split half of the stack into target
+                        int half = m_drag.dragged_item.count / 2;
+                        inv.split(m_drag.src_slot, m_hovered_slot, half);
+                    } else if (m_drag.src_slot.empty()) {
+                        // World drag: place into slot
+                        inv.put(m_hovered_slot, m_drag.dragged_item);
+                    } else {
+                        inv.swap(m_drag.src_slot, m_hovered_slot);
+                    }
                 }
             }
             m_drag = {};

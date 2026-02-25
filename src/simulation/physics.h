@@ -2,6 +2,10 @@
 #include "core/world.h"
 #include "core/entity_manager.h"
 
+// Forward declaration — avoids pulling simulation/model_objects.h into every
+// translation unit that includes physics.h.
+class ModelObjectManager;
+
 // Components used by physics
 struct TransformComponent {
     glm::vec3 pos{};
@@ -21,7 +25,6 @@ struct CharacterControllerComponent {
     float height      = 0.9f;   // < 1.0 so player fits in 1-tile-tall passages
     float radius      = 0.3f;   // 0.6 total width — fits in a 1-voxel gap
     bool  on_ground   = false;
-    bool  crouching   = false;
     bool  sprinting   = false;
     bool  zero_g      = false;  // true when player is in vacuum / space
     bool  noclip      = false;  // ghost mode: no collision, no gravity
@@ -29,6 +32,8 @@ struct CharacterControllerComponent {
     // Set each frame by the game loop; reflects whether a jetpack is equipped
     // in the back slot.  In zero-G the player can only self-propel with a jetpack.
     bool      jetpack_equipped = false;
+    // true while Ctrl is held — if adjacent to a solid face, velocity is zeroed (wall grab)
+    bool      grab_wall = false;
     // Normalised thrust direction supplied by prepare_character_movement;
     // consumed (with dt) inside tick().  Reset to zero each tick.
     glm::vec3 jetpack_input{};
@@ -47,12 +52,11 @@ public:
 
     // Set up character velocity from a wish direction without ticking.
     // Call this before tick() — used by Server::tick() after receiving input.
-    void prepare_character_movement(EntityID id, glm::vec3 wish_dir,
-                                    bool crouch, bool sprint);
+    void prepare_character_movement(EntityID id, glm::vec3 wish_dir, bool sprint, bool grab_wall = false);
 
     // Move the character controller, resolving voxel collisions.
     // Equivalent to prepare_character_movement() + tick().
-    void move_character(EntityID id, glm::vec3 wish_dir, bool crouch, bool sprint, double dt);
+    void move_character(EntityID id, glm::vec3 wish_dir, bool sprint, bool grab_wall, double dt);
 
     // Apply standing wind forces from atmos decompression
     void apply_wind(EntityID id, glm::vec3 force);
@@ -60,11 +64,16 @@ public:
     // Simple AABB vs voxel grid check
     bool overlaps_solid(glm::vec3 min, glm::vec3 max) const;
 
+    // Register a ModelObjectManager so that solid model objects block movement.
+    // The pointer must remain valid for the lifetime of this PhysicsSystem.
+    void set_model_objects(ModelObjectManager* mgr) { m_model_objects = mgr; }
+
 private:
     glm::vec3 resolve_collisions(glm::vec3 pos, glm::vec3 delta, float radius, float height) const;
 
     World&         m_world;
     EntityManager& m_entities;
+    ModelObjectManager* m_model_objects = nullptr;
     static constexpr float GRAVITY          = -9.8f;
     // Jetpack: acceleration (m/s²) and terminal speed (m/s) in zero-G
     static constexpr float JETPACK_ACCEL    = 6.f;

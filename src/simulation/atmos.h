@@ -5,6 +5,9 @@
 #include <vector>
 #include <utility>
 
+// Forward declaration — avoids circular includes with model_objects.h
+class ModelObjectManager;
+
 // ── Gas mixture ───────────────────────────────────────────────────────────────
 struct GasMixture {
     float o2      = 0.f;   // kPa
@@ -79,6 +82,11 @@ public:
     void try_ignite (AtmosZoneID id);
     void inject_gas (AtmosZoneID id, GasMixture delta);
 
+    // Register a ModelObjectManager so that gas-blocking model objects are
+    // treated as solid walls by the atmos zone builder.
+    // The pointer must remain valid for the lifetime of this AtmosSimulator.
+    void set_model_objects(ModelObjectManager* mgr) { m_model_objects = mgr; }
+
     // ── Overlay / visualisation accessors ─────────────────────────────────
     // Returns every tracked air cell and the zone it belongs to.
     const std::unordered_map<glm::ivec3, AtmosZoneID>& all_cells() const { return m_cell_zone; }
@@ -105,6 +113,7 @@ private:
 
     World&          m_world;
     EntityManager*  m_entities;
+    ModelObjectManager* m_model_objects = nullptr;
     std::unordered_map<AtmosZoneID, AtmosZone>  m_zones;
     std::unordered_map<glm::ivec3, AtmosZoneID> m_cell_zone;
     std::vector<DoorLink>                       m_door_links;

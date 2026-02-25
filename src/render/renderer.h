@@ -5,6 +5,7 @@
 #include "inventory/item_registry.h"
 #include "simulation/world_items.h"
 #include "simulation/mob_system.h"
+#include "render/model_loader.h"
 #include <SDL3/SDL.h>
 #include <glm/glm.hpp>
 #include <vector>
@@ -70,6 +71,11 @@ public:
     // Must be called after init(), before the first queue_mobs().
     bool load_mob_textures(const char* texture_dir);
 
+    // Load extracted BYOND bodypart PNGs into CPU memory for overlay assembly.
+    // extracted_dir   – path to legacysets/extracted (must contain mob/human/bodyparts/).
+    // Call after init(), before the first queue_mobs().  Non-fatal if missing.
+    bool load_human_bodyparts(const char* extracted_dir);
+
     // Load door opening GIF frames into CPU memory (scaled to 32×32).
     // door_anim_type_id is the tile atlas layer that will be patched in-place
     // each tick to show the current frame.  Call after load_tile_textures().
@@ -92,6 +98,31 @@ public:
 
     // Draw the queued mob sprites (call inside the render pass, after draw_world()).
     void draw_mobs();
+
+    // ── Static 3-D model rendering ─────────────────────────────────────────────
+    // Load a .mesh file (written by tools/fbx_to_mesh.py) and an optional
+    // RGBA texture into GPU memory.  'name' is an arbitrary key reused by
+    // queue_model / draw_models.  Must be called after init().
+    bool load_model(const char* name,
+                    const char* mesh_path,
+                    const char* tex_path = nullptr);
+
+    // Add a model instance to the per-frame draw queue.
+    // pos  – world-space translation (bottom-centre of the model)
+    // yaw  – rotation around Y axis in degrees
+    // scale – uniform scale factor
+    // Call BEFORE begin_frame() or anywhere before draw_models().
+    void queue_model(const char* name,
+                     glm::vec3   pos,
+                     float       yaw   = 0.f,
+                     float       scale = 1.f);
+
+    // Draw all queued model instances (call inside the render pass, after draw_world()).
+    void draw_models();
+
+    // Query the local-space AABB of a loaded model (returns false if not found).
+    bool model_local_aabb(const char* name,
+                          glm::vec3& out_min, glm::vec3& out_max) const;
 
     // Queue the animated Earth / space background for the current frame.
     // Must be called BEFORE begin_frame() (like queue_world_items).
@@ -180,6 +211,33 @@ private:
     std::vector<uint32_t>    m_mob_indices;
     bool                     m_mob_pending       = false;
 
+    // ── Human overlay assembly cache ──────────────────────────────────────────
+    // CPU-side pixel store for extracted bodypart PNGs.
+    // Key format: "{sub_dir}/{stem}"  e.g. "bodyparts/default_human_chest_s"
+    // Value: 32×32 RGBA (4096 bytes).
+    std::unordered_map<std::string, std::vector<uint8_t>> m_bodypart_pixels;
+
+    // Per-direction assembled-appearance cache.
+    // Key encodes the full appearance + direction; value = GPU layer index.
+    std::unordered_map<std::string, uint32_t> m_assembly_cache;
+
+    // Pre-allocated GPU texture array for assembled sprites.
+    // Layer 0 = transparent/white fallback.
+    static constexpr uint32_t k_assembly_w          = 32;
+    static constexpr uint32_t k_assembly_h          = 32;
+    static constexpr uint32_t k_max_assembly_layers = 512;
+    uint32_t                  m_assembly_used        = 1;   // next free layer
+    SDL_GPUTexture*           m_assembly_tex         = nullptr;
+    SDL_GPUSampler*           m_assembly_sampler     = nullptr;
+
+    // Assembled-mob quad staging (separate from legacy mob quads).
+    static constexpr uint32_t k_max_asm_quads = 64;
+    std::vector<ItemVert>     m_asm_verts;
+    std::vector<uint32_t>     m_asm_indices;
+    bool                      m_asm_pending   = false;
+    SDL_GPUBuffer*            m_asm_vbuf      = nullptr;
+    SDL_GPUBuffer*            m_asm_ibuf      = nullptr;
+
     // ── Per-frame transient ───────────────────────────────────────────────────
     SDL_GPUCommandBuffer* m_cmd_buf       = nullptr;
     SDL_GPURenderPass*    m_render_pass   = nullptr;
@@ -203,6 +261,7 @@ private:
     bool create_highlight_pipeline();
     bool create_item_pipeline();
     bool create_mob_buffers();
+    bool create_assembly_texture();               // pre-allocate assembly GPU tex array
     bool create_sky_pipeline();          // background Earth-orbit pass
     bool load_earth_gif(const char* path);
     bool create_sky_util_texture();      // 2-layer: [0]=1×1 white, [1]=64×64 soft-circle cloud
@@ -211,9 +270,20 @@ private:
     void upload_highlight_geometry();   // copy pass before render pass
     void upload_item_geometry();        // copy pass before render pass
     void upload_mob_geometry();         // copy pass before render pass
+    void upload_asm_geometry();         // copy pass before render pass (assembled mobs)
     void upload_sky_geometry();         // copy pass before render pass (earth verts only)
     void release_gpu_mesh(GPUMesh& gm);
     static bool aabb_in_frustum(const glm::mat4& mvp, glm::vec3 mn, glm::vec3 mx);
+
+    // Upload one 32×32 RGBA image into m_assembly_tex at the given layer index.
+    // Submits a one-shot copy command (safe outside a render pass).
+    void upload_assembly_layer(uint32_t layer_idx, const uint8_t* rgba32x32);
+
+    // Return (cached) assembly texture layer for the given HumanAppearance + direction.
+    // Composites all HumanOverlay layers on the CPU if not already cached, then
+    // uploads the result to GPU and returns the layer index.  Returns 0 on failure.
+    // dir: 0=front(s) 1=back(n) 2=left(e) 3=right(w).
+    uint32_t get_or_assemble_human(HumanAppearance& app, int dir);
 
     // ── Sky / space background (Earth orbit, stars, nebulae) ─────────────────
     SDL_GPUGraphicsPipeline* m_sky_pipeline    = nullptr;
@@ -251,4 +321,24 @@ private:
     // ── Door GIF animation (CPU-side frames) ─────────────────────────────────
     std::vector<std::vector<uint8_t>> m_door_anim_frames;  // [frame][32*32*4 bytes]
     std::vector<int>                  m_door_anim_delays;  // ms per frame
+
+    // ── Static 3-D models ────────────────────────────────────────────────────
+    struct ModelGPU {
+        SDL_GPUBuffer*  vbuf        = nullptr;
+        SDL_GPUBuffer*  ibuf        = nullptr;
+        uint32_t        num_indices = 0;
+        SDL_GPUTexture* tex         = nullptr;  // 1-layer 2D-array (or nullptr)
+        SDL_GPUSampler* sampler     = nullptr;
+        // Local-space AABB from the .mesh file
+        glm::vec3       local_min{0.f, 0.f, 0.f};
+        glm::vec3       local_max{0.f, 0.f, 0.f};
+    };
+    struct ModelInstance {
+        std::string name;
+        glm::vec3   pos;
+        float       yaw;
+        float       scale;
+    };
+    std::unordered_map<std::string, ModelGPU> m_models;
+    std::vector<ModelInstance>                m_model_queue;
 };
