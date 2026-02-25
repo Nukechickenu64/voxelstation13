@@ -73,8 +73,8 @@ private:
     SDL_GPUTransferBuffer* m_vert_tbuf = nullptr;
     SDL_GPUTransferBuffer* m_idx_tbuf  = nullptr;
 
-    static constexpr uint32_t k_max_verts   = 16384;  // 4096 quads
-    static constexpr uint32_t k_max_indices = 24576;  // 4096 × 6
+    static constexpr uint32_t k_max_verts   = 65536;  // 16384 quads
+    static constexpr uint32_t k_max_indices = 98304;  // 16384 × 6
 
     // ── Per-frame CPU staging ──────────────────────────────────────────────
     struct UIVertex { float x, y, u, v, r, g, b, a; };

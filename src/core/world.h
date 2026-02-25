@@ -66,6 +66,9 @@ public:
     static glm::ivec3 to_chunk_pos(glm::ivec3 world_pos);
     static glm::ivec3 to_local_pos(glm::ivec3 world_pos);
 
+    // Wipe every voxel and persistent face (used by map loader)
+    void clear_all();
+
 private:
     std::unordered_map<glm::ivec3, std::unique_ptr<Chunk>> m_chunks;
     std::unordered_map<VoxelFaceCoord, VoxelFace, VoxelFaceCoordHash> m_sim_faces;

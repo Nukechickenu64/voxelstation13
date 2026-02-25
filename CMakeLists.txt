@@ -102,6 +102,7 @@ set(SRC_DATA
     src/data/voxel_registry.cpp
     src/data/data_validator.cpp
     src/data/mob_species_registry.cpp
+    src/data/map_io.cpp
 )
 
 set(SRC_UI
@@ -112,6 +113,7 @@ set(SRC_UI
     src/ui/creative_menu.cpp
     src/ui/gas_overlay.cpp
     src/ui/player_stats_overlay.cpp
+    src/ui/map_editor.cpp
 )
 
 # ── Executable ────────────────────────────────────────────────────────────────

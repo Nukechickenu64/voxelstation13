@@ -40,6 +40,12 @@ found:
 World::World()  = default;
 World::~World() = default;
 
+void World::clear_all()
+{
+    m_chunks.clear();
+    m_sim_faces.clear();
+}
+
 void World::for_each_chunk(std::function<void(const Chunk&)> fn) const
 {
     for (const auto& [pos, chunk] : m_chunks)

@@ -31,6 +31,8 @@
 #include "ui/debug_overlay.h"
 #include "ui/gas_overlay.h"
 #include "ui/player_stats_overlay.h"
+#include "ui/map_editor.h"
+#include "data/map_io.h"
 #include "network/server.h"
 #include "network/client.h"
 
@@ -149,6 +151,8 @@ int main(int /*argc*/, char* /*argv*/[])
     bool           gas_overlay_visible   = false;
     PlayerStatsOverlay player_stats_overlay(ui_renderer);
     bool               player_stats_visible = false;
+    MapEditor          map_editor(ui_renderer, server.world(), voxel_reg);
+    bool               map_editor_open  = false;
     double         sim_time              = 0.0;  // monotonic seconds, for overlay animations
 
     // ── 11. Player inventory ──────────────────────────────────────────────────
@@ -542,6 +546,29 @@ int main(int /*argc*/, char* /*argv*/[])
                     }
                     s_f6_prev = f6_now;
                 }
+                // F7: toggle map editor
+                {
+                    static bool s_f7_prev = false;
+                    bool f7_now = ks[SDL_SCANCODE_F7];
+                    if (f7_now && !s_f7_prev) {
+                        if (map_editor.is_open()) {
+                            map_editor.close();
+                            map_editor_open = false;
+                            if (!alt_mode.active())
+                                input.capture_cursor(renderer.window(), true);
+                        } else {
+                            map_editor.open(cam_pos);
+                            map_editor_open = true;
+                            // Close creative menu if it was open
+                            if (creative_menu.is_open())
+                                creative_menu.close();
+                            // Free the cursor for map editor interaction
+                            input.capture_cursor(renderer.window(), false);
+                        }
+                        SDL_Log("Map editor: %s", map_editor.is_open() ? "OPEN" : "CLOSED");
+                    }
+                    s_f7_prev = f7_now;
+                }
             }
 
             // Movement wish direction – full 3D when noclip or jetpack in zero-G,
@@ -848,8 +875,8 @@ int main(int /*argc*/, char* /*argv*/[])
             // Held item   + item  → item-on-item interaction
             // Held item   + turf  → knock on the wall with held item
             {
-                bool fps_lmb = !alt_mode.active() && !build_mode && !ctx_menu.is_open() && input.is_pressed(Action::PrimaryInteract);
-                bool e_press = !alt_mode.active() && !ctx_menu.is_open() && input.is_pressed(Action::PickUp);
+                bool fps_lmb = !alt_mode.active() && !build_mode && !ctx_menu.is_open() && !map_editor.is_open() && input.is_pressed(Action::PrimaryInteract);
+                bool e_press = !alt_mode.active() && !ctx_menu.is_open() && !map_editor.is_open() && input.is_pressed(Action::PickUp);
                 if (fps_lmb || e_press) {
                     constexpr float ITEM_REACH = 1.5f;
                     float yr = glm::radians(cam_yaw), pr = glm::radians(cam_pitch);
@@ -979,7 +1006,7 @@ int main(int /*argc*/, char* /*argv*/[])
             }  // end interaction block
 
             // ── FPS RMB on world item → scrollable context menu ───────────────
-            if (!alt_mode.active() && !build_mode && !ctx_menu.is_open()
+            if (!alt_mode.active() && !build_mode && !ctx_menu.is_open() && !map_editor.is_open()
                 && input.is_pressed(Action::SecondaryInteract)) {
                 constexpr float CTX_REACH = 5.f;
                 float yr2 = glm::radians(cam_yaw), pr2 = glm::radians(cam_pitch);
@@ -1101,7 +1128,7 @@ int main(int /*argc*/, char* /*argv*/[])
             }
 
             // ── Build mode: LMB destroys, RMB places ─────────────────────────────
-            if (build_mode && !alt_mode.active()) {
+            if (build_mode && !alt_mode.active() && !map_editor.is_open()) {
                 float yr = glm::radians(cam_yaw), pr = glm::radians(cam_pitch);
                 glm::vec3 rdir = {
                     std::cos(pr) * std::sin(yr),
@@ -1632,6 +1659,60 @@ int main(int /*argc*/, char* /*argv*/[])
                                                : static_cast<uint8_t>(VFLAG_SOLID | VFLAG_OPAQUE);
                     if (vdef)
                         SDL_Log("Build voxel set to: %s", vdef->name.c_str());
+                }
+            }
+
+            // ── Map editor (F7) ──────────────────────────────────────────────
+            if (map_editor.is_open()) {
+                float me_mx = 0.f, me_my = 0.f;
+                uint32_t me_btn = SDL_GetMouseState(&me_mx, &me_my);
+                bool me_lmb = !!(me_btn & SDL_BUTTON_MASK(SDL_BUTTON_LEFT));
+                bool me_rmb = !!(me_btn & SDL_BUTTON_MASK(SDL_BUTTON_RIGHT));
+                bool me_mmb = !!(me_btn & SDL_BUTTON_MASK(SDL_BUTTON_MIDDLE));
+
+                const bool* me_ks   = SDL_GetKeyboardState(nullptr);
+                bool me_ctrl        = me_ks[SDL_SCANCODE_LCTRL] || me_ks[SDL_SCANCODE_RCTRL];
+                bool me_pgup_now    = me_ks[SDL_SCANCODE_PAGEUP];
+                bool me_pgdn_now    = me_ks[SDL_SCANCODE_PAGEDOWN];
+                bool me_ctrl_s_now  = me_ctrl && me_ks[SDL_SCANCODE_S];
+                bool me_ctrl_l_now  = me_ctrl && me_ks[SDL_SCANCODE_L];
+
+                static bool me_pgup_prev=false, me_pgdn_prev=false;
+                static bool me_ctrl_s_prev=false, me_ctrl_l_prev=false;
+                bool me_pgup_edge   = me_pgup_now   && !me_pgup_prev;
+                bool me_pgdn_edge   = me_pgdn_now   && !me_pgdn_prev;
+                bool me_ctrl_s_edge = me_ctrl_s_now && !me_ctrl_s_prev;
+                bool me_ctrl_l_edge = me_ctrl_l_now && !me_ctrl_l_prev;
+                me_pgup_prev   = me_pgup_now;
+                me_pgdn_prev   = me_pgdn_now;
+                me_ctrl_s_prev = me_ctrl_s_now;
+                me_ctrl_l_prev = me_ctrl_l_now;
+
+                // Consume scroll so the game doesn't also process it
+                float me_scroll = input.consume_scroll();
+                bool  me_esc    = input.is_pressed(Action::Escape);
+
+                auto me_res = map_editor.draw(
+                    {me_mx, me_my},
+                    me_lmb, me_rmb, me_mmb,
+                    me_scroll,
+                    me_pgup_edge, me_pgdn_edge,
+                    me_ctrl_s_edge, me_ctrl_l_edge,
+                    me_esc);
+
+                if (me_res.request_close) {
+                    map_editor.close();
+                    map_editor_open = false;
+                    if (!alt_mode.active())
+                        input.capture_cursor(renderer.window(), true);
+                }
+                if (me_res.world_modified) {
+                    for (Chunk* c : server.world().dirty_chunks())
+                        mesher.enqueue(c->chunk_pos(), server.world());
+                }
+                if (me_res.needs_atmos_rebuild) {
+                    server.atmos().rebuild_zones();
+                    lighting.rebuild();
                 }
             }
 
