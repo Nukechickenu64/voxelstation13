@@ -54,6 +54,12 @@ public:
     // All currently placed objects (read-only).
     const std::vector<StaticModelObject>& objects() const { return m_objects; }
 
+    // Integer ID of the object at index i in objects().
+    int id_at(std::size_t i) const { return m_ids[i]; }
+
+    // Remove all placed objects.
+    void clear();
+
     // True when a model with blocks_mobs=true occupies voxel cell 'c'.
     bool blocks_mob_at(glm::ivec3 c) const;
     // True when a model with blocks_gas=true occupies voxel cell 'c'.

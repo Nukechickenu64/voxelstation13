@@ -15,7 +15,6 @@
 #include "simulation/world_items.h"
 #include "simulation/mob_system.h"
 #include "simulation/enclosure.h"
-#include "simulation/model_objects.h"
 #include "input/input_manager.h"
 #include "input/alt_mode.h"
 #include "inventory/inventory.h"
@@ -31,8 +30,6 @@
 #include "ui/debug_overlay.h"
 #include "ui/gas_overlay.h"
 #include "ui/player_stats_overlay.h"
-#include "ui/map_editor.h"
-#include "data/map_io.h"
 #include "network/server.h"
 #include "network/client.h"
 
@@ -73,7 +70,6 @@ int main(int /*argc*/, char* /*argv*/[])
     renderer.load_tile_textures(voxel_reg, "textures");
     renderer.load_item_textures(item_reg,  "textures");
     renderer.load_mob_textures("textures");
-    renderer.load_human_bodyparts("legacysets/extracted");
     renderer.load_door_anim("textures/specialtile/door_opening.gif",
                              voxel_reg.id_of("door_anim"));
 
@@ -84,29 +80,6 @@ int main(int /*argc*/, char* /*argv*/[])
     }
     ui_renderer.load_item_icons(item_reg, "textures");
 
-    // ── 3b. Static 3-D models + ModelObjectManager ─────────────────────────────
-    renderer.load_model("smes", "models/SMES.mesh", "textures/models/smes.png");
-
-    ModelObjectManager model_objs;
-    {
-        glm::vec3 mn, mx;
-        if (renderer.model_local_aabb("smes", mn, mx))
-            model_objs.register_extents("smes", mn, mx);
-
-        // Place one SMES in the centre of the test room, resting on the floor.
-        // cell {0,1,0} → world origin at (0.5, 1.0, 0.5).
-        //   blocks_mobs = true  (players cannot walk through it)
-        //   blocks_gas  = false (gas flows around it; set true to seal a room)
-        StaticModelObject smes_def;
-        smes_def.name        = "smes";
-        smes_def.cell        = {0, 1, 0};
-        smes_def.yaw         = 0.f;
-        smes_def.scale       = 1.f;
-        smes_def.blocks_mobs = true;
-        smes_def.blocks_gas  = false;
-        model_objs.add(smes_def);
-    }
-
     // ── 4. Chunk mesher ───────────────────────────────────────────────────────
     ChunkMesher mesher;
     mesher.start(2);
@@ -116,7 +89,6 @@ int main(int /*argc*/, char* /*argv*/[])
     Server server;
     server.start(0); // port 0 = loopback / no networking
     server.set_species_registry(&mob_species_reg);
-    server.set_model_objects(&model_objs);
 
     // ── 6. Client ─────────────────────────────────────────────────────────────
     Client client;
@@ -151,8 +123,6 @@ int main(int /*argc*/, char* /*argv*/[])
     bool           gas_overlay_visible   = false;
     PlayerStatsOverlay player_stats_overlay(ui_renderer);
     bool               player_stats_visible = false;
-    MapEditor          map_editor(ui_renderer, server.world(), voxel_reg);
-    bool               map_editor_open  = false;
     double         sim_time              = 0.0;  // monotonic seconds, for overlay animations
 
     // ── 11. Player inventory ──────────────────────────────────────────────────
@@ -331,19 +301,10 @@ int main(int /*argc*/, char* /*argv*/[])
             tr.pos = { 4.f, 1.f, -2.f };
             tr.yaw = 0.f;   // faces -Z (same default as the camera)
             server.entities().add_component<TransformComponent>(dummy, tr);
-            // Legacy sprite fallback (still used if HumanAppearance is absent)
             MobComponent mob{};
             mob.species = "human";
             mob.variant = "female";
             server.entities().add_component<MobComponent>(dummy, mob);
-            // Overlay-assembled human appearance
-            HumanAppearance app{};
-            // Layer 0: greyscale human body parts tinted to a skin tone.
-            // sprite_dir = "bodyparts_greyscale", prefix = "human", gender = "_f",
-            // tint = a warm skin colour (can be changed per-entity for custom tones).
-            app.layers.push_back({ "bodyparts_greyscale", "human", "_f", {240, 195, 155, 255} });
-            app.dirty = true;
-            server.entities().add_component<HumanAppearance>(dummy, app);
         }
 
         // ── Atmospherics bootstrap ──────────────────────────────────────────
@@ -545,29 +506,6 @@ int main(int /*argc*/, char* /*argv*/[])
                         SDL_Log("Player stats overlay: %s", player_stats_visible ? "ON" : "OFF");
                     }
                     s_f6_prev = f6_now;
-                }
-                // F7: toggle map editor
-                {
-                    static bool s_f7_prev = false;
-                    bool f7_now = ks[SDL_SCANCODE_F7];
-                    if (f7_now && !s_f7_prev) {
-                        if (map_editor.is_open()) {
-                            map_editor.close();
-                            map_editor_open = false;
-                            if (!alt_mode.active())
-                                input.capture_cursor(renderer.window(), true);
-                        } else {
-                            map_editor.open(cam_pos);
-                            map_editor_open = true;
-                            // Close creative menu if it was open
-                            if (creative_menu.is_open())
-                                creative_menu.close();
-                            // Free the cursor for map editor interaction
-                            input.capture_cursor(renderer.window(), false);
-                        }
-                        SDL_Log("Map editor: %s", map_editor.is_open() ? "OPEN" : "CLOSED");
-                    }
-                    s_f7_prev = f7_now;
                 }
             }
 
@@ -875,8 +813,8 @@ int main(int /*argc*/, char* /*argv*/[])
             // Held item   + item  → item-on-item interaction
             // Held item   + turf  → knock on the wall with held item
             {
-                bool fps_lmb = !alt_mode.active() && !build_mode && !ctx_menu.is_open() && !map_editor.is_open() && input.is_pressed(Action::PrimaryInteract);
-                bool e_press = !alt_mode.active() && !ctx_menu.is_open() && !map_editor.is_open() && input.is_pressed(Action::PickUp);
+                bool fps_lmb = !alt_mode.active() && !build_mode && !ctx_menu.is_open() && input.is_pressed(Action::PrimaryInteract);
+                bool e_press = !alt_mode.active() && !ctx_menu.is_open() && input.is_pressed(Action::PickUp);
                 if (fps_lmb || e_press) {
                     constexpr float ITEM_REACH = 1.5f;
                     float yr = glm::radians(cam_yaw), pr = glm::radians(cam_pitch);
@@ -1006,7 +944,7 @@ int main(int /*argc*/, char* /*argv*/[])
             }  // end interaction block
 
             // ── FPS RMB on world item → scrollable context menu ───────────────
-            if (!alt_mode.active() && !build_mode && !ctx_menu.is_open() && !map_editor.is_open()
+            if (!alt_mode.active() && !build_mode && !ctx_menu.is_open()
                 && input.is_pressed(Action::SecondaryInteract)) {
                 constexpr float CTX_REACH = 5.f;
                 float yr2 = glm::radians(cam_yaw), pr2 = glm::radians(cam_pitch);
@@ -1029,10 +967,9 @@ int main(int /*argc*/, char* /*argv*/[])
                     if (wic && wic->item.def) {
                         std::vector<ContextEntry> entries;
                         EntityID eid = ctx_ent;
-                        constexpr float PICKUP_REACH = 1.5f;  // must match ITEM_REACH
 
-                        // Pick Up — only enabled when close enough
-                        entries.push_back({"Pick Up", ict_dist <= PICKUP_REACH, false,
+                        // Pick Up
+                        entries.push_back({"Pick Up", true, false,
                             [&player_inv, &world_items, eid, &cam_pos]() {
                                 auto picked = world_items.pick_up(eid);
                                 if (picked && picked->def) {
@@ -1068,19 +1005,12 @@ int main(int /*argc*/, char* /*argv*/[])
                                 }});
                         }
 
-                        // Separator + item-specific verbs (only within verb.range)
-                        {
-                            std::vector<ContextEntry> verb_entries;
-                            for (const auto& verb : wic->item.def->verbs) {
-                                if (ict_dist <= verb.range)
-                                    verb_entries.push_back({verb.name, true, false,
-                                        [name = verb.name]() { SDL_Log("Verb: %s", name.c_str()); }});
-                            }
-                            if (!verb_entries.empty()) {
-                                entries.push_back({"", false, true, nullptr}); // separator
-                                for (auto& ve : verb_entries)
-                                    entries.push_back(std::move(ve));
-                            }
+                        // Separator + item-specific verbs
+                        if (!wic->item.def->verbs.empty()) {
+                            entries.push_back({"", false, true, nullptr}); // separator
+                            for (const auto& verb : wic->item.def->verbs)
+                                entries.push_back({verb.name, true, false,
+                                    [name = verb.name]() { SDL_Log("Verb: %s", name.c_str()); }});
                         }
 
                         // Open menu at screen center (FPS — no cursor yet)
@@ -1128,7 +1058,7 @@ int main(int /*argc*/, char* /*argv*/[])
             }
 
             // ── Build mode: LMB destroys, RMB places ─────────────────────────────
-            if (build_mode && !alt_mode.active() && !map_editor.is_open()) {
+            if (build_mode && !alt_mode.active()) {
                 float yr = glm::radians(cam_yaw), pr = glm::radians(cam_pitch);
                 glm::vec3 rdir = {
                     std::cos(pr) * std::sin(yr),
@@ -1248,17 +1178,13 @@ int main(int /*argc*/, char* /*argv*/[])
                                        cam_pos, cam_yaw, cam_pitch);
             renderer.queue_mobs(server.entities(), cam_pos, cam_yaw);
             renderer.queue_earth_background(cam_pos, cam_yaw, cam_pitch);
-            // Queue all placed model objects for rendering
-            for (const auto& obj : model_objs.objects())
-                renderer.queue_model(obj.name.c_str(), obj.world_pos, obj.yaw, obj.scale);
 
             renderer.begin_frame(alpha);
 
             renderer.draw_world(server.world(), cam_pos, cam_yaw, cam_pitch);
-            renderer.draw_models();       // solid geometry – must write depth before sprites
             renderer.draw_face_highlight(hit);
-            renderer.draw_world_items();  // sprites (depth_write=false)
-            renderer.draw_mobs();         // sprites (depth_write=false)
+            renderer.draw_world_items();
+            renderer.draw_mobs();
             renderer.draw_viewmodel(0); // TODO: held item type id
 
             // UI pass
@@ -1355,31 +1281,6 @@ int main(int /*argc*/, char* /*argv*/[])
                         static_cast<int>(std::floor(cam_pos.z))
                     };
                     dbg.enclosed = enclosure_detector.is_enclosed(air_cell);
-                }
-
-                // Mob facing arrows
-                dbg.view_proj = vp_mat;
-                dbg.fb_w      = renderer.width();
-                dbg.fb_h      = renderer.height();
-                {
-                    // Collect all mob entities (HumanAppearance or legacy MobComponent)
-                    auto push_mob = [&](EntityID eid, const char* name) {
-                        auto* tr = server.entities().get_component<TransformComponent>(eid);
-                        if (!tr) return;
-                        MobDebugInfo info;
-                        info.pos   = tr->pos;
-                        info.yaw   = tr->yaw;
-                        info.label = name;
-                        dbg.mobs.push_back(info);
-                    };
-                    server.entities().each<HumanAppearance>([&](EntityID eid, HumanAppearance&) {
-                        push_mob(eid, "human");
-                    });
-                    server.entities().each<MobComponent>([&](EntityID eid, MobComponent& mc) {
-                        // Skip entities that are also rendered as HumanAppearance (already added)
-                        if (server.entities().get_component<HumanAppearance>(eid)) return;
-                        push_mob(eid, mc.species.c_str());
-                    });
                 }
 
                 debug_overlay.draw(dbg);
@@ -1659,60 +1560,6 @@ int main(int /*argc*/, char* /*argv*/[])
                                                : static_cast<uint8_t>(VFLAG_SOLID | VFLAG_OPAQUE);
                     if (vdef)
                         SDL_Log("Build voxel set to: %s", vdef->name.c_str());
-                }
-            }
-
-            // ── Map editor (F7) ──────────────────────────────────────────────
-            if (map_editor.is_open()) {
-                float me_mx = 0.f, me_my = 0.f;
-                uint32_t me_btn = SDL_GetMouseState(&me_mx, &me_my);
-                bool me_lmb = !!(me_btn & SDL_BUTTON_MASK(SDL_BUTTON_LEFT));
-                bool me_rmb = !!(me_btn & SDL_BUTTON_MASK(SDL_BUTTON_RIGHT));
-                bool me_mmb = !!(me_btn & SDL_BUTTON_MASK(SDL_BUTTON_MIDDLE));
-
-                const bool* me_ks   = SDL_GetKeyboardState(nullptr);
-                bool me_ctrl        = me_ks[SDL_SCANCODE_LCTRL] || me_ks[SDL_SCANCODE_RCTRL];
-                bool me_pgup_now    = me_ks[SDL_SCANCODE_PAGEUP];
-                bool me_pgdn_now    = me_ks[SDL_SCANCODE_PAGEDOWN];
-                bool me_ctrl_s_now  = me_ctrl && me_ks[SDL_SCANCODE_S];
-                bool me_ctrl_l_now  = me_ctrl && me_ks[SDL_SCANCODE_L];
-
-                static bool me_pgup_prev=false, me_pgdn_prev=false;
-                static bool me_ctrl_s_prev=false, me_ctrl_l_prev=false;
-                bool me_pgup_edge   = me_pgup_now   && !me_pgup_prev;
-                bool me_pgdn_edge   = me_pgdn_now   && !me_pgdn_prev;
-                bool me_ctrl_s_edge = me_ctrl_s_now && !me_ctrl_s_prev;
-                bool me_ctrl_l_edge = me_ctrl_l_now && !me_ctrl_l_prev;
-                me_pgup_prev   = me_pgup_now;
-                me_pgdn_prev   = me_pgdn_now;
-                me_ctrl_s_prev = me_ctrl_s_now;
-                me_ctrl_l_prev = me_ctrl_l_now;
-
-                // Consume scroll so the game doesn't also process it
-                float me_scroll = input.consume_scroll();
-                bool  me_esc    = input.is_pressed(Action::Escape);
-
-                auto me_res = map_editor.draw(
-                    {me_mx, me_my},
-                    me_lmb, me_rmb, me_mmb,
-                    me_scroll,
-                    me_pgup_edge, me_pgdn_edge,
-                    me_ctrl_s_edge, me_ctrl_l_edge,
-                    me_esc);
-
-                if (me_res.request_close) {
-                    map_editor.close();
-                    map_editor_open = false;
-                    if (!alt_mode.active())
-                        input.capture_cursor(renderer.window(), true);
-                }
-                if (me_res.world_modified) {
-                    for (Chunk* c : server.world().dirty_chunks())
-                        mesher.enqueue(c->chunk_pos(), server.world());
-                }
-                if (me_res.needs_atmos_rebuild) {
-                    server.atmos().rebuild_zones();
-                    lighting.rebuild();
                 }
             }
 

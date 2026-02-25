@@ -70,39 +70,15 @@ void HUD::draw_hands(const Inventory& inv, bool left_active, float pitch)
     glm::vec2 lpos = {fb_w * 0.5f - SZ - PAD, fb_h - SZ - 8.f};
     glm::vec2 rpos = {fb_w * 0.5f + PAD,       fb_h - SZ - 8.f};
 
-    const std::string th_hand  = inv.two_handed_hand_id();
-    const std::string grip_hand = inv.gripped_hand_id();
-    const bool two_hander = !th_hand.empty();
-
     auto draw_slot = [&](glm::vec2 pos, const std::string& slot_id, bool active) {
-        bool is_gripped = two_hander && (slot_id == grip_hand);
-
-        glm::vec4 bg;
-        if (is_gripped)
-            bg = {0.45f, 0.30f, 0.05f, 0.85f};  // amber – gripped by two-hander
-        else if (active)
-            bg = {0.25f, 0.35f, 0.50f, 0.85f};
-        else
-            bg = {0.10f, 0.10f, 0.10f, 0.65f};
-
+        glm::vec4 bg = active ? glm::vec4{0.25f,0.35f,0.5f,0.85f}
+                              : glm::vec4{0.1f,0.1f,0.1f,0.65f};
         m_ui.rect(pos, {SZ, SZ}, bg, 4.f);
-
-        // Which item to display: gripped hand shows the same item as the holding hand
-        const std::string& render_id = is_gripped ? th_hand : slot_id;
-        const auto* slot = inv.find_slot(render_id);
+        const auto* slot = inv.find_slot(slot_id);
         if (slot && slot->item) {
-            // Try to show the item icon; fall back to text name
-            SDL_GPUTexture* icon = m_ui.item_icon(slot->item->def->id);
-            if (icon) {
-                m_ui.image(pos + glm::vec2(4.f), {SZ - 8.f, SZ - 8.f}, icon);
-            } else {
-                m_ui.text(pos + glm::vec2(4, SZ - 16), slot->item->def->name,
-                          {1,1,1,0.9f}, 10.f);
-            }
+            m_ui.text(pos + glm::vec2(4, SZ - 16), slot->item->def->name,
+                      {1,1,1,0.9f}, 10.f);
         }
-
-        if (is_gripped)
-            m_ui.text(pos + glm::vec2(4.f, 2.f), "GRIP", {1.f,0.75f,0.1f,1.f}, 9.f);
     };
 
     draw_slot(lpos, "l_hand", left_active);

@@ -63,6 +63,12 @@ void ModelObjectManager::remove(int id)
     }
 }
 
+void ModelObjectManager::clear()
+{
+    m_objects.clear();
+    m_ids.clear();
+}
+
 bool ModelObjectManager::blocks_mob_at(glm::ivec3 c) const
 {
     for (const auto& obj : m_objects) {

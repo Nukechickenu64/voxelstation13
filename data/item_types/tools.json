@@ -8,8 +8,6 @@
     "volume":   1.2,
     "stack_max":1,
     "verbs": [
-      { "name": "Wrench",  "range": 1.5, "handler": "verb_wrench"  },
-      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }
     ]
   },
@@ -22,9 +20,6 @@
     "volume":   0.8,
     "stack_max":1,
     "verbs": [
-      { "name": "Screwdrive", "range": 1.5, "handler": "verb_screwdrive" },
-      { "name": "Stab",       "range": 0.8, "handler": "verb_stab"       },
-      { "name": "Throw",      "range": 0.0, "handler": "verb_throw"      },
       { "name": "Examine",    "range": 99,  "handler": "verb_examine"    }
     ]
   },
@@ -38,9 +33,6 @@
     "stack_max":1,
     "two_handed": true,
     "verbs": [
-      { "name": "Pry",     "range": 1.5, "handler": "verb_pry"     },
-      { "name": "Hit",     "range": 1.2, "handler": "verb_hit"     },
-      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }
     ]
   },
@@ -53,8 +45,6 @@
     "volume":   1.0,
     "stack_max":1,
     "verbs": [
-      { "name": "Cut wire", "range": 1.5, "handler": "verb_cut_wire" },
-      { "name": "Throw",    "range": 0.0, "handler": "verb_throw"    },
       { "name": "Examine",  "range": 99,  "handler": "verb_examine"  }
     ]
   },
@@ -69,10 +59,7 @@
     "is_container": true,
     "container_volume": 20.0,
     "verbs": [
-      { "name": "Hit",     "range": 1.2, "handler": "verb_hit"     },
       { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
-      { "name": "Close",   "range": 1.5, "handler": "verb_close"   },
-      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }
     ]
   },
@@ -116,7 +103,6 @@
     "verbs": [
       { "name": "Spray",            "range": 3.0, "handler": "verb_spray_extinguisher" },
       { "name": "Check Pressure",   "range": 1.5, "handler": "verb_check_pressure"    },
-      { "name": "Hit",              "range": 1.2, "handler": "verb_hit"               },
       { "name": "Examine",          "range": 99,  "handler": "verb_examine"           }
     ]
   }

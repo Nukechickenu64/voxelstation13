@@ -33,6 +33,8 @@ public:
 
     const MobSpeciesDef* get(const std::string& species) const;
 
+    const std::unordered_map<std::string, MobSpeciesDef>& all() const { return m_defs; }
+
 private:
     std::unordered_map<std::string, MobSpeciesDef> m_defs;
 };
