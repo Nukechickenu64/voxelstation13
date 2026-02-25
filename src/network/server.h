@@ -83,6 +83,9 @@ private:
 
     std::unordered_map<EntityID, PlayerInput> m_pending_inputs;
 
+    double m_atmos_acc = 0.0;  // accumulated dt for fixed-rate atmos ticks
+    static constexpr double ATMOS_TICK_DT = 1.0 / 20.0;  // 20 Hz
+
     struct Peer {
         NetAddress addr;
         EntityID   player_entity = NULL_ENTITY;

@@ -145,9 +145,22 @@ CreativeResult CreativeMenu::draw(glm::vec2 cursor, bool lmb_pressed,
         m_ui.rect(cpos, {CELL_SIZE, CELL_SIZE}, bg, 5.f);
         m_ui.rect(cpos, {CELL_SIZE, CELL_SIZE}, {0.2f, 0.25f, 0.4f, 0.4f}, 5.f);
 
-        // Icon placeholder
-        m_ui.rect(cpos + glm::vec2(8.f, 8.f), {CELL_SIZE - 16.f, CELL_SIZE - 26.f},
-                  {0.18f, 0.28f, 0.45f, 0.75f}, 3.f);
+        // Icon: use loaded item icon when available; fall back to a tinted rect.
+        if (m_tab == 0) {
+            SDL_GPUTexture* icon_tex = m_ui.item_icon(m_items[i]->id);
+            if (icon_tex) {
+                m_ui.image(cpos + glm::vec2(8.f, 8.f),
+                           {CELL_SIZE - 16.f, CELL_SIZE - 26.f},
+                           icon_tex, 1.f);
+            } else {
+                m_ui.rect(cpos + glm::vec2(8.f, 8.f), {CELL_SIZE - 16.f, CELL_SIZE - 26.f},
+                          {0.18f, 0.28f, 0.45f, 0.75f}, 3.f);
+            }
+        } else {
+            // Voxel types: no per-type icon atlas yet — placeholder rect.
+            m_ui.rect(cpos + glm::vec2(8.f, 8.f), {CELL_SIZE - 16.f, CELL_SIZE - 26.f},
+                      {0.18f, 0.28f, 0.45f, 0.75f}, 3.f);
+        }
 
         // Name label
         std::string name;

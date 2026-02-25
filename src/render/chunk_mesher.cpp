@@ -36,6 +36,20 @@ void ChunkMesher::enqueue(glm::ivec3 chunk_pos, const World& world)
                 job.voxels[z * CHUNK_SIZE * CHUNK_SIZE + y * CHUNK_SIZE + x]
                     = chunk->get(x, y, z);
 
+    // Snapshot per-face atlas indices so the worker thread can select the
+    // correct texture layer without touching the registry.
+    if (m_registry) {
+        const auto& all = m_registry->all();
+        uint16_t max_id = 0;
+        for (const auto& [id, def] : all)
+            if (id > max_id) max_id = id;
+        job.type_atlas.assign(
+            static_cast<size_t>(max_id) + 1,
+            std::array<uint16_t, static_cast<int>(FaceDir::COUNT)>{});
+        for (const auto& [id, def] : all)
+            job.type_atlas[id] = def.atlas_indices;
+    }
+
     {
         std::lock_guard<std::mutex> lk(m_queue_mutex);
         m_job_queue.push(std::move(job));
@@ -107,6 +121,15 @@ void ChunkMesher::worker_loop()
                    z >= 0 && z < CHUNK_SIZE;
         };
 
+        // Helper: return the atlas layer index for a voxel face.
+        // Falls back to type_id (the old behaviour) when no atlas table is available.
+        auto atlas_idx = [&](uint16_t type_id, int face_dir) -> float {
+            if (!job.type_atlas.empty() &&
+                static_cast<size_t>(type_id) < job.type_atlas.size())
+                return static_cast<float>(job.type_atlas[type_id][face_dir]);
+            return static_cast<float>(type_id);
+        };
+
         // Flat-plane geometry: top (+Y) and bottom (-Y) faces at the floor of the cell (y=0)
         // Used for catwalk, grating, etc.  Double-sided so visible from above and below.
         static const FaceGeo k_flat[2] = {
@@ -147,7 +170,11 @@ void ChunkMesher::worker_loop()
                                 && !(at(nx2, ny2, nz2).flags & (VFLAG_FLAT_PLANE | VFLAG_FLAT_TOP | VFLAG_VERT_PLANE_Z));
                     if (blocked) continue;
                     const FaceGeo& fg = k_flat[fi];
-                    const float tex_idx = static_cast<float>(v.type_id);
+                    // Flat planes are horizontal — use PosY (top) or NegY (bottom) atlas slot
+                    const float tex_idx = atlas_idx(
+                        v.type_id,
+                        fi == 0 ? static_cast<int>(FaceDir::PosY)
+                                : static_cast<int>(FaceDir::NegY));
                     uint32_t base2 = static_cast<uint32_t>(mesh.vertices.size() / 9);
                     for (int vi = 0; vi < 4; ++vi) {
                         mesh.vertices.push_back(fx + fg.v[vi][0]);
@@ -181,9 +208,13 @@ void ChunkMesher::worker_loop()
                     // PosZ face: looking from +Z, left=+X; top-left=(1,1), top-right=(0,1)
                     { { {1,1,0.5f},{0,1,0.5f},{0,0,0.5f},{1,0,0.5f} }, { 0, 0, 1} },
                 };
-                const float tex_idx = static_cast<float>(v.type_id);
                 for (int fi = 0; fi < 2; ++fi) {
                     const FaceGeo& fg = k_door[fi];
+                    // Door is a Z-facing plane — use NegZ or PosZ atlas slot
+                    const float tex_idx = atlas_idx(
+                        v.type_id,
+                        fi == 0 ? static_cast<int>(FaceDir::NegZ)
+                                : static_cast<int>(FaceDir::PosZ));
                     uint32_t base_d = static_cast<uint32_t>(mesh.vertices.size() / 9);
                     for (int vi = 0; vi < 4; ++vi) {
                         mesh.vertices.push_back(fx + fg.v[vi][0]);
@@ -218,7 +249,7 @@ void ChunkMesher::worker_loop()
                 const FaceGeo& fg = k_faces[f];
                 // 9 floats per vertex: pos(3) + normal(3) + uv(2) + texIndex(1)
                 // Standard quad UVs: v0=(0,0), v1=(1,0), v2=(1,1), v3=(0,1)
-const float tex_idx = static_cast<float>(v.type_id);
+                const float tex_idx = atlas_idx(v.type_id, f);
                 uint32_t base = static_cast<uint32_t>(mesh.vertices.size() / 9);
 
                 for (int vi = 0; vi < 4; ++vi) {

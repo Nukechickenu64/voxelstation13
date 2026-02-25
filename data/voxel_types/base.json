@@ -9,7 +9,7 @@
   {
     "id":    "floor",
     "name":  "Steel Floor",
-    "icon":  "tiles/floor_steel",
+    "icon":  "tiles/floor_dark",
     "flags": ["SOLID", "OPAQUE"],
     "health": 200,
     "material": "steel"
@@ -92,8 +92,19 @@
     "id":    "door_open",
     "name":  "Airlock Door (Open)",
     "icon":  "specialtile/door_open",
-    "flags": ["VERT_PLANE_Z"],
+    "flags": ["VERT_PLANE_Z", "GAS_PASSABLE"],
     "health": 200,
+    "material": "steel"
+  },
+  {
+    "id":           "floor_panel",
+    "name":         "Floor Panel",
+    "icon":         "tiles/plating",
+    "texture_top":  "tiles/floor_steel",
+    "texture_bottom": "tiles/plating",
+    "texture_sides":  "tiles/wall",
+    "flags": ["SOLID", "OPAQUE"],
+    "health": 150,
     "material": "steel"
   }
 ]

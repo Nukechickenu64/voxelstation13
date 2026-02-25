@@ -1,4 +1,5 @@
 #include "ui/debug_overlay.h"
+#include "simulation/atmos.h"   // AtmosStatus flags
 #include <sstream>
 #include <iomanip>
 #include <cmath>
@@ -194,16 +195,50 @@ void DebugOverlay::draw_right_column(const DebugOverlayState& s)
     const glm::vec4 green  = {0.5f, 1.0f, 0.5f, 1.0f};
     const glm::vec4 red    = {1.0f, 0.4f, 0.4f, 1.0f};
     const glm::vec4 grey   = {0.7f, 0.7f, 0.7f, 1.0f};
+    const glm::vec4 orange = {1.0f, 0.7f, 0.2f, 1.0f};
 
     // ── Atmosphere ────────────────────────────────────────────────────────────
     emit({x, y}, "-- Atmosphere --", yellow); next();
     skip();
     {
         std::ostringstream ss;
-        ss << "Zone ID: " << s.zone_id;
+        ss << "Zone ID: " << s.zone_id
+           << "  (" << s.room_cell_count << " cells)";
         emit({x, y}, ss.str(), grey);
     }
     next();
+    {
+        std::ostringstream ss;
+        ss << "Rooms: " << s.total_rooms
+           << "  Adj: " << s.room_adj_count;
+        emit({x, y}, ss.str(), grey);
+    }
+    next();
+    skip();
+
+    // Status flags row
+    {
+        std::string flags;
+        uint8_t st = s.atmos_status;
+        bool ok  = (st == ATMOS_OK);
+        if (ok) flags = "OK";
+        if (st & ATMOS_LOW_O2)    flags += (flags.empty() ? "" : " ") + std::string("LOW-O2");
+        if (st & ATMOS_LOW_PRESS) flags += (flags.empty() ? "" : " ") + std::string("LOW-P");
+        if (st & ATMOS_HIGH_CO2)  flags += (flags.empty() ? "" : " ") + std::string("CO2!");
+        if (st & ATMOS_TOXIC)     flags += (flags.empty() ? "" : " ") + std::string("TOXIC");
+        if (st & ATMOS_HIGH_TEMP) flags += (flags.empty() ? "" : " ") + std::string("HOT");
+        if (st & ATMOS_FIRE)      flags += (flags.empty() ? "" : " ") + std::string("FIRE!");
+        if (st & ATMOS_DECOMP)    flags += (flags.empty() ? "" : " ") + std::string("DECOMP");
+        glm::vec4 sc = ok ? green
+                     : (st & (ATMOS_FIRE | ATMOS_DECOMP)) ? red : orange;
+        emit({x, y}, "Status: " + flags, sc);
+    }
+    next();
+    if (s.pressure_loss_rate > 0.1f) {
+        std::ostringstream ss;
+        ss << "Leak: -" << fmt_f(s.pressure_loss_rate, 1) << " kPa/s";
+        emit({x, y}, ss.str(), red); next();
+    } else { next(); }
     skip();
 
     const GasMixture& g = s.gas_mix;

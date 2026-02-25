@@ -38,8 +38,15 @@ struct DebugOverlayState {
     std::string active_hand;
 
     // ── Atmosphere at player position
-    AtmosZoneID zone_id = 0;
+    AtmosZoneID zone_id      = 0;
     GasMixture  gas_mix{};
+    uint8_t     atmos_status = 0;   // AtmosStatus bitmask
+    float       pressure_loss_rate = 0.f;  // kPa/s drained to space
+
+    // ── Room info
+    int  room_cell_count = 0;
+    int  room_adj_count  = 0;
+    int  total_rooms     = 0;
 
     // ── Enclosure
     bool enclosed = false;

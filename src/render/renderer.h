@@ -56,8 +56,10 @@ public:
     const glm::mat4& view_proj() const { return m_current_mvp; }
 
     // Load tile textures from disk and upload a GPU 2D-array texture.
+    // Populates VoxelTypeDef::atlas_indices for all registered types so the
+    // chunk mesher can pick the correct layer per face direction.
     // Must be called after init(), before the first draw_world().
-    bool load_tile_textures(const VoxelRegistry& reg, const char* texture_dir);
+    bool load_tile_textures(VoxelRegistry& reg, const char* texture_dir);
 
     // Load item textures from disk and upload a GPU 2D-array texture.
     // Must be called after init(), before the first draw_world_items().

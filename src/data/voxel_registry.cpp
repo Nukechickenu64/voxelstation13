@@ -43,6 +43,9 @@ bool VoxelRegistry::load_file(const std::string& path)
             def.on_hit    = obj.value("on_hit", "");
             def.on_walk   = obj.value("on_walk", "");
             def.emit_light= static_cast<uint8_t>(obj.value("emit_light", 0));
+            def.tex_top     = obj.value("texture_top",    "");
+            def.tex_bottom  = obj.value("texture_bottom", "");
+            def.tex_sides   = obj.value("texture_sides",  "");
 
             if (obj.contains("flags"))
                 for (const auto& flag : obj["flags"]) {
@@ -54,6 +57,7 @@ bool VoxelRegistry::load_file(const std::string& path)
                     if (fs == "FLAT_PLANE")    def.default_flags |= VFLAG_FLAT_PLANE;
                     if (fs == "FLAT_TOP")       def.default_flags |= VFLAG_FLAT_TOP;
                     if (fs == "VERT_PLANE_Z")   def.default_flags |= VFLAG_VERT_PLANE_Z;
+                    if (fs == "GAS_PASSABLE")   def.default_flags |= VFLAG_GAS_PASSABLE;
                 }
 
             def.type_id = m_next_id++;
@@ -86,6 +90,9 @@ void VoxelRegistry::resolve_inheritance(VoxelTypeDef& def)
     if (def.health == 100)  def.health        = parent->health;
     if (def.material.empty())def.material     = parent->material;
     if (def.on_hit.empty()) def.on_hit        = parent->on_hit;
+    if (def.tex_top.empty())    def.tex_top    = parent->tex_top;
+    if (def.tex_bottom.empty()) def.tex_bottom = parent->tex_bottom;
+    if (def.tex_sides.empty())  def.tex_sides  = parent->tex_sides;
 }
 
 const VoxelTypeDef* VoxelRegistry::get(uint16_t type_id) const
@@ -109,4 +116,18 @@ uint16_t VoxelRegistry::id_of(const std::string& name_id) const
 {
     auto it = m_by_name.find(name_id);
     return it != m_by_name.end() ? it->second.type_id : 0;
+}
+
+void VoxelRegistry::set_atlas_indices(
+    uint16_t type_id,
+    const std::array<uint16_t, static_cast<int>(FaceDir::COUNT)>& indices)
+{
+    auto it_id = m_by_id.find(type_id);
+    if (it_id != m_by_id.end()) {
+        it_id->second.atlas_indices = indices;
+        // Sync the name-keyed copy too
+        auto it_nm = m_by_name.find(it_id->second.id);
+        if (it_nm != m_by_name.end())
+            it_nm->second.atlas_indices = indices;
+    }
 }

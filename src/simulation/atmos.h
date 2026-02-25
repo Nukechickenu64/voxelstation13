@@ -1,7 +1,9 @@
 #pragma once
 #include "core/world.h"
+#include "core/entity_manager.h"
 #include <unordered_map>
 #include <vector>
+#include <utility>
 
 // ── Gas mixture ───────────────────────────────────────────────────────────────
 struct GasMixture {
@@ -17,56 +19,107 @@ struct GasMixture {
     float total_pressure() const {
         return o2 + n2 + co2 + plasma + n2o + bz + tritium;
     }
-    float moles() const { return total_pressure(); } // simplified
+    float moles() const { return total_pressure(); }
+};
+
+// ── Atmosphere status bitmask ─────────────────────────────────────────────────
+enum AtmosStatus : uint8_t {
+    ATMOS_OK        = 0,
+    ATMOS_LOW_O2    = 1 << 0,  // O2 < 16 kPa
+    ATMOS_LOW_PRESS = 1 << 1,  // total < 50 kPa
+    ATMOS_HIGH_CO2  = 1 << 2,  // CO2 > 5 kPa
+    ATMOS_TOXIC     = 1 << 3,  // plasma/BZ/N2O above trace levels
+    ATMOS_FIRE      = 1 << 4,  // active hotspot
+    ATMOS_DECOMP    = 1 << 5,  // losing pressure to space
+    ATMOS_HIGH_TEMP = 1 << 6,  // temperature > 360 K (dangerously hot)
 };
 
 // ── Atmosphere zone ───────────────────────────────────────────────────────────
 using AtmosZoneID = uint32_t;
 constexpr AtmosZoneID ATMOS_ZONE_NULL  = 0;
-constexpr AtmosZoneID ATMOS_ZONE_SPACE = 1; // infinite vacuum
+constexpr AtmosZoneID ATMOS_ZONE_SPACE = 1;
 
 struct AtmosZone {
-    AtmosZoneID   id       = ATMOS_ZONE_NULL;
-    GasMixture    gas{};
-    bool          is_space = false;
-    std::vector<VoxelFaceCoord> member_faces;
-    std::vector<AtmosZoneID>    adjacent_zones;
-    bool          has_hotspot = false;
-    float         hotspot_temp= 0.f;
+    AtmosZoneID id         = ATMOS_ZONE_NULL;
+    GasMixture  gas{};
+    bool        is_space   = false;
+    int         cell_count = 0;
+    uint8_t     status     = ATMOS_OK;
+    float       pressure_loss_rate = 0.f;   // kPa/s lost to space this tick
+    glm::vec3   vent_direction{};           // toward nearest space vent
+    std::vector<AtmosZoneID> adjacent_zones;
+    bool  has_hotspot  = false;
+    float hotspot_temp = 0.f;
 };
 
-// ── Atmospheric simulator (ZAS-inspired) ──────────────────────────────────────
+// ── Door link — which physical door voxels bridge two zones ───────────────────
+struct DoorLink {
+    AtmosZoneID             zone_a;
+    AtmosZoneID             zone_b;
+    std::vector<glm::ivec3> door_voxels;
+    glm::vec3               midpoint{};   // average world pos (for wind direction)
+};
+
+// ── Atmospheric simulator ─────────────────────────────────────────────────────
 class AtmosSimulator {
 public:
-    explicit AtmosSimulator(World& world);
+    AtmosSimulator(World& world, EntityManager* entities = nullptr);
 
-    // Full zone rebuild (BFS flood-fill, call after large map changes)
     void rebuild_zones();
-
-    // Called each simulation tick (default 20 Hz)
     void tick(double dt);
 
-    // Voxel changed at pos — merge/split affected zones
     void on_voxel_changed(glm::ivec3 pos);
+    void on_door_changed (glm::ivec3 pos) { on_voxel_changed(pos); }
 
-    AtmosZone*       zone(AtmosZoneID id);
-    AtmosZoneID      zone_at(glm::ivec3 pos) const;
-    GasMixture       mix_at(glm::ivec3 pos) const;  // convenience
+    AtmosZone*  zone(AtmosZoneID id);
+    AtmosZoneID zone_at(glm::ivec3 pos) const;
+    GasMixture  mix_at (glm::ivec3 pos) const;
+    int         total_rooms() const;
 
-    // Ignite plasma fire at a zone (if conditions met)
-    void try_ignite(AtmosZoneID id);
+    void try_ignite (AtmosZoneID id);
+    void inject_gas (AtmosZoneID id, GasMixture delta);
+
+    // ── Overlay / visualisation accessors ─────────────────────────────────
+    // Returns every tracked air cell and the zone it belongs to.
+    const std::unordered_map<glm::ivec3, AtmosZoneID>& all_cells() const { return m_cell_zone; }
+    // Returns all door-link records (zone boundaries with midpoints).
+    const std::vector<DoorLink>& door_links() const { return m_door_links; }
+    // Const zone lookup.
+    const AtmosZone* zone(AtmosZoneID id) const;
 
 private:
-    void           equalise_pressure(AtmosZone& a, AtmosZone& b, double dt);
-    void           process_hotspot(AtmosZone& zone, double dt);
-    void           apply_wind_force(AtmosZoneID decompressing_zone);
-    AtmosZone*     zone_at_id(AtmosZoneID id);
+    void process_door_links   (double dt);
+    void process_space_drain  (AtmosZone& zone, const DoorLink& lnk,
+                               float conductance, double dt);
+    void equalise_zones       (AtmosZone& a, AtmosZone& b, double dt, float conductance);
+    void move_gas_component   (float& pa, float& pb, float Va, float Vb,
+                               float conductance, double dt);
+    void mix_temperature      (AtmosZone& dst, float added_moles, float src_temp);
+    void process_hotspot      (AtmosZone& zone, double dt);
+    void apply_entity_effects (double dt);
+    void update_status        (AtmosZone& zone);
+    AtmosZone* zone_at_id(AtmosZoneID id);
 
-    World& m_world;
-    std::unordered_map<AtmosZoneID, AtmosZone> m_zones;
-    AtmosZoneID m_next_zone_id = 2; // 0 = null, 1 = space
+    bool voxel_is_passable   (glm::ivec3 pos) const;
+    bool voxel_is_closed_door(glm::ivec3 pos) const;
 
-    static constexpr float PRESSURE_THRESHOLD   = 0.5f;   // kPa
-    static constexpr float IGNITION_TEMPERATURE = 360.f;  // K
-    static constexpr float PLASMA_FIRE_O2_MIN   = 16.f;   // kPa
+    World&          m_world;
+    EntityManager*  m_entities;
+    std::unordered_map<AtmosZoneID, AtmosZone>  m_zones;
+    std::unordered_map<glm::ivec3, AtmosZoneID> m_cell_zone;
+    std::vector<DoorLink>                       m_door_links;
+    AtmosZoneID m_next_zone_id = 2;
+    bool        m_rebuild_pending = false;
+
+    static constexpr int   SPACE_THRESHOLD          = 8192;
+    static constexpr float PRESSURE_THRESHOLD       = 0.25f;
+    static constexpr float CONDUCTANCE_OPEN         = 0.6f;
+    static constexpr float CONDUCTANCE_CLOSED       = 0.003f;
+    static constexpr float CONDUCTANCE_SPACE        = 0.20f;
+    static constexpr float CONDUCTANCE_SPACE_SEALED = 0.00f;   // closed door to space = perfectly airtight
+    static constexpr float WIND_ACCEL_PER_KPA_S     = 0.6f;
+    static constexpr float O2_CONSUMPTION_RATE      = 0.018f;
+    static constexpr float CO2_PRODUCTION_RATE      = 0.014f;
+    static constexpr float IGNITION_TEMPERATURE     = 360.f;
+    static constexpr float PLASMA_FIRE_O2_MIN       = 16.f;
 };

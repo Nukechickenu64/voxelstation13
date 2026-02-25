@@ -1,5 +1,6 @@
 #pragma once
 #include "core/world.h"
+#include "data/voxel_registry.h"
 #include "render/renderer.h"
 #include <thread>
 #include <mutex>
@@ -18,6 +19,10 @@ public:
     void start(int num_workers = 2);
     void stop();
 
+    // Provide the voxel registry so the mesher can snapshot per-face
+    // atlas indices at enqueue time.  Must be set before the first enqueue().
+    void set_registry(const VoxelRegistry* reg) { m_registry = reg; }
+
     // Enqueue a chunk for (re)meshing.  Neighbour chunks are passed so
     // cross-boundary faces can be resolved.
     void enqueue(glm::ivec3 chunk_pos, const World& world);
@@ -33,7 +38,9 @@ private:
         glm::ivec3 chunk_pos;
         // Snapshot data so the worker doesn't hold a World reference
         std::array<Voxel, CHUNK_VOL> voxels;
-        // Neighbour solid flags could be added here
+        // Per-type atlas indices: type_atlas[type_id][face_dir] = texture layer.
+        // Sized to (max_type_id + 1).  Empty when no registry is available.
+        std::vector<std::array<uint16_t, static_cast<int>(FaceDir::COUNT)>> type_atlas;
     };
 
     std::vector<std::thread>   m_workers;
@@ -43,4 +50,5 @@ private:
     std::mutex                 m_finished_mutex;
     std::condition_variable    m_cv;
     std::atomic<bool>          m_running{false};
+    const VoxelRegistry*       m_registry = nullptr;
 };

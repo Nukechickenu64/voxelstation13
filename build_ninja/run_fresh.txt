@@ -1,0 +1,93 @@
+GPU driver: vulkan
+Renderer: world pipeline created
+Renderer: highlight pipeline created
+Renderer: item pipeline created
+Renderer: sky pipeline created
+create_sky_util_texture: 2-layer 64x64 util texture ready
+build_star_geometry: 1800 stars (10800 indices)
+build_cloud_geometry: 8 clouds (48 indices)
+load_earth_gif: loaded 94 frames (240x240) from 'textures/decoration/earthspin.gif'
+load_tile_textures: loaded 16 layers (32x32 each, 2 extra face-specific)
+load_item_textures: loaded 40 layers (32x32 each)
+load_mob_textures: loaded human/female (layers 1/2/3/4)
+load_mob_textures: uploaded 5 layers (64x128 each)
+load_door_anim: loaded 4 frames from 'textures/specialtile/door_opening.gif'
+UIRenderer::load_texture: loaded textures/font/roboto.png (512x256)
+UIRenderer::load_texture: loaded textures/items/fire_extinguisher.png (32x32)
+UIRenderer::load_texture: loaded textures/items/wirecutters.png (32x32)
+UIRenderer::load_texture: loaded textures/items/screwdriver.png (32x32)
+UIRenderer::load_texture: loaded textures/items/wrench.png (32x32)
+UIRenderer::load_texture: loaded textures/items/id_card.png (32x32)
+UIRenderer::load_texture: loaded textures/items/medipen.png (32x32)
+UIRenderer::load_texture: loaded textures/items/flashlight.png (32x32)
+UIRenderer::load_texture: loaded textures/items/metal_sheet.png (32x32)
+UIRenderer::load_texture: loaded textures/items/mining_helmet.png (32x32)
+UIRenderer::load_texture: loaded textures/items/hardsuit_helmet.png (32x32)
+UIRenderer::load_texture: loaded textures/items/junk_box.png (32x32)
+UIRenderer::load_texture: loaded textures/items/jetpack.png (32x32)
+UIRenderer::load_texture: loaded textures/items/toolbelt.png (32x32)
+UIRenderer::load_texture: loaded textures/items/toolbox.png (32x32)
+UIRenderer::load_texture: loaded textures/items/storage_crate.png (32x32)
+UIRenderer::load_texture: loaded textures/items/boots.png (32x32)
+UIRenderer::load_texture: loaded textures/items/evidence_bag.png (32x32)
+UIRenderer::load_texture: loaded textures/items/hardsuit.png (32x32)
+UIRenderer::load_texture: loaded textures/items/cable_coil.png (32x32)
+UIRenderer::load_texture: loaded textures/items/medical_kit.png (32x32)
+UIRenderer::load_texture: loaded textures/items/secure_briefcase.png (32x32)
+UIRenderer::load_texture: loaded textures/items/magboots.png (32x32)
+UIRenderer::load_texture: loaded textures/items/stun_baton.png (32x32)
+UIRenderer::load_texture: loaded textures/items/crowbar.png (32x32)
+UIRenderer::load_texture: loaded textures/items/sunglasses.png (32x32)
+UIRenderer::load_texture: loaded textures/items/briefcase.png (32x32)
+UIRenderer::load_texture: loaded textures/items/duffel_bag.png (32x32)
+UIRenderer::load_texture: loaded textures/items/satchel.png (32x32)
+UIRenderer::load_texture: loaded textures/items/oxygen_tank.png (32x32)
+UIRenderer::load_texture: loaded textures/items/insulated_gloves.png (32x32)
+UIRenderer::load_texture: loaded textures/items/backpack.png (32x32)
+UIRenderer::load_texture: loaded textures/items/rubber_gloves.png (32x32)
+UIRenderer::load_texture: loaded textures/items/pill_bottle.png (32x32)
+UIRenderer::load_texture: loaded textures/items/glass_sheet.png (32x32)
+UIRenderer::load_texture: loaded textures/items/gas_mask.png (32x32)
+UIRenderer::load_texture: loaded textures/items/headset.png (32x32)
+UIRenderer::load_texture: loaded textures/items/welding_goggles.png (32x32)
+UIRenderer::load_texture: loaded textures/items/welding_helmet.png (32x32)
+UIRenderer::load_texture: loaded textures/items/bandage.png (32x32)
+UIRenderer: cached 39 item icons
+Server: started on port 0
+Server: spawned player entity 1 (species: human)
+Client: connected to local server, player entity 1
+UIRenderer::load_texture: loaded textures/worldui/hand.png (101x94)
+AtmosSimulator: rebuild done — 2 room(s), 97521 cells, 2 door link(s).
+upload_mesh: chunk (0,0,1) verts=540 idx=540 vsize=12960 bytes isize=2160 bytes
+upload_mesh: chunk (-1,0,1) verts=360 idx=360 vsize=8640 bytes isize=1440 bytes
+upload_mesh: chunk (0,0,-1) verts=2844 idx=2844 vsize=68256 bytes isize=11376 bytes
+upload_mesh: chunk (0,0,0) verts=3870 idx=3870 vsize=92880 bytes isize=15480 bytes
+upload_mesh: chunk (-1,0,-1) verts=2592 idx=2592 vsize=62208 bytes isize=10368 bytes
+upload_mesh: chunk (-1,0,0) verts=3414 idx=3414 vsize=81936 bytes isize=13656 bytes
+Door: opening at (0,1,8)
+upload_mesh: chunk (0,0,0) verts=3870 idx=3870 vsize=92880 bytes isize=15480 bytes
+upload_mesh: chunk (-1,0,0) verts=3414 idx=3414 vsize=81936 bytes isize=13656 bytes
+upload_mesh: chunk (-1,0,0) verts=3414 idx=3414 vsize=81936 bytes isize=13656 bytes
+upload_mesh: chunk (0,0,0) verts=3870 idx=3870 vsize=92880 bytes isize=15480 bytes
+Gas overlay: ON
+Door: closing at (0,1,8)
+upload_mesh: chunk (0,0,0) verts=3870 idx=3870 vsize=92880 bytes isize=15480 bytes
+upload_mesh: chunk (-1,0,0) verts=3414 idx=3414 vsize=81936 bytes isize=13656 bytes
+upload_mesh: chunk (0,0,0) verts=3870 idx=3870 vsize=92880 bytes isize=15480 bytes
+upload_mesh: chunk (-1,0,0) verts=3414 idx=3414 vsize=81936 bytes isize=13656 bytes
+Door: opening at (1,1,8)
+upload_mesh: chunk (0,0,0) verts=3870 idx=3870 vsize=92880 bytes isize=15480 bytes
+upload_mesh: chunk (-1,0,0) verts=3414 idx=3414 vsize=81936 bytes isize=13656 bytes
+Debug overlay: ON
+upload_mesh: chunk (0,0,0) verts=3870 idx=3870 vsize=92880 bytes isize=15480 bytes
+upload_mesh: chunk (-1,0,0) verts=3414 idx=3414 vsize=81936 bytes isize=13656 bytes
+Door: opening at (1,1,12)
+upload_mesh: chunk (0,0,0) verts=3870 idx=3870 vsize=92880 bytes isize=15480 bytes
+upload_mesh: chunk (-1,0,0) verts=3414 idx=3414 vsize=81936 bytes isize=13656 bytes
+upload_mesh: chunk (0,0,0) verts=3870 idx=3870 vsize=92880 bytes isize=15480 bytes
+upload_mesh: chunk (-1,0,0) verts=3414 idx=3414 vsize=81936 bytes isize=13656 bytes
+Airlock: player entered space (zero_g=on)
+Noclip: ON
+Airlock: player left space (zero_g=off)
+Noclip: OFF
+Noclip: ON

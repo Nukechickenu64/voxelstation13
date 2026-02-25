@@ -27,6 +27,7 @@
 #include "ui/context_menu.h"
 #include "ui/creative_menu.h"
 #include "ui/debug_overlay.h"
+#include "ui/gas_overlay.h"
 #include "network/server.h"
 #include "network/client.h"
 
@@ -77,6 +78,7 @@ int main(int /*argc*/, char* /*argv*/[])
     // ── 4. Chunk mesher ───────────────────────────────────────────────────────
     ChunkMesher mesher;
     mesher.start(2);
+    mesher.set_registry(&voxel_reg);  // enables per-face texture selection
 
     // ── 5. Server (local single-player) ──────────────────────────────────────
     Server server;
@@ -111,6 +113,9 @@ int main(int /*argc*/, char* /*argv*/[])
     CreativeMenu   creative_menu(ui_renderer);
     DebugOverlay   debug_overlay(ui_renderer);
     bool           debug_overlay_visible = false;
+    GasOverlay     gas_overlay(ui_renderer);
+    bool           gas_overlay_visible   = false;
+    double         sim_time              = 0.0;  // monotonic seconds, for overlay animations
 
     // ── 11. Player inventory ──────────────────────────────────────────────────
     Inventory player_inv = make_player_inventory();
@@ -293,6 +298,11 @@ int main(int /*argc*/, char* /*argv*/[])
             mob.variant = "female";
             server.entities().add_component<MobComponent>(dummy, mob);
         }
+
+        // ── Atmospherics bootstrap ──────────────────────────────────────────
+        // Build the initial room graph.  Must happen AFTER all voxels are
+        // placed so the BFS sees the completed geometry.
+        server.atmos().rebuild_zones();
     }
 
     // ── 13. HUD state ─────────────────────────────────────────────────────────
@@ -440,6 +450,16 @@ int main(int /*argc*/, char* /*argv*/[])
                     }
                     s_f3_prev = f3_now;
                 }
+                // F4: toggle gas overlay
+                {
+                    static bool s_f4_prev = false;
+                    bool f4_now = ks[SDL_SCANCODE_F4];
+                    if (f4_now && !s_f4_prev) {
+                        gas_overlay_visible = !gas_overlay_visible;
+                        SDL_Log("Gas overlay: %s", gas_overlay_visible ? "ON" : "OFF");
+                    }
+                    s_f4_prev = f4_now;
+                }
                 // F8: toggle verbose renderer logging
                 {
                     static bool s_f8_prev = false;
@@ -534,6 +554,9 @@ int main(int /*argc*/, char* /*argv*/[])
                 scroll_item_idx = ((scroll_item_idx % n) + n) % n;
             }
 
+            // Advance simulation time for overlay animations
+            sim_time += dt;
+
             // Server tick (applies pending inputs, steps physics + simulations)
             server.tick(dt);
             client.tick(dt);
@@ -572,13 +595,50 @@ int main(int /*argc*/, char* /*argv*/[])
                                std::sin(glm::radians(cam_pitch)),
                               -std::cos(glm::radians(cam_yaw))};
             audio.set_listener(cam_pos, glm::normalize(fwd3), {0,1,0});
-            audio.set_local_pressure(101.325f); // TODO: read from atmos zone
+            // Read actual gas pressure at player position for audio
+            {
+                glm::ivec3 atmos_cell = {
+                    static_cast<int>(std::floor(cam_pos.x)),
+                    static_cast<int>(std::floor(cam_pos.y)),
+                    static_cast<int>(std::floor(cam_pos.z))
+                };
+                AtmosZoneID az = server.atmos().zone_at(atmos_cell);
+                AtmosZone* az_ptr = server.atmos().zone(az);
+                float local_kpa = az_ptr ? az_ptr->gas.total_pressure() : 0.f;
+                audio.set_local_pressure(local_kpa > 0.f ? local_kpa : 101.325f);
+            }
             audio.update(static_cast<float>(dt));
 
             // Update HUD state
             hud_state.clock_str          = "00:00"; // TODO: round timer
             hud_state.cam_pitch          = cam_pitch;
             hud_state.active_hand_is_left = (player_inv.active_hand_id() == "l_hand");
+
+            // ── Suit sensors: read atmos at player feet ───────────────────────
+            {
+                glm::ivec3 feet_cell = {
+                    static_cast<int>(std::floor(cam_pos.x)),
+                    static_cast<int>(std::floor(cam_pos.y - 0.5f)),
+                    static_cast<int>(std::floor(cam_pos.z))
+                };
+                AtmosZoneID   az      = server.atmos().zone_at(feet_cell);
+                const AtmosZone* zptr = server.atmos().zone(az);
+                if (zptr && !zptr->is_space && zptr->gas.total_pressure() > 0.f) {
+                    const GasMixture& g       = zptr->gas;
+                    hud_state.oxy_sat          = std::clamp(g.o2 / 21.f, 0.f, 1.f);
+                    hud_state.suit_pressure_kpa = g.total_pressure();
+                    hud_state.tox_level        = g.plasma + g.bz + g.n2o;
+                    char tmp[32];
+                    std::snprintf(tmp, sizeof(tmp), "%.0f K", g.temperature);
+                    hud_state.suit_temp_str = tmp;
+                } else {
+                    // Space or untracked — vacuum conditions
+                    hud_state.oxy_sat           = 0.f;
+                    hud_state.suit_pressure_kpa = 0.f;
+                    hud_state.tox_level         = 0.f;
+                    hud_state.suit_temp_str     = "2.7 K";
+                }
+            }
 
             // ── Item drop (X) ─────────────────────────────────────────────────
             if (input.is_pressed(Action::DropItem)) {
@@ -647,12 +707,20 @@ int main(int /*argc*/, char* /*argv*/[])
                             if (door_open_type_id != 0) {
                                 Voxel open_v;
                                 open_v.type_id = door_open_type_id;
-                                open_v.flags   = VFLAG_VERT_PLANE_Z;  // passable
+                                // Use registry default_flags so GAS_PASSABLE etc. are included.
+                                {
+                                    const VoxelTypeDef* dod = voxel_reg.get(door_open_type_id);
+                                    open_v.flags = dod ? dod->default_flags
+                                                       : static_cast<uint16_t>(VFLAG_VERT_PLANE_Z | VFLAG_GAS_PASSABLE);
+                                }
                                 for (auto& p : grp.voxels)
                                     server.world().set_voxel(p, open_v);
                                 for (Chunk* c : server.world().dirty_chunks())
                                     mesher.enqueue(c->chunk_pos(), server.world());
                             }
+                            // Door is now gas-passable — notify atmos so zones merge.
+                            if (!grp.voxels.empty())
+                                server.atmos().on_door_changed(grp.voxels.front());
                             it = animating_doors.erase(it);
                             continue;
                         }
@@ -675,6 +743,9 @@ int main(int /*argc*/, char* /*argv*/[])
                                 for (Chunk* c : server.world().dirty_chunks())
                                     mesher.enqueue(c->chunk_pos(), server.world());
                             }
+                            // Door is now fully sealed — notify atmos to finalise zone split.
+                            if (!grp.voxels.empty())
+                                server.atmos().on_door_changed(grp.voxels.front());
                             it = animating_doors.erase(it);
                             continue;
                         }
@@ -796,6 +867,10 @@ int main(int /*argc*/, char* /*argv*/[])
                                         server.world().set_voxel(p, anim_v);
                                     for (Chunk* c : server.world().dirty_chunks())
                                         mesher.enqueue(c->chunk_pos(), server.world());
+                                    // Door panels are now solid — trigger an immediate zone
+                                    // split so the sealed side stops losing gas to space
+                                    // even before the closing animation completes.
+                                    server.atmos().on_door_changed(fhit.voxel);
                                     DoorGroup dg;
                                     dg.voxels  = std::move(grp_voxels);
                                     dg.frame   = renderer.door_anim_frame_count() - 1;
@@ -860,6 +935,7 @@ int main(int /*argc*/, char* /*argv*/[])
                         server.world().set_voxel(bhit.voxel, Voxel{});
                         for (Chunk* c : server.world().dirty_chunks())
                             mesher.enqueue(c->chunk_pos(), server.world());
+                        server.atmos().on_voxel_changed(bhit.voxel);
                         SDL_Log("Build: destroyed voxel at (%d,%d,%d)",
                                 bhit.voxel.x, bhit.voxel.y, bhit.voxel.z);
                     }
@@ -873,6 +949,7 @@ int main(int /*argc*/, char* /*argv*/[])
                             server.world().set_voxel(place_pos, build_voxel);
                             for (Chunk* c : server.world().dirty_chunks())
                                 mesher.enqueue(c->chunk_pos(), server.world());
+                            server.atmos().on_voxel_changed(place_pos);
                             SDL_Log("Build: placed voxel at (%d,%d,%d)",
                                     place_pos.x, place_pos.y, place_pos.z);
                         }
@@ -1050,7 +1127,14 @@ int main(int /*argc*/, char* /*argv*/[])
                     };
                     dbg.zone_id = server.atmos().zone_at(feet_voxel);
                     AtmosZone* zone_ptr = server.atmos().zone(dbg.zone_id);
-                    if (zone_ptr) dbg.gas_mix = zone_ptr->gas;
+                    if (zone_ptr) {
+                        dbg.gas_mix            = zone_ptr->gas;
+                        dbg.room_cell_count    = zone_ptr->cell_count;
+                        dbg.room_adj_count     = static_cast<int>(zone_ptr->adjacent_zones.size());
+                        dbg.atmos_status       = zone_ptr->status;
+                        dbg.pressure_loss_rate = zone_ptr->pressure_loss_rate;
+                    }
+                    dbg.total_rooms = server.atmos().total_rooms();
 
                     // Enclosure — query the air cell at feet-level
                     // Only run if the cell is actually air (avoids BFS from solid)
@@ -1063,6 +1147,16 @@ int main(int /*argc*/, char* /*argv*/[])
                 }
 
                 debug_overlay.draw(dbg);
+            }
+
+            // ── Gas overlay (F4) ─────────────────────────────────────────────
+            if (gas_overlay_visible) {
+                GasOverlayState gs;
+                gs.view_proj = vp_mat;
+                gs.cam_pos   = cam_pos;
+                gs.fb_w      = renderer.width();
+                gs.fb_h      = renderer.height();
+                gas_overlay.draw(server.atmos(), gs, sim_time);
             }
 
             // Alt-mode overlay

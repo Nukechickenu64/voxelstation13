@@ -558,40 +558,108 @@ void Renderer::free_mesh(glm::ivec3 chunk_pos)
 
 // ── Tile texture array ─────────────────────────────────────────────────────────────────
 
-bool Renderer::load_tile_textures(const VoxelRegistry& reg, const char* texture_dir)
+bool Renderer::load_tile_textures(VoxelRegistry& reg, const char* texture_dir)
 {
-    // Build a list of texture paths indexed by type_id.
-    // type_id 0 = empty (never rendered) – use fallback.
+    // ── Phase 1: Determine layout ─────────────────────────────────────────────
+    // Base layers (0..max_type_id) keep the existing type_id→layer mapping so
+    // that update_tile_layer() and door animation still work unchanged.
+    // Extra face-specific textures are appended beyond max_type_id.
+
     const auto& all = reg.all();  // unordered_map<uint16_t, VoxelTypeDef>
 
-    // Find max type_id so we know the array size
     uint32_t max_id = 0;
     for (const auto& [id, def] : all)
         if (id > max_id) max_id = id;
 
-    const uint32_t num_layers = max_id + 1;  // layers 0..max_id
-    const uint32_t TEX_W      = 32;
-    const uint32_t TEX_H      = 32;
-    const uint32_t LAYER_BYTES = TEX_W * TEX_H * 4;  // RGBA8
+    const uint32_t base_layers = max_id + 1;  // layers 0..max_id (one per type_id)
+    const uint32_t TEX_W       = 32;
+    const uint32_t TEX_H       = 32;
+    const uint32_t LAYER_BYTES = TEX_W * TEX_H * 4;
 
-    // Allocate CPU buffer: one RGBA layer per slot
-    std::vector<uint8_t> pixels(num_layers * LAYER_BYTES, 0xFF);  // default white
+    const std::string fallback_path = std::string(texture_dir) + "/tiles/fallback.png";
 
-    // Fallback texture path
-    std::string fallback_path = std::string(texture_dir) + "/tiles/fallback.png";
+    // Map: absolute file path → layer index (for deduplication of extra layers)
+    std::unordered_map<std::string, uint16_t> extra_path_to_layer;
+    uint16_t next_extra = static_cast<uint16_t>(base_layers);
+
+    // Resolve a (possibly empty) icon key to an absolute path.
+    auto icon_path = [&](const std::string& icon) -> std::string {
+        return icon.empty() ? fallback_path
+                            : std::string(texture_dir) + "/" + icon + ".png";
+    };
+
+    // Get or allocate a layer for a face-specific texture that differs from
+    // the base icon already assigned to layer[type_id].
+    auto extra_layer = [&](const std::string& abs_path) -> uint16_t {
+        auto it = extra_path_to_layer.find(abs_path);
+        if (it != extra_path_to_layer.end()) return it->second;
+        uint16_t idx = next_extra++;
+        extra_path_to_layer[abs_path] = idx;
+        return idx;
+    };
+
+    // ── Phase 2: Assign atlas_indices for every voxel type ────────────────────
+    for (const auto& [id, def] : all) {
+        std::array<uint16_t, static_cast<int>(FaceDir::COUNT)> idx{};
+
+        // The base layer for this type (already at slot type_id in the array)
+        const uint16_t base_idx = static_cast<uint16_t>(id);
+
+        // Determine the layer for each face group ---------------------------
+        // top  (PosY = 2)
+        uint16_t top_idx;
+        if (def.tex_top.empty()) {
+            top_idx = base_idx;
+        } else {
+            std::string p = icon_path(def.tex_top);
+            // If the top texture is the same file as the base icon, reuse base_idx
+            top_idx = (p == icon_path(def.icon)) ? base_idx : extra_layer(p);
+        }
+
+        // bottom (NegY = 3) – defaults to top if not specified
+        uint16_t bot_idx;
+        if (def.tex_bottom.empty()) {
+            bot_idx = top_idx;
+        } else {
+            std::string p = icon_path(def.tex_bottom);
+            bot_idx = (p == icon_path(def.icon)) ? base_idx : extra_layer(p);
+        }
+
+        // sides (PosX=0, NegX=1, PosZ=4, NegZ=5)
+        uint16_t side_idx;
+        if (def.tex_sides.empty()) {
+            side_idx = base_idx;
+        } else {
+            std::string p = icon_path(def.tex_sides);
+            side_idx = (p == icon_path(def.icon)) ? base_idx : extra_layer(p);
+        }
+
+        idx[static_cast<int>(FaceDir::PosX)] = side_idx;
+        idx[static_cast<int>(FaceDir::NegX)] = side_idx;
+        idx[static_cast<int>(FaceDir::PosY)] = top_idx;
+        idx[static_cast<int>(FaceDir::NegY)] = bot_idx;
+        idx[static_cast<int>(FaceDir::PosZ)] = side_idx;
+        idx[static_cast<int>(FaceDir::NegZ)] = side_idx;
+
+        reg.set_atlas_indices(id, idx);
+    }
+
+    // ── Phase 3: Build the pixel buffer ──────────────────────────────────────
+    const uint32_t num_layers  = next_extra;  // base + extra
+    std::vector<uint8_t> pixels(num_layers * LAYER_BYTES, 0xFF);
 
     auto load_layer = [&](uint32_t layer, const std::string& path) {
         int w, h, ch;
         unsigned char* data = stbi_load(path.c_str(), &w, &h, &ch, 4);
         if (!data) {
-            SDL_Log("load_tile_textures: stbi_load failed for %s: %s", path.c_str(), stbi_failure_reason());
+            SDL_Log("load_tile_textures: stbi_load failed for %s: %s",
+                    path.c_str(), stbi_failure_reason());
             return;
         }
         uint8_t* dst = pixels.data() + layer * LAYER_BYTES;
         if (w == (int)TEX_W && h == (int)TEX_H) {
             std::memcpy(dst, data, LAYER_BYTES);
         } else {
-            // Scale down / pad by nearest-neighbor to TEX_W x TEX_H
             for (uint32_t py = 0; py < TEX_H; ++py)
             for (uint32_t px = 0; px < TEX_W; ++px) {
                 int sx = (int)(px * w / TEX_W);
@@ -605,18 +673,16 @@ bool Renderer::load_tile_textures(const VoxelRegistry& reg, const char* texture_
         stbi_image_free(data);
     };
 
-    // Layer 0 = fallback (type_id 0 = empty/unset, never rendered)
+    // Layer 0 = fallback
     load_layer(0, fallback_path);
 
-    // Load a texture for each registered voxel type
-    for (const auto& [id, def] : all) {
-        if (def.icon.empty()) {
-            load_layer(id, fallback_path);
-        } else {
-            std::string path = std::string(texture_dir) + "/" + def.icon + ".png";
-            load_layer(id, path);
-        }
-    }
+    // Base layers: one per voxel type at slot == type_id
+    for (const auto& [id, def] : all)
+        load_layer(id, icon_path(def.icon));
+
+    // Extra layers: face-specific textures that differ from the base
+    for (const auto& [path, layer] : extra_path_to_layer)
+        load_layer(layer, path);
 
     // ── Create GPU 2D array texture ───────────────────────────────────────────
     SDL_GPUTextureCreateInfo tci{};
@@ -688,8 +754,9 @@ bool Renderer::load_tile_textures(const VoxelRegistry& reg, const char* texture_
         return false;
     }
 
-    SDL_Log("load_tile_textures: loaded %u layers (%ux%u each)",
-            num_layers, TEX_W, TEX_H);
+    SDL_Log("load_tile_textures: loaded %u layers (%ux%u each, %u extra face-specific)",
+            num_layers, TEX_W, TEX_H,
+            static_cast<unsigned>(extra_path_to_layer.size()));
     return true;
 }
 

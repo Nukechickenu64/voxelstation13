@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <memory>
 #include <optional>
+#include <functional>
 
 // ── Chunk ─────────────────────────────────────────────────────────────────────
 constexpr int CHUNK_SIZE = 16;
@@ -57,6 +58,9 @@ public:
     Chunk*       get_or_create_chunk(glm::ivec3 chunk_pos);
     void         unload_chunk(glm::ivec3 chunk_pos);
     std::vector<Chunk*> dirty_chunks();
+
+    // Iterate over every loaded chunk (read-only)
+    void for_each_chunk(std::function<void(const Chunk&)> fn) const;
 
     // Coord helpers
     static glm::ivec3 to_chunk_pos(glm::ivec3 world_pos);

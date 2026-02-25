@@ -8,7 +8,7 @@ bool Server::start(uint16_t port)
 {
     m_world    = std::make_unique<World>();
     m_entities = std::make_unique<EntityManager>();
-    m_atmos    = std::make_unique<AtmosSimulator>(*m_world);
+    m_atmos    = std::make_unique<AtmosSimulator>(*m_world, m_entities.get());
     m_power    = std::make_unique<PowerGrid>(*m_world);
     m_pipes    = std::make_unique<PipeNetwork>(*m_world);
     m_physics  = std::make_unique<PhysicsSystem>(*m_world, *m_entities);
@@ -32,7 +32,14 @@ void Server::tick(double dt)
     process_incoming();
     apply_pending_inputs(dt);
     m_physics->tick(dt);
-    m_atmos->tick(dt);
+    // Atmos runs at a fixed 20 Hz to keep simulation stable regardless of
+    // the main loop frame rate.  We accumulate elapsed time and drain it in
+    // whole ticks so the gas math always sees the same dt.
+    m_atmos_acc += dt;
+    while (m_atmos_acc >= ATMOS_TICK_DT) {
+        m_atmos->tick(ATMOS_TICK_DT);
+        m_atmos_acc -= ATMOS_TICK_DT;
+    }
     m_power->tick(dt);
     m_pipes->tick(dt);
     broadcast_entity_states();

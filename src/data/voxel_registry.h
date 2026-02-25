@@ -12,14 +12,19 @@ struct VoxelTypeDef {
     std::string          parent_id;
     std::string          name;
     std::string          icon;
-    uint8_t              default_flags = 0;  // VoxelFlag bitmask
+    uint16_t             default_flags = 0;  // VoxelFlag bitmask
     uint32_t             default_tags  = 0;  // FaceTag bitmask
     int                  health        = 100;
     std::string          material;
     std::string          on_hit;       // verb handler name
     std::string          on_walk;      // verb handler name
     uint8_t              emit_light    = 0;  // 0-15
-    // Layer indices into texture atlas per face direction
+    // Per-face texture overrides (keys match the "icon" format, e.g. "tiles/grass").
+    // Empty string means "use icon for that face".
+    std::string          tex_top;     // PosY face
+    std::string          tex_bottom;  // NegY face (falls back to tex_top if empty)
+    std::string          tex_sides;   // PosX/NegX/PosZ/NegZ faces
+    // Layer indices into texture atlas per face direction (populated by Renderer)
     std::array<uint16_t, static_cast<int>(FaceDir::COUNT)> atlas_indices{};
 };
 
@@ -39,6 +44,11 @@ public:
     uint16_t id_of(const std::string& name_id) const;
 
     const std::unordered_map<uint16_t, VoxelTypeDef>& all() const { return m_by_id; }
+    std::unordered_map<uint16_t, VoxelTypeDef>&       all_mutable()   { return m_by_id; }
+
+    // Write atlas_indices for a type into both lookup maps.
+    void set_atlas_indices(uint16_t type_id,
+                           const std::array<uint16_t, static_cast<int>(FaceDir::COUNT)>& indices);
 
 private:
     void resolve_inheritance(VoxelTypeDef& def);

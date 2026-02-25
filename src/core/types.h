@@ -28,22 +28,23 @@ constexpr glm::ivec3 face_normal(FaceDir d) {
 
 // ── Voxel ─────────────────────────────────────────────────────────────────────
 struct Voxel {
-    uint16_t type_id    = 0;   // 0 = air/vacuum
-    uint8_t  orientation= 0;   // 0-3, 90° rotation steps around Y
-    uint8_t  flags      = 0;   // see VoxelFlag
-    uint8_t  light_level= 0;   // 0-15
-    uint8_t  reserved[3]{};
+    uint16_t type_id     = 0;   // 0 = air/vacuum
+    uint8_t  orientation = 0;   // 0-3, 90° rotation steps around Y
+    uint8_t  light_level = 0;   // 0-15
+    uint16_t flags       = 0;   // see VoxelFlag (uint16 for extended flag space)
+    uint8_t  reserved[2]{};
 };
 
-enum VoxelFlag : uint8_t {
-    VFLAG_SOLID     = 1 << 0,
-    VFLAG_OPAQUE    = 1 << 1,
-    VFLAG_PASSABLE  = 1 << 2,
-    VFLAG_CLIMBABLE = 1 << 3,
-    VFLAG_LIGHT_SRC = 1 << 4,
-    VFLAG_FLAT_PLANE= 1 << 5,  // thin plane at Y=0 of cell (no physics)
-    VFLAG_FLAT_TOP  = 1 << 6,  // thin plane at Y=1 of cell (solid floor)
-    VFLAG_VERT_PLANE_Z = 1 << 7, // double-sided vertical plane facing Z, centred in cell
+enum VoxelFlag : uint16_t {
+    VFLAG_SOLID        = 1 << 0,
+    VFLAG_OPAQUE       = 1 << 1,
+    VFLAG_PASSABLE     = 1 << 2,
+    VFLAG_CLIMBABLE    = 1 << 3,
+    VFLAG_LIGHT_SRC    = 1 << 4,
+    VFLAG_FLAT_PLANE   = 1 << 5,  // thin plane at Y=0 of cell (no physics)
+    VFLAG_FLAT_TOP     = 1 << 6,  // thin plane at Y=1 of cell (solid floor)
+    VFLAG_VERT_PLANE_Z = 1 << 7,  // double-sided vertical plane facing Z, centred in cell
+    VFLAG_GAS_PASSABLE = 1 << 8,  // gas flows through this voxel even when solid (e.g. open door)
 };
 
 // ── Face coordinate ───────────────────────────────────────────────────────────

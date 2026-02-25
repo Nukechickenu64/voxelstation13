@@ -107,6 +107,7 @@ set(SRC_UI
     src/ui/inventory_panel.cpp
     src/ui/context_menu.cpp
     src/ui/creative_menu.cpp
+    src/ui/gas_overlay.cpp
 )
 
 # ── Executable ────────────────────────────────────────────────────────────────

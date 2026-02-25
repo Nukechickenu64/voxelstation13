@@ -40,6 +40,12 @@ found:
 World::World()  = default;
 World::~World() = default;
 
+void World::for_each_chunk(std::function<void(const Chunk&)> fn) const
+{
+    for (const auto& [pos, chunk] : m_chunks)
+        fn(*chunk);
+}
+
 glm::ivec3 World::to_chunk_pos(glm::ivec3 p)
 {
     // Floor division for negative coords
