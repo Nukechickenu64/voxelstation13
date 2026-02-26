@@ -123,15 +123,11 @@ PanelInteraction InventoryPanel::draw(Inventory& inv, glm::vec2 cursor,
         bool dragging_from = m_drag.active && slot && slot->id == m_drag.src_slot;
 
         if (is_grip_hand) {
-            // Show the gripped hand as an occupied-but-locked slot with amber tint
-            const auto* holding = inv.find_slot(th_hand);
+            // Show the gripped hand as an occupied-but-locked slot with amber tint.
+            // Do NOT draw the item icon here — that icon is already visible in the
+            // holding hand, so repeating it made the item look duplicated.
             m_ui.rect(pos, {SZ, SZ}, {0.35f, 0.22f, 0.03f, 0.8f * alpha}, 4.f);
-            if (holding && holding->item) {
-                SDL_GPUTexture* icon = m_ui.item_icon(holding->item->def->id);
-                if (icon)
-                    m_ui.image(pos + glm::vec2(4.f), {SZ - 8.f, SZ - 8.f}, icon, 0.6f * alpha);
-            }
-            m_ui.text(pos + glm::vec2(4.f, 2.f), "GRIP",
+            m_ui.text(pos + glm::vec2(4.f, SZ * 0.5f - 6.f), "GRIP",
                       {1.f, 0.75f, 0.1f, alpha}, 9.f);
             // Still make it hoverable so tooltips/RMB work
             if (cursor.x >= pos.x && cursor.x < pos.x + SZ &&

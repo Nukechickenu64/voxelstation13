@@ -94,7 +94,10 @@ public:
     // Queue Doom-style billboard sprites for all MobComponent entities.
     // Selects one of 4 rotation sprites based on camera-to-mob angle.
     // Call BEFORE begin_frame().
-    void queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_yaw);
+    // local_player_eid: the local player's entity ID; its head will be hidden (body-only)
+    //   and it will not be back-face culled (always visible when looking down).
+    void queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_yaw,
+                    EntityID local_player_eid = NULL_ENTITY);
 
     // Draw the queued mob sprites (call inside the render pass, after draw_world()).
     void draw_mobs();

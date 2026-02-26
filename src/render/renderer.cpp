@@ -1932,7 +1932,8 @@ static int mob_sprite_dir(glm::vec3 mob_pos, float mob_yaw_deg, glm::vec3 cam_po
     return 2;                                   // left
 }
 
-void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_yaw)
+void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_yaw,
+                          EntityID local_player_eid)
 {
     // Clear both staging buffers
     m_mob_verts.clear();
@@ -1950,12 +1951,15 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
     static constexpr float MOB_HALF_W = 0.3f;
     static constexpr float MOB_HEIGHT = .65f;
 
-    // Helper: build a billboard quad and append verts/indices into the chosen lists
+    // Helper: build a billboard quad and append verts/indices into the chosen lists.
+    // uv_y_top: UV.y coordinate of the top edge (0 = full sprite top / head,
+    //           > 0 = crop top of sprite — used to hide the local player's head).
     auto push_quad = [&](std::vector<ItemVert>& verts,
                          std::vector<uint32_t>& indices,
                          glm::vec3 feet,
                          float half_w, float height,
-                         uint32_t tex_layer)
+                         uint32_t tex_layer,
+                         float uv_y_top = 0.0f)
     {
         glm::vec3 to_cam_xz = { cam_pos.x - feet.x, 0.f, cam_pos.z - feet.z };
         float xz_len = glm::length(to_cam_xz);
@@ -1969,7 +1973,8 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
         c[2] = feet + ( right) * half_w + glm::vec3(0, height, 0);
         c[3] = feet + (-right) * half_w + glm::vec3(0, height, 0);
 
-        static const float k_uv[4][2] = {{0,1},{1,1},{1,0},{0,0}};
+        // UV.y = 1 at feet, UV.y = uv_y_top at the top (default 0 = full sprite).
+        const float k_uv[4][2] = {{0,1},{1,1},{1,uv_y_top},{0,uv_y_top}};
         auto base = static_cast<uint32_t>(verts.size());
         for (int i = 0; i < 4; ++i)
             verts.push_back({ c[i].x, c[i].y, c[i].z,
@@ -1980,6 +1985,12 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
         indices.push_back(base+2); indices.push_back(base+0);
         indices.push_back(base+2); indices.push_back(base+3);
     };
+
+    // Local-player body-only constants: show sprite from feet up to ~eye level,
+    // cutting off the head (top ~23% of the sprite).
+    // MOB_HEIGHT = 0.65, eye offset = 0.5  →  body frac = 0.5/0.65 ≈ 0.769
+    static constexpr float k_body_height  = 0.50f;                          // world units
+    static constexpr float k_body_uv_top  = 1.0f - k_body_height / 0.65f;  // ≈ 0.231
 
     // ── Overlay-assembled human mobs ─────────────────────────────────────────
     if (m_assembly_tex) {
@@ -1996,7 +2007,13 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
             int dir = mob_sprite_dir(feet, tr->yaw, cam_pos);
             uint32_t layer = get_or_assemble_human(app, dir);
 
-            push_quad(m_asm_verts, m_asm_indices, feet, MOB_HALF_W, MOB_HEIGHT, layer);
+            if (eid == local_player_eid) {
+                // First-person: render body only (no head), skip back-face cull
+                push_quad(m_asm_verts, m_asm_indices, feet, MOB_HALF_W,
+                          k_body_height, layer, k_body_uv_top);
+            } else {
+                push_quad(m_asm_verts, m_asm_indices, feet, MOB_HALF_W, MOB_HEIGHT, layer);
+            }
         });
         m_asm_pending = !m_asm_verts.empty();
     }

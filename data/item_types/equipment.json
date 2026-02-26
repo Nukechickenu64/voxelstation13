@@ -329,5 +329,170 @@
       { "name": "Close",   "range": 1.5, "handler": "verb_close"   },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }
     ]
+  },
+  {
+    "id":           "body_armor",
+    "name":         "Body Armor",
+    "icon":         "items/body_armor",
+    "tags":         ["suit", "armor"],
+    "weight":       5.0,
+    "volume":       10.0,
+    "stack_max":    1,
+    "equip_slot":   "suit",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Remove",  "range": 1.0, "handler": "verb_remove"  },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "security_armor",
+    "name":         "Security Armor",
+    "icon":         "items/security_armor",
+    "tags":         ["suit", "armor", "security"],
+    "weight":       6.0,
+    "volume":       11.0,
+    "stack_max":    1,
+    "equip_slot":   "suit",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Remove",  "range": 1.0, "handler": "verb_remove"  },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "hazard_vest",
+    "name":         "Hazard Vest",
+    "icon":         "items/hazard_vest",
+    "tags":         ["suit", "vest"],
+    "weight":       2.0,
+    "volume":       6.0,
+    "stack_max":    1,
+    "equip_slot":   "suit",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Remove",  "range": 1.0, "handler": "verb_remove"  },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "combat_helmet",
+    "name":         "Combat Helmet",
+    "icon":         "items/combat_helmet",
+    "tags":         ["helmet", "head"],
+    "weight":       2.5,
+    "volume":       6.0,
+    "stack_max":    1,
+    "equip_slot":   "head",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Remove",  "range": 1.0, "handler": "verb_remove"  },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "hard_hat",
+    "name":         "Hard Hat",
+    "icon":         "items/hard_hat",
+    "tags":         ["helmet", "head", "hat"],
+    "weight":       0.6,
+    "volume":       3.0,
+    "stack_max":    1,
+    "equip_slot":   "head",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Remove",  "range": 1.0, "handler": "verb_remove"  },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "sec_gloves",
+    "name":         "Security Gloves",
+    "icon":         "items/insulated_gloves",
+    "tags":         ["gloves", "security"],
+    "weight":       0.2,
+    "volume":       0.8,
+    "stack_max":    1,
+    "equip_slot":   "gloves",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Remove",  "range": 1.0, "handler": "verb_remove"  },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "fire_suit",
+    "name":         "Fire Fighter's Suit",
+    "icon":         "items/hardsuit",
+    "tags":         ["suit", "fireproof"],
+    "weight":       8.0,
+    "volume":       14.0,
+    "stack_max":    1,
+    "equip_slot":   "suit",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Remove",  "range": 1.0, "handler": "verb_remove"  },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "tactical_gloves",
+    "name":         "Tactical Gloves",
+    "icon":         "items/rubber_gloves",
+    "tags":         ["gloves", "tactical"],
+    "weight":       0.18,
+    "volume":       0.7,
+    "stack_max":    1,
+    "equip_slot":   "gloves",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Remove",  "range": 1.0, "handler": "verb_remove"  },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "mining_boots",
+    "name":         "Mining Boots",
+    "icon":         "items/boots",
+    "tags":         ["shoes", "boots", "mining"],
+    "weight":       1.2,
+    "volume":       4.0,
+    "stack_max":    1,
+    "equip_slot":   "shoes",
+    "verbs": [
+      { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
+      { "name": "Remove",  "range": 1.0, "handler": "verb_remove"  },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":           "sec_headset",
+    "name":         "Security Headset",
+    "icon":         "items/headset",
+    "tags":         ["headset", "ears", "security"],
+    "weight":       0.12,
+    "volume":       0.5,
+    "stack_max":    1,
+    "equip_slot":   "ears",
+    "verbs": [
+      { "name": "Wear",        "range": 1.0, "handler": "verb_wear"        },
+      { "name": "Set Channel", "range": 1.0, "handler": "verb_set_channel" },
+      { "name": "Examine",     "range": 99,  "handler": "verb_examine"     }
+    ]
+  },
+  {
+    "id":           "n2o_tank",
+    "name":         "Nitrous Oxide Tank",
+    "icon":         "items/oxygen_tank",
+    "tags":         ["back", "tank"],
+    "weight":       5.0,
+    "volume":       11.0,
+    "stack_max":    1,
+    "equip_slot":   "back",
+    "verbs": [
+      { "name": "Wear",         "range": 1.0, "handler": "verb_wear"          },
+      { "name": "Check Pressure","range": 1.5, "handler": "verb_check_pressure"},
+      { "name": "Examine",      "range": 99,  "handler": "verb_examine"       }
+    ]
   }
 ]

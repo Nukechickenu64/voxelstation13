@@ -105,5 +105,317 @@
       { "name": "Check Pressure",   "range": 1.5, "handler": "verb_check_pressure"    },
       { "name": "Examine",          "range": 99,  "handler": "verb_examine"           }
     ]
+  },
+  {
+    "id":       "welder",
+    "name":     "Welding Torch",
+    "icon":     "items/welder",
+    "tags":     ["tool", "welder", "small"],
+    "weight":   0.5,
+    "volume":   1.5,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Toggle",  "range": 1.0, "handler": "verb_toggle_welder" },
+      { "name": "Weld",    "range": 1.5, "handler": "verb_weld"          },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"       }
+    ]
+  },
+  {
+    "id":       "multitool",
+    "name":     "Multitool",
+    "icon":     "items/multitool",
+    "tags":     ["tool", "multitool", "small"],
+    "weight":   0.15,
+    "volume":   0.6,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Pulse",   "range": 1.5, "handler": "verb_pulse_wire"  },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"     }
+    ]
+  },
+  {
+    "id":       "drill",
+    "name":     "Power Drill",
+    "icon":     "items/drill",
+    "tags":     ["tool", "drill"],
+    "weight":   1.2,
+    "volume":   3.0,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Drill",   "range": 1.5, "handler": "verb_drill"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "jaws_of_life",
+    "name":       "Jaws of Life",
+    "icon":       "items/jaws_of_life",
+    "tags":       ["tool", "jaws"],
+    "weight":     4.5,
+    "volume":     8.0,
+    "stack_max":  1,
+    "two_handed": true,
+    "verbs": [
+      { "name": "Pry",     "range": 1.5, "handler": "verb_pry"     },
+      { "name": "Cut",     "range": 1.5, "handler": "verb_cut"     },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "boxcutter",
+    "name":     "Box Cutter",
+    "icon":     "items/boxcutter",
+    "tags":     ["tool", "knife", "small"],
+    "weight":   0.1,
+    "volume":   0.4,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Cut",     "range": 1.0, "handler": "verb_cut"     },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "rcd",
+    "name":     "Rapid Construction Device",
+    "icon":     "items/rcd",
+    "tags":     ["tool", "rcd"],
+    "weight":   2.5,
+    "volume":   6.0,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Build",      "range": 2.5, "handler": "verb_rcd_build"  },
+      { "name": "Deconstruct","range": 2.5, "handler": "verb_rcd_decon"  },
+      { "name": "Examine",    "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":       "health_analyzer",
+    "name":     "Health Analyzer",
+    "icon":     "items/health_analyzer",
+    "tags":     ["tool", "scanner", "medical", "small"],
+    "weight":   0.2,
+    "volume":   0.8,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Scan",    "range": 2.0, "handler": "verb_scan_health" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"     }
+    ]
+  },
+  {
+    "id":       "pda",
+    "name":     "PDA",
+    "icon":     "items/pda",
+    "tags":     ["device", "pda", "small"],
+    "weight":   0.2,
+    "volume":   0.5,
+    "stack_max":1,
+    "equip_slot":"id_slot",
+    "verbs": [
+      { "name": "Open",    "range": 1.0, "handler": "verb_open_pda" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"  }
+    ]
+  },
+  {
+    "id":       "radio",
+    "name":     "Handheld Radio",
+    "icon":     "items/radio",
+    "tags":     ["device", "radio", "small"],
+    "weight":   0.3,
+    "volume":   1.0,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Broadcast", "range": 99, "handler": "verb_broadcast_radio" },
+      { "name": "Set Channel","range": 1.0,"handler": "verb_set_channel"    },
+      { "name": "Examine",   "range": 99, "handler": "verb_examine"         }
+    ]
+  },
+  {
+    "id":       "pickaxe",
+    "name":     "Pickaxe",
+    "icon":     "items/pickaxe",
+    "tags":     ["tool", "pickaxe", "mining"],
+    "weight":   2.0,
+    "volume":   5.0,
+    "stack_max":1,
+    "two_handed":true,
+    "verbs": [
+      { "name": "Mine",    "range": 1.5, "handler": "verb_mine"    },
+      { "name": "Hit",     "range": 1.2, "handler": "verb_hit"     },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "mining_drill",
+    "name":     "Mining Drill",
+    "icon":     "items/mining_drill",
+    "tags":     ["tool", "drill", "mining"],
+    "weight":   3.0,
+    "volume":   7.0,
+    "stack_max":1,
+    "two_handed":true,
+    "verbs": [
+      { "name": "Drill",   "range": 1.5, "handler": "verb_mine"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "shovel",
+    "name":     "Shovel",
+    "icon":     "items/shovel",
+    "tags":     ["tool", "shovel"],
+    "weight":   1.5,
+    "volume":   4.0,
+    "stack_max":1,
+    "two_handed":true,
+    "verbs": [
+      { "name": "Dig",     "range": 1.5, "handler": "verb_dig"     },
+      { "name": "Hit",     "range": 1.2, "handler": "verb_hit"     },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "baseball_bat",
+    "name":     "Baseball Bat",
+    "icon":     "items/baseball_bat",
+    "tags":     ["weapon", "blunt"],
+    "weight":   0.9,
+    "volume":   4.0,
+    "stack_max":1,
+    "two_handed":true,
+    "verbs": [
+      { "name": "Hit",     "range": 1.2, "handler": "verb_hit"     },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "hunting_knife",
+    "name":     "Hunting Knife",
+    "icon":     "items/hunting_knife",
+    "tags":     ["weapon", "knife", "small"],
+    "weight":   0.3,
+    "volume":   1.0,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Stab",    "range": 1.0, "handler": "verb_stab"    },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "survival_knife",
+    "name":     "Survival Knife",
+    "icon":     "items/survival_knife",
+    "tags":     ["weapon", "knife", "small"],
+    "weight":   0.25,
+    "volume":   0.9,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Stab",    "range": 1.0, "handler": "verb_stab"    },
+      { "name": "Cut",     "range": 1.0, "handler": "verb_cut"     },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "claymore",
+    "name":       "Claymore",
+    "icon":       "items/claymore",
+    "tags":       ["weapon", "sword", "blunt"],
+    "weight":     2.5,
+    "volume":     7.0,
+    "stack_max":  1,
+    "two_handed": true,
+    "verbs": [
+      { "name": "Slash",   "range": 1.5, "handler": "verb_slash"   },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "katana",
+    "name":     "Katana",
+    "icon":     "items/katana",
+    "tags":     ["weapon", "sword"],
+    "weight":   1.0,
+    "volume":   4.5,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Slash",   "range": 1.3, "handler": "verb_slash"   },
+      { "name": "Stab",    "range": 1.3, "handler": "verb_stab"    },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "energy_sword",
+    "name":     "Energy Sword",
+    "icon":     "items/energy_sword",
+    "tags":     ["weapon", "sword", "energy"],
+    "weight":   0.8,
+    "volume":   3.5,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Toggle",  "range": 1.0, "handler": "verb_toggle_esword" },
+      { "name": "Slash",   "range": 1.3, "handler": "verb_slash"         },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"       }
+    ]
+  },
+  {
+    "id":       "classic_baton",
+    "name":     "Classic Baton",
+    "icon":     "items/classic_baton",
+    "tags":     ["weapon", "baton", "blunt"],
+    "weight":   0.6,
+    "volume":   2.0,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Hit",     "range": 1.0, "handler": "verb_hit"     },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "riot_shield",
+    "name":       "Riot Shield",
+    "icon":       "items/riot_shield",
+    "tags":       ["weapon", "shield"],
+    "weight":     3.0,
+    "volume":     8.0,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Block",   "range": 1.0, "handler": "verb_block"   },
+      { "name": "Bash",    "range": 1.2, "handler": "verb_hit"     },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "bow",
+    "name":       "Bow",
+    "icon":       "items/bow",
+    "tags":       ["weapon", "ranged", "bow"],
+    "weight":     0.7,
+    "volume":     4.0,
+    "stack_max":  1,
+    "two_handed": true,
+    "verbs": [
+      { "name": "Shoot",   "range": 8.0, "handler": "verb_shoot"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "fireaxe",
+    "name":       "Fire Axe",
+    "icon":       "items/fireaxe",
+    "tags":       ["weapon", "axe", "blunt"],
+    "weight":     3.5,
+    "volume":     9.0,
+    "stack_max":  1,
+    "two_handed": true,
+    "verbs": [
+      { "name": "Chop",    "range": 1.5, "handler": "verb_slash"   },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
   }
 ]

@@ -114,8 +114,14 @@ void PhysicsSystem::tick(double dt)
         }
 
         // ── Gravity ───────────────────────────────────────────────────────
-        if (!cc || !cc->on_ground)
+        if (!cc || !cc->on_ground) {
             vel->linear.y += GRAVITY * fdt;
+            // Terminal velocity: prevent delta.y from exceeding 1 voxel per tick
+            // which would cause the player to tunnel through floors/ceilings.
+            constexpr float TERMINAL_VEL = -50.f;
+            if (vel->linear.y < TERMINAL_VEL)
+                vel->linear.y = TERMINAL_VEL;
+        }
 
         // ── Character controller ──────────────────────────────────────────
         if (cc) {
@@ -263,30 +269,47 @@ bool PhysicsSystem::overlaps_solid(glm::vec3 min, glm::vec3 max) const
 glm::vec3 PhysicsSystem::resolve_collisions(glm::vec3 pos, glm::vec3 delta,
                                              float radius, float height) const
 {
-    // Sweep each axis independently (simple axis-separated method)
-    glm::vec3 result = pos;
-
     auto aabb_min = [&](glm::vec3 p) {
-        return p + glm::vec3(-radius, 0,       -radius);
+        return p + glm::vec3(-radius, 0,      -radius);
     };
     auto aabb_max = [&](glm::vec3 p) {
-        return p + glm::vec3( radius, height,   radius);
+        return p + glm::vec3( radius, height,  radius);
     };
 
-    // X
-    result.x += delta.x;
-    if (overlaps_solid(aabb_min(result), aabb_max(result)))
-        result.x = pos.x;
+    // Sub-step to prevent tunneling: each step must be small enough that the
+    // AABB cannot skip over a 1-voxel-wide wall.  A step size of 0.5 units
+    // guarantees the AABB always overlaps any voxel it passes through because
+    // the AABB half-extents (radius=0.3, height=0.9) are wider than 0.5 in
+    // every direction.
+    constexpr float MAX_STEP = 0.5f;
+    const float max_delta = std::max({std::abs(delta.x),
+                                      std::abs(delta.y),
+                                      std::abs(delta.z)});
+    const int steps = (max_delta > MAX_STEP)
+                      ? static_cast<int>(std::ceil(max_delta / MAX_STEP))
+                      : 1;
+    const glm::vec3 step_delta = delta / static_cast<float>(steps);
 
-    // Y
-    result.y += delta.y;
-    if (overlaps_solid(aabb_min(result), aabb_max(result)))
-        result.y = pos.y;
+    glm::vec3 result = pos;
 
-    // Z
-    result.z += delta.z;
-    if (overlaps_solid(aabb_min(result), aabb_max(result)))
-        result.z = pos.z;
+    for (int s = 0; s < steps; ++s) {
+        const glm::vec3 step_start = result;
+
+        // X
+        result.x += step_delta.x;
+        if (overlaps_solid(aabb_min(result), aabb_max(result)))
+            result.x = step_start.x;
+
+        // Y
+        result.y += step_delta.y;
+        if (overlaps_solid(aabb_min(result), aabb_max(result)))
+            result.y = step_start.y;
+
+        // Z
+        result.z += step_delta.z;
+        if (overlaps_solid(aabb_min(result), aabb_max(result)))
+            result.z = step_start.z;
+    }
 
     return result;
 }

@@ -189,6 +189,48 @@ TEXTURES = {
     "textures/items/junk_box.png":         solid(W, H, 130, 110, 80),
     "textures/items/evidence_bag.png":     solid(W, H, 210, 210, 180),
 
+    # --- New tools ---
+    "textures/items/welder.png":           solid(W, H, 220, 150, 60),
+    "textures/items/multitool.png":        solid(W, H, 50,  160, 200),
+    "textures/items/drill.png":            solid(W, H, 80,  80,  90),
+    "textures/items/jaws_of_life.png":     solid(W, H, 200, 80,  40),
+    "textures/items/boxcutter.png":        solid(W, H, 180, 180, 60),
+    "textures/items/rcd.png":              solid(W, H, 60,  120, 200),
+    "textures/items/health_analyzer.png":  solid(W, H, 60,  200, 120),
+    "textures/items/pda.png":              solid(W, H, 30,  30,  40),
+    "textures/items/radio.png":            solid(W, H, 70,  130, 70),
+    "textures/items/pickaxe.png":          solid(W, H, 120, 100, 60),
+    "textures/items/mining_drill.png":     solid(W, H, 90,  70,  50),
+    "textures/items/shovel.png":           solid(W, H, 130, 110, 70),
+    # --- New weapons ---
+    "textures/items/baseball_bat.png":     solid(W, H, 210, 180, 130),
+    "textures/items/hunting_knife.png":    solid(W, H, 140, 110, 60),
+    "textures/items/survival_knife.png":   solid(W, H, 120, 100, 55),
+    "textures/items/claymore.png":         solid(W, H, 160, 160, 175),
+    "textures/items/katana.png":           solid(W, H, 200, 200, 210),
+    "textures/items/energy_sword.png":     solid(W, H, 100, 200, 255),
+    "textures/items/classic_baton.png":    solid(W, H, 60,  60,  65),
+    "textures/items/riot_shield.png":      solid(W, H, 50,  80,  140),
+    "textures/items/bow.png":              solid(W, H, 150, 100, 50),
+    "textures/items/fireaxe.png":          solid(W, H, 200, 40,  30),
+    # --- New medical ---
+    "textures/items/syringe.png":          solid(W, H, 200, 230, 255),
+    "textures/items/beaker.png":           solid(W, H, 160, 210, 230),
+    "textures/items/defib.png":            solid(W, H, 240, 200, 40),
+    "textures/items/scalpel.png":          solid(W, H, 220, 220, 230),
+    "textures/items/blood_pack.png":       solid(W, H, 180, 30,  30),
+    "textures/items/firstaid_kit.png":     solid(W, H, 240, 240, 240),
+    # --- New equipment ---
+    "textures/items/body_armor.png":       solid(W, H, 70,  80,  75),
+    "textures/items/security_armor.png":   solid(W, H, 40,  50,  100),
+    "textures/items/hazard_vest.png":      solid(W, H, 230, 150, 20),
+    "textures/items/combat_helmet.png":    solid(W, H, 60,  70,  60),
+    "textures/items/hard_hat.png":         solid(W, H, 240, 200, 30),
+    # --- New containers ---
+    "textures/items/bodybag.png":          solid(W, H, 50,  50,  55),
+    "textures/items/mining_satchel.png":   solid(W, H, 110, 80,  40),
+    "textures/items/ore_box.png":          solid(W, H, 100, 85,  60),
+
     # UI elements
     "textures/ui/slot.png":            ui_slot(W, H),
     "textures/ui/slot_active.png":     ui_slot(W, H, 60, 80, 100, 140),

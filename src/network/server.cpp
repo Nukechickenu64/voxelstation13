@@ -122,6 +122,20 @@ EntityID Server::spawn_player(const std::string& species)
     tag.species = species;
     m_entities->add_component<MobPlayerTag>(id, tag);
 
+    // Assemble the player's visible sprite from bodypart overlay layers.
+    // Uses bodyparts_greyscale so that skin tone tinting (tint multiply) works
+    // correctly.  Prefix "human" + gender "_m"/"_f" matches the greyscale
+    // filenames: e.g. human_chest_m_s.png, human_l_arm_s.png.
+    HumanAppearance app{};
+    HumanOverlay base_layer{};
+    base_layer.sprite_dir = "bodyparts_greyscale";
+    base_layer.prefix     = "human";
+    base_layer.gender     = "_m";   // default to masculine; change per character
+    base_layer.tint       = {255, 200, 160, 255};  // default light skin tone
+    app.layers.push_back(base_layer);
+    app.dirty = true;
+    m_entities->add_component<HumanAppearance>(id, app);
+
     SDL_Log("Server: spawned player entity %u (species: %s)", id, species.c_str());
     return id;
 }

@@ -30,6 +30,8 @@
 #include "ui/debug_overlay.h"
 #include "ui/gas_overlay.h"
 #include "ui/player_stats_overlay.h"
+#include "simulation/model_objects.h"
+#include "ui/map_editor.h"
 #include "network/server.h"
 #include "network/client.h"
 
@@ -72,6 +74,8 @@ int main(int /*argc*/, char* /*argv*/[])
     renderer.load_mob_textures("textures");
     renderer.load_door_anim("textures/specialtile/door_opening.gif",
                              voxel_reg.id_of("door_anim"));
+    renderer.load_human_bodyparts("legacysets/extracted");
+    renderer.load_model("smes", "models/SMES.mesh", "textures/models/smes.png");
 
     UIRenderer ui_renderer(renderer.gpu());
     if (!ui_renderer.init(renderer.window(), renderer.width(), renderer.height())) {
@@ -130,6 +134,21 @@ int main(int /*argc*/, char* /*argv*/[])
 
     // ── 11b. World item system ────────────────────────────────────────────────
     WorldItemSystem world_items(server.world(), server.entities());
+
+    // ── 11c. Static model objects ─────────────────────────────────────────────
+    ModelObjectManager model_objs;
+    {
+        glm::vec3 mn, mx;
+        if (renderer.model_local_aabb("smes", mn, mx))
+            model_objs.register_extents("smes", mn, mx);
+    }
+    server.set_model_objects(&model_objs);
+
+    // ── 11d. Map editor ───────────────────────────────────────────────────────
+    std::vector<std::string> model_names{"smes"};
+    MapEditor map_editor(ui_renderer, server.world(), voxel_reg,
+                         server.entities(), world_items, item_reg,
+                         mob_species_reg, model_objs, model_names);
 
     // ── 12. Test world geometry — placeholder room ────────────────────────────
     {
@@ -301,10 +320,15 @@ int main(int /*argc*/, char* /*argv*/[])
             tr.pos = { 4.f, 1.f, -2.f };
             tr.yaw = 0.f;   // faces -Z (same default as the camera)
             server.entities().add_component<TransformComponent>(dummy, tr);
-            MobComponent mob{};
-            mob.species = "human";
-            mob.variant = "female";
-            server.entities().add_component<MobComponent>(dummy, mob);
+            HumanAppearance app{};
+            HumanOverlay base{};
+            base.sprite_dir = "bodyparts_greyscale";
+            base.prefix     = "human";
+            base.gender     = "_m";   // masculine greyscale sprites
+            base.tint       = {255, 200, 160, 255};  // default light skin tone
+            app.layers.push_back(base);
+            app.dirty = true;
+            server.entities().add_component<HumanAppearance>(dummy, app);
         }
 
         // ── Atmospherics bootstrap ──────────────────────────────────────────
@@ -507,6 +531,22 @@ int main(int /*argc*/, char* /*argv*/[])
                     }
                     s_f6_prev = f6_now;
                 }
+                // F7: toggle map editor
+                {
+                    static bool s_f7_prev = false;
+                    bool f7_now = ks[SDL_SCANCODE_F7];
+                    if (f7_now && !s_f7_prev) {
+                        if (map_editor.is_open()) {
+                            map_editor.close();
+                            if (!alt_mode.active())
+                                input.capture_cursor(renderer.window(), true);
+                        } else {
+                            map_editor.open(cam_pos);
+                            input.capture_cursor(renderer.window(), false);
+                        }
+                    }
+                    s_f7_prev = f7_now;
+                }
             }
 
             // Movement wish direction – full 3D when noclip or jetpack in zero-G,
@@ -617,9 +657,20 @@ int main(int /*argc*/, char* /*argv*/[])
             }
 
             // Sync camera to physics-driven player position
+            // Also sync the player body yaw to the camera horizontal direction so
+            // the body always faces where the player is looking.
             if (player != NULL_ENTITY) {
                 auto* tr = server.entities().get_component<TransformComponent>(player);
-                if (tr) cam_pos = tr->pos + glm::vec3(0, 0.5f, 0);
+                if (tr) {
+                    cam_pos  = tr->pos + glm::vec3(0, 0.5f, 0);
+                    tr->yaw  = cam_yaw;  // body follows camera horizontal
+
+                    // Push the camera slightly forward so the player can see
+                    // their own body when looking down in first-person.
+                    float yaw_r = glm::radians(cam_yaw);
+                    glm::vec3 horiz_fwd = { std::sin(yaw_r), 0.f, -std::cos(yaw_r) };
+                    cam_pos += horiz_fwd * 0.25f;
+                }
             }
 
             // Upload any finished chunk meshes
@@ -1176,7 +1227,9 @@ int main(int /*argc*/, char* /*argv*/[])
             renderer.queue_highlight(hit);
             renderer.queue_world_items(server.entities(), hovered_item_entity,
                                        cam_pos, cam_yaw, cam_pitch);
-            renderer.queue_mobs(server.entities(), cam_pos, cam_yaw);
+            renderer.queue_mobs(server.entities(), cam_pos, cam_yaw, client.local_player());
+            for (const auto& obj : model_objs.objects())
+                renderer.queue_model(obj.name.c_str(), obj.world_pos, obj.yaw, obj.scale);
             renderer.queue_earth_background(cam_pos, cam_yaw, cam_pitch);
 
             renderer.begin_frame(alpha);
@@ -1185,6 +1238,7 @@ int main(int /*argc*/, char* /*argv*/[])
             renderer.draw_face_highlight(hit);
             renderer.draw_world_items();
             renderer.draw_mobs();
+            renderer.draw_models();
             renderer.draw_viewmodel(0); // TODO: held item type id
 
             // UI pass
@@ -1481,6 +1535,10 @@ int main(int /*argc*/, char* /*argv*/[])
                     ctx_menu.close();
             }
 
+            // Consume scroll once per frame so both the context menu and the
+            // creative menu can use the same value without either zeroing it first.
+            float frame_scroll = input.consume_scroll();
+
             {
                 bool was_ctx_open = ctx_menu.is_open();
                 // Suppress all dismiss signals on the exact frame the menu opens
@@ -1496,7 +1554,7 @@ int main(int /*argc*/, char* /*argv*/[])
                     ? input.is_pressed(Action::Escape)
                     : (suppress ? false : input.is_pressed(Action::SecondaryInteract));
                 // Clamp scroll to ±1 step per frame so the menu doesn't fly past entries
-                float raw_scroll = input.consume_scroll();
+                float raw_scroll = frame_scroll;
                 float clamped_scroll = (raw_scroll > 0.f) ? 1.f : (raw_scroll < 0.f) ? -1.f : 0.f;
                 ctx_menu.draw(
                     ctx_cursor,
@@ -1538,7 +1596,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 auto cr = creative_menu.draw(
                     input.mouse_pos(),
                     input.is_pressed(Action::PrimaryInteract),
-                    input.scroll_delta(),
+                    frame_scroll,
                     esc_pressed);
                 if (cr.give_item) {
                     ItemStack st;
@@ -1560,6 +1618,45 @@ int main(int /*argc*/, char* /*argv*/[])
                                                : static_cast<uint8_t>(VFLAG_SOLID | VFLAG_OPAQUE);
                     if (vdef)
                         SDL_Log("Build voxel set to: %s", vdef->name.c_str());
+                }
+            }
+
+            // ── Map editor (F7) ────────────────────────────────────────────────
+            if (map_editor.is_open()) {
+                const bool* ks_me = SDL_GetKeyboardState(nullptr);
+                bool ctrl_held = ks_me[SDL_SCANCODE_LCTRL] || ks_me[SDL_SCANCODE_RCTRL];
+                bool me_lmb  = input.is_held(Action::PrimaryInteract);
+                bool me_rmb  = input.is_held(Action::SecondaryInteract);
+                SDL_MouseButtonFlags mbtns = SDL_GetMouseState(nullptr, nullptr);
+                bool me_mmb  = (mbtns & SDL_BUTTON_MMASK) != 0;
+                static bool s_pgup_prev = false, s_pgdn_prev = false;
+                static bool s_cs_prev   = false, s_cl_prev   = false;
+                bool pgup_raw = ks_me[SDL_SCANCODE_PAGEUP];
+                bool pgdn_raw = ks_me[SDL_SCANCODE_PAGEDOWN];
+                bool cs_raw   = ctrl_held && ks_me[SDL_SCANCODE_S];
+                bool cl_raw   = ctrl_held && ks_me[SDL_SCANCODE_L];
+                bool me_pgup  = pgup_raw && !s_pgup_prev;
+                bool me_pgdn  = pgdn_raw && !s_pgdn_prev;
+                bool me_cs    = cs_raw   && !s_cs_prev;
+                bool me_cl    = cl_raw   && !s_cl_prev;
+                s_pgup_prev = pgup_raw;
+                s_pgdn_prev = pgdn_raw;
+                s_cs_prev   = cs_raw;
+                s_cl_prev   = cl_raw;
+                auto me_result = map_editor.draw(
+                    input.mouse_pos(), me_lmb, me_rmb, me_mmb,
+                    frame_scroll, me_pgup, me_pgdn, me_cs, me_cl,
+                    input.is_pressed(Action::Escape));
+                if (me_result.world_modified) {
+                    for (Chunk* c : server.world().dirty_chunks())
+                        mesher.enqueue(c->chunk_pos(), server.world());
+                }
+                if (me_result.needs_atmos_rebuild)
+                    server.atmos().rebuild_zones();
+                if (me_result.request_close) {
+                    map_editor.close();
+                    if (!alt_mode.active())
+                        input.capture_cursor(renderer.window(), true);
                 }
             }
 

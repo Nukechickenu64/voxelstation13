@@ -1,0 +1,130 @@
+[
+  {
+    "id":       "syringe",
+    "name":     "Syringe",
+    "icon":     "items/syringe",
+    "tags":     ["medical", "syringe", "small"],
+    "weight":   0.05,
+    "volume":   0.3,
+    "stack_max":5,
+    "verbs": [
+      { "name": "Inject",    "range": 1.2, "handler": "verb_inject"        },
+      { "name": "Fill",      "range": 1.5, "handler": "verb_fill_syringe"  },
+      { "name": "Examine",   "range": 99,  "handler": "verb_examine"       }
+    ]
+  },
+  {
+    "id":       "beaker",
+    "name":     "Beaker",
+    "icon":     "items/beaker",
+    "tags":     ["medical", "container", "chemistry", "small"],
+    "weight":   0.2,
+    "volume":   1.0,
+    "stack_max":1,
+    "is_container": true,
+    "container_volume": 5.0,
+    "verbs": [
+      { "name": "Pour",    "range": 1.5, "handler": "verb_pour"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "defib",
+    "name":     "Defibrillator",
+    "icon":     "items/defib",
+    "tags":     ["medical", "defib"],
+    "weight":   1.5,
+    "volume":   4.0,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Defibrillate", "range": 1.5, "handler": "verb_defib"   },
+      { "name": "Examine",      "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "scalpel",
+    "name":     "Scalpel",
+    "icon":     "items/scalpel",
+    "tags":     ["medical", "surgery", "knife", "small"],
+    "weight":   0.05,
+    "volume":   0.2,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Incise",  "range": 1.2, "handler": "verb_incise"  },
+      { "name": "Stab",    "range": 1.0, "handler": "verb_stab"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "blood_pack",
+    "name":     "Blood Pack",
+    "icon":     "items/blood_pack",
+    "tags":     ["medical", "small"],
+    "weight":   0.4,
+    "volume":   1.2,
+    "stack_max":5,
+    "verbs": [
+      { "name": "Transfuse", "range": 1.5, "handler": "verb_transfuse" },
+      { "name": "Examine",   "range": 99,  "handler": "verb_examine"   }
+    ]
+  },
+  {
+    "id":       "firstaid_kit",
+    "name":     "First Aid Kit",
+    "icon":     "items/firstaid_kit",
+    "tags":     ["medical", "small"],
+    "weight":   0.15,
+    "volume":   0.6,
+    "stack_max":1,
+    "is_container": true,
+    "container_volume": 4.0,
+    "container_accepts_tags": ["medical", "small"],
+    "verbs": [
+      { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
+      { "name": "Close",   "range": 1.5, "handler": "verb_close"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":       "pill",
+    "name":     "Pill",
+    "icon":     "items/medipen",
+    "tags":     ["medical", "pill", "small"],
+    "weight":   0.01,
+    "volume":   0.05,
+    "stack_max":20,
+    "verbs": [
+      { "name": "Take",    "range": 1.0, "handler": "verb_take_pill" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"   }
+    ]
+  },
+  {
+    "id":       "gauze",
+    "name":     "Gauze Roll",
+    "icon":     "items/bandage",
+    "tags":     ["medical", "gauze", "small"],
+    "weight":   0.04,
+    "volume":   0.3,
+    "stack_max":10,
+    "verbs": [
+      { "name": "Apply",   "range": 1.2, "handler": "verb_apply_bandage" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"       }
+    ]
+  },
+  {
+    "id":       "stasis_bag",
+    "name":     "Stasis Bag",
+    "icon":     "items/bodybag",
+    "tags":     ["medical", "bag"],
+    "weight":   0.3,
+    "volume":   1.5,
+    "stack_max":1,
+    "is_container": true,
+    "container_volume": 80.0,
+    "verbs": [
+      { "name": "Open",    "range": 1.5, "handler": "verb_open"    },
+      { "name": "Seal",    "range": 1.5, "handler": "verb_seal"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  }
+]
