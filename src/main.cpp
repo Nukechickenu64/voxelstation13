@@ -669,7 +669,7 @@ int main(int /*argc*/, char* /*argv*/[])
                     // their own body when looking down in first-person.
                     float yaw_r = glm::radians(cam_yaw);
                     glm::vec3 horiz_fwd = { std::sin(yaw_r), 0.f, -std::cos(yaw_r) };
-                    cam_pos += horiz_fwd * 0.25f;
+                    cam_pos += horiz_fwd * 0.1f;
                 }
             }
 

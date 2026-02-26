@@ -31,11 +31,10 @@ public:
 private:
     void draw_health_bar   (const HUDState& s);
     void draw_suit_sensors (const HUDState& s);
-    void draw_hands        (const Inventory& inv, bool left_active, float pitch);
+    void draw_hands        (const Inventory& inv, bool left_active);
     void draw_examine_label(const std::string& label);
     void draw_radio_log    (const std::deque<std::string>& log);
     void draw_clock        (const std::string& time_str);
 
     UIRenderer&       m_ui;
-    SDL_GPUTexture*   m_hand_tex = nullptr;  // textures/worldui/hand.png
 };

@@ -7,14 +7,13 @@
 HUD::HUD(UIRenderer& ui)
     : m_ui(ui)
 {
-    m_hand_tex = m_ui.load_texture("textures/worldui/hand.png");
 }
 
 void HUD::draw(const HUDState& state, const Inventory& inv)
 {
     draw_health_bar(state);
     draw_suit_sensors(state);
-    draw_hands(inv, state.active_hand_is_left, state.cam_pitch);
+    draw_hands(inv, state.active_hand_is_left);
     draw_clock(state.clock_str);
     if (!state.examine_label.empty())
         draw_examine_label(state.examine_label);
@@ -60,7 +59,7 @@ void HUD::draw_suit_sensors(const HUDState& s)
         m_ui.text(pos + glm::vec2(6,48), "T: " + s.suit_temp_str,                  {0.9f,0.9f,0.9f,1},11.f);
 }
 
-void HUD::draw_hands(const Inventory& inv, bool left_active, float pitch)
+void HUD::draw_hands(const Inventory& inv, bool left_active)
 {
     // --- Always-on hand slots (small, above hotbar) ---
     const float SZ   = 56.f, PAD = 8.f;
@@ -99,40 +98,6 @@ void HUD::draw_hands(const Inventory& inv, bool left_active, float pitch)
 
     draw_slot(lpos, "l_hand", left_active);
     draw_slot(rpos, "r_hand", !left_active);
-
-    // --- Look-down viewmodel hands ---
-    // Fade in between -45° and -70°; fully visible at -70° and below.
-    const float FADE_START = -45.f;
-    const float FADE_END   = -70.f;
-    float t = (pitch - FADE_START) / (FADE_END - FADE_START);  // 0 at start, 1 at end
-    t = std::clamp(t, 0.f, 1.f);
-    if (t <= 0.f) return;
-
-    // Hand sprite size — large, filling lower screen
-    const float HAND_W = fb_w * 0.35f;
-    const float HAND_H = HAND_W;  // hand.png is roughly square
-
-    // Slide up from below as t increases (fully down = sits just inside screen bottom)
-    const float CENTER_X = fb_w * 0.5f;
-    const float BASE_Y   = fb_h - HAND_H * t;  // slides up from off-screen
-
-    // Left hand: left of centre, slightly rotated inward (mirrored)
-    glm::vec2 lhand_pos = {CENTER_X - HAND_W - PAD * 2.f, BASE_Y};
-    // Right hand: right of centre
-    glm::vec2 rhand_pos = {CENTER_X + PAD * 2.f,          BASE_Y};
-
-    // Active-hand tint (slightly brighter), inactive slightly darker
-    float l_alpha = t * (left_active  ? 1.0f : 0.75f);
-    float r_alpha = t * (!left_active ? 1.0f : 0.75f);
-
-    if (m_hand_tex) {
-        m_ui.image(lhand_pos, {HAND_W, HAND_H}, m_hand_tex, l_alpha, /*flip_x=*/true);
-        m_ui.image(rhand_pos, {HAND_W, HAND_H}, m_hand_tex, r_alpha, /*flip_x=*/false);
-    } else {
-        // Fallback: coloured rects if texture failed to load
-        m_ui.rect(lhand_pos, {HAND_W, HAND_H}, {0.6f,0.45f,0.35f, l_alpha}, 6.f);
-        m_ui.rect(rhand_pos, {HAND_W, HAND_H}, {0.6f,0.45f,0.35f, r_alpha}, 6.f);
-    }
 }
 
 void HUD::draw_examine_label(const std::string& label)
