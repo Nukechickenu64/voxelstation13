@@ -88,3 +88,7 @@
 26	3561	7937501625518709	CMakeFiles/vs13.dir/src/network/server.cpp.obj	29fd28448badb990
 20	7163	7937501625448622	CMakeFiles/vs13.dir/src/main.cpp.obj	2d8e9a3ec2c51513
 7164	8839	7937501696888664	vs13.exe	cdc08375aff238ef
+83	11659	7937910165524867	CMakeFiles/vs13.dir/src/render/chunk_mesher.cpp.obj	b7e6c81d62bdbd2b
+75	14331	7937910165444857	CMakeFiles/vs13.dir/src/render/renderer.cpp.obj	94f1290d83481aa3
+27	14915	7937910164974863	CMakeFiles/vs13.dir/src/main.cpp.obj	2d8e9a3ec2c51513
+14915	16921	7937910313844843	vs13.exe	cdc08375aff238ef
