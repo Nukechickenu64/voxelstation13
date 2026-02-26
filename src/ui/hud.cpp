@@ -75,9 +75,25 @@ void HUD::draw_hands(const Inventory& inv, bool left_active, float pitch)
                               : glm::vec4{0.1f,0.1f,0.1f,0.65f};
         m_ui.rect(pos, {SZ, SZ}, bg, 4.f);
         const auto* slot = inv.find_slot(slot_id);
-        if (slot && slot->item) {
-            m_ui.text(pos + glm::vec2(4, SZ - 16), slot->item->def->name,
-                      {1,1,1,0.9f}, 10.f);
+        if (slot && slot->item && slot->item->def) {
+            const auto& def = *slot->item->def;
+            SDL_GPUTexture* icon = m_ui.item_icon(def.id);
+            if (icon) {
+                // Icon fills the slot with 4 px padding
+                m_ui.image(pos + glm::vec2(4.f, 4.f), {SZ - 8.f, SZ - 8.f}, icon, 1.f);
+            } else {
+                // Fallback: tinted rectangle + truncated name
+                m_ui.rect(pos + glm::vec2(4.f, 4.f), {SZ - 8.f, SZ - 8.f},
+                          {0.25f, 0.38f, 0.58f, 0.7f}, 2.f);
+                std::string n = def.name;
+                if (n.size() > 7) n = n.substr(0, 6) + ".";
+                m_ui.text(pos + glm::vec2(4.f, SZ - 16.f), n, {1,1,1,0.9f}, 9.f);
+            }
+            // Stack count badge in the top-left corner
+            if (slot->item->count > 1) {
+                std::string cnt = "x" + std::to_string(slot->item->count);
+                m_ui.text(pos + glm::vec2(2.f, 2.f), cnt, {1.f, 1.f, 0.4f, 1.f}, 9.f);
+            }
         }
     };
 

@@ -331,6 +331,7 @@ std::vector<WorldItemLabel> WorldItemSystem::build_labels(
             WorldItemLabel lbl;
             lbl.screen_pos = screen + glm::vec2(10.f, -24.f);  // offset above item
             lbl.name       = wic.item.def ? wic.item.def->name : "?";
+            lbl.item_id    = wic.item.def ? wic.item.def->id   : "";
             lbl.entity_id  = eid;
             lbl.hovered    = (eid == hovered);
             lbl.in_front   = in_front;

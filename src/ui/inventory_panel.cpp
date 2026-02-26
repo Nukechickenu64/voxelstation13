@@ -342,6 +342,16 @@ void InventoryPanel::draw_tooltip(const ItemStack& item, glm::vec2 cursor)
 
     m_ui.rect(tpos, {W, h}, {0.04f, 0.04f, 0.08f, 0.95f}, 5.f);
 
+    // Item icon preview in the top-right corner of the tooltip
+    SDL_GPUTexture* tip_icon = m_ui.item_icon(item.def->id);
+    if (tip_icon) {
+        constexpr float ICO = 40.f;
+        // Subtle dark backing behind the icon
+        m_ui.rect({tpos.x + W - PAD - ICO - 2.f, tpos.y + PAD - 2.f},
+                  {ICO + 4.f, ICO + 4.f}, {0.08f, 0.08f, 0.14f, 0.8f}, 4.f);
+        m_ui.image({tpos.x + W - PAD - ICO, tpos.y + PAD}, {ICO, ICO}, tip_icon, 0.92f);
+    }
+
     float ty = tpos.y + PAD;
     m_ui.text({tpos.x + PAD, ty}, item.def->name, {1.f, 1.f, 1.f, 1.f}, 12.f);
     ty += LINE;

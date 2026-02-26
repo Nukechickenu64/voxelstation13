@@ -28,6 +28,7 @@ struct WorldItemComponent {
 struct WorldItemLabel {
     glm::vec2   screen_pos;
     std::string name;
+    std::string item_id;    // item def id — used for icon lookup
     EntityID    entity_id = NULL_ENTITY;
     bool        hovered   = false;
     bool        in_front  = false;  // dot(to_item, cam_fwd) > 0

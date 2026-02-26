@@ -1253,10 +1253,27 @@ int main(int /*argc*/, char* /*argv*/[])
                 for (const auto& lbl : labels) {
                     // Only show tooltip for the item currently being hovered
                     if (!lbl.in_front || !lbl.hovered) continue;
-                    // Small background pill
-                    glm::vec2 ts = {static_cast<float>(lbl.name.size() * 7 + 10), 16.f};
-                    ui_renderer.rect(lbl.screen_pos - glm::vec2(4, 2), ts,
-                                     {0.f, 0.f, 0.f, 0.55f}, 3.f);
+
+                    constexpr float ICON_SZ  = 20.f;
+                    constexpr float ICON_GAP = 4.f;   // gap between icon and text
+
+                    SDL_GPUTexture* lbl_icon = ui_renderer.item_icon(lbl.item_id);
+                    float icon_strip = lbl_icon ? (ICON_SZ + ICON_GAP) : 0.f;
+
+                    float text_w = static_cast<float>(lbl.name.size() * 7);
+                    float pill_w = icon_strip + text_w + 14.f;
+                    float pill_h = 22.f;
+
+                    glm::vec2 pill_pos = lbl.screen_pos - glm::vec2(4.f + icon_strip, 4.f);
+                    ui_renderer.rect(pill_pos, {pill_w, pill_h},
+                                     {0.f, 0.f, 0.f, 0.62f}, 4.f);
+
+                    if (lbl_icon) {
+                        glm::vec2 ico_pos = {pill_pos.x + 3.f,
+                                             pill_pos.y + (pill_h - ICON_SZ) * 0.5f};
+                        ui_renderer.image(ico_pos, {ICON_SZ, ICON_SZ}, lbl_icon, 1.f);
+                    }
+
                     ui_renderer.text(lbl.screen_pos, lbl.name,
                                      {1.f, 1.f, 0.4f, 1.f}, 14.f);
                 }
