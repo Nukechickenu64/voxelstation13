@@ -1530,7 +1530,53 @@ bool Renderer::load_human_bodyparts(const char* extracted_dir)
     }
 
     SDL_Log("load_human_bodyparts: loaded %d bodypart sprites", total_loaded);
+
+    // Store base mob dir for lazy clothing/inhand loading (loaded on first use).
+    m_extracted_mob_dir = (fs::path(extracted_dir) / "mob").string();
+
     return true;
+}
+
+// ── Lazy sprite loader for clothing / inhand overlays ───────────────────────
+// Called by get_or_assemble_human when a key is not found in m_bodypart_pixels.
+// Key is relative to m_extracted_mob_dir without extension, e.g.
+//   "clothing/suits/spacesuit/space_s"  or  "inhands/tools_lefthand/wrench_s"
+// Returns a pointer into m_bodypart_pixels (inserted sentinel entry on failure).
+const std::vector<uint8_t>* Renderer::load_overlay_on_demand(const std::string& key)
+{
+    namespace fs = std::filesystem;
+    if (m_extracted_mob_dir.empty()) return nullptr;
+
+    fs::path path = fs::path(m_extracted_mob_dir) / fs::path(key + ".png");
+
+    int w, h, ch;
+    unsigned char* data = stbi_load(path.string().c_str(), &w, &h, &ch, 4);
+    if (!data) {
+        // Cache a sentinel (empty vector) so we don't retry on every frame.
+        m_bodypart_pixels.emplace(key, std::vector<uint8_t>{});
+        return nullptr;
+    }
+
+    constexpr uint32_t DW = k_assembly_w;
+    constexpr uint32_t DH = k_assembly_h;
+    std::vector<uint8_t> pixels(DW * DH * 4, 0);
+    if (w == (int)DW && h == (int)DH) {
+        std::memcpy(pixels.data(), data, DW * DH * 4);
+    } else {
+        for (uint32_t py = 0; py < DH; ++py)
+        for (uint32_t px = 0; px < DW; ++px) {
+            int sx = (int)(px * w / DW);
+            int sy = (int)(py * h / DH);
+            const uint8_t* sp = data + (sy * w + sx) * 4;
+            uint8_t*       dp = pixels.data() + (py * DW + px) * 4;
+            dp[0]=sp[0]; dp[1]=sp[1]; dp[2]=sp[2]; dp[3]=sp[3];
+        }
+    }
+    stbi_image_free(data);
+
+    auto& entry = m_bodypart_pixels[key];
+    entry = std::move(pixels);
+    return &entry;
 }
 
 // ── Assembly layer upload (one-shot GPU copy) ─────────────────────────────────
@@ -1620,6 +1666,7 @@ uint32_t Renderer::get_or_assemble_human(HumanAppearance& app, int dir)
     std::string cache_key;
     cache_key.reserve(128);
     for (const auto& ov : app.layers) {
+        cache_key += std::to_string(static_cast<int>(ov.kind)) + ':';
         cache_key += ov.sprite_dir + ':' + ov.prefix + ':' + ov.gender + ':';
         cache_key += std::to_string(ov.tint.r) + ',' + std::to_string(ov.tint.g) + ','
                    + std::to_string(ov.tint.b) + ',' + std::to_string(ov.tint.a) + '|';
@@ -1641,6 +1688,8 @@ uint32_t Renderer::get_or_assemble_human(HumanAppearance& app, int dir)
     const char* dir_suf = k_asm_dir_suffix[dir];
 
     for (const auto& ov : app.layers) {
+        if (ov.kind != HumanOverlayKind::Bodypart) continue;  // Phase 1: bodyparts only
+
         for (int p = 0; p < k_asm_num_parts; ++p) {
             const char* part = k_asm_parts[p];
 
@@ -1666,9 +1715,9 @@ uint32_t Renderer::get_or_assemble_human(HumanAppearance& app, int dir)
         }
     }
 
-    // ── Horizontal flip so that the mob's anatomical left appears on the
-    //    viewer's right when facing south (BYOND labels parts from the mob's
-    //    own perspective; we need to mirror to get the viewer's perspective).
+    // ── Horizontal flip (bodypart-only — BYOND bodyparts are in mob-perspective) ──
+    // Clothing and inhand overlays come from the viewer's perspective and must NOT
+    // be flipped.  We flip the bodypart canvas first, then composite the rest on top.
     {
         const uint32_t row_bytes = W * 4;
         for (uint32_t row = 0; row < H; ++row) {
@@ -1682,6 +1731,41 @@ uint32_t Renderer::get_or_assemble_human(HumanAppearance& app, int dir)
                 std::swap(a[3], b[3]);
             }
         }
+    }
+
+    // ── Phase 2: Clothing + Inhand overlays (single-sprite per direction) ─────
+    // BYOND exports ALL sprites (bodyparts, clothing, inhands) in mob-perspective,
+    // so clothing/inhand overlays must be flipped the same way as bodyparts.
+    // We composite each overlay onto a temporary canvas, flip it, then merge onto
+    // the main canvas so the flip matches the already-flipped bodypart layer.
+    for (const auto& ov : app.layers) {
+        if (ov.kind == HumanOverlayKind::Bodypart) continue;
+
+        // Key: "{sprite_dir}/{prefix}{dir_suffix}"
+        // e.g. "clothing/suits/spacesuit/space_s"  or  "inhands/tools_lefthand/wrench_s"
+        std::string key = ov.sprite_dir + "/" + ov.prefix + dir_suf;
+        auto it = m_bodypart_pixels.find(key);
+        const std::vector<uint8_t>* pix = nullptr;
+        if (it != m_bodypart_pixels.end()) {
+            pix = it->second.empty() ? nullptr : &it->second;
+        } else {
+            pix = load_overlay_on_demand(key);
+        }
+        if (!pix) continue;
+
+        // Flip horizontally into a temporary buffer, then composite.
+        std::vector<uint8_t> flipped(N * 4);
+        const uint32_t row_bytes = W * 4;
+        for (uint32_t row = 0; row < H; ++row) {
+            const uint8_t* src_row = pix->data() + row * row_bytes;
+            uint8_t*       dst_row = flipped.data() + row * row_bytes;
+            for (uint32_t col = 0; col < W; ++col) {
+                const uint8_t* s = src_row + (W - 1 - col) * 4;
+                uint8_t*       d = dst_row + col * 4;
+                d[0]=s[0]; d[1]=s[1]; d[2]=s[2]; d[3]=s[3];
+            }
+        }
+        alpha_composite(canvas.data(), flipped.data(), N, ov.tint);
     }
 
     // ── Upload to GPU and cache ───────────────────────────────────────────────

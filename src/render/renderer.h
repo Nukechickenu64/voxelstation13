@@ -217,8 +217,12 @@ private:
     // ── Human overlay assembly cache ──────────────────────────────────────────
     // CPU-side pixel store for extracted bodypart PNGs.
     // Key format: "{sub_dir}/{stem}"  e.g. "bodyparts/default_human_chest_s"
+    // For clothing/inhands keys are relative to mob_dir, e.g. "clothing/suits/spacesuit/space_s"
     // Value: 32×32 RGBA (4096 bytes).
     std::unordered_map<std::string, std::vector<uint8_t>> m_bodypart_pixels;
+
+    // Base path (legacysets/extracted/mob) used for lazy clothing/inhand loading.
+    std::string m_extracted_mob_dir;
 
     // Per-direction assembled-appearance cache.
     // Key encodes the full appearance + direction; value = GPU layer index.
@@ -281,6 +285,11 @@ private:
     // Upload one 32×32 RGBA image into m_assembly_tex at the given layer index.
     // Submits a one-shot copy command (safe outside a render pass).
     void upload_assembly_layer(uint32_t layer_idx, const uint8_t* rgba32x32);
+
+    // Lazily load a clothing/inhand overlay sprite on first use.
+    // key is relative to m_extracted_mob_dir without extension, forward slashes.
+    // Returns pointer into m_bodypart_pixels (nullptr if file not found).
+    const std::vector<uint8_t>* load_overlay_on_demand(const std::string& key);
 
     // Return (cached) assembly texture layer for the given HumanAppearance + direction.
     // Composites all HumanOverlay layers on the CPU if not already cached, then

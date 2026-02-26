@@ -86,21 +86,37 @@ struct MobPlayerTag {
 // ── Human overlay assembly ────────────────────────────────────────────────────
 // A single composited layer in a HumanAppearance stack.
 //
-// sprite_dir  – sub-directory under legacysets/extracted/mob/human/
-//               e.g. "bodyparts", "bodyparts_greyscale"
-// prefix      – filename prefix, e.g. "default_human", "human", "skeleton"
-//               The loader concatenates: {prefix}_{part}{gender}_{dir_suffix}.png
-//               for each of the 8 standard body-part names and 4 direction suffixes.
-// gender      – optional infix for greyscale chest/head variants: "", "_f", "_m"
-// tint        – per-layer RGBA colour multiply applied before alpha-compositing.
-//               {255,255,255,255} = no tint (identity).
+// kind = Bodypart (default):
+//   Composites 8 directional body-part sprites.
+//   sprite_dir – sub-directory under legacysets/extracted/mob/human/
+//                e.g. "bodyparts", "bodyparts_greyscale"
+//   prefix     – filename prefix, e.g. "default_human", "human"
+//   gender     – optional infix: "", "_f", "_m"
+//   The loader key is:  {sprite_dir}/{prefix}_{part}{gender}_{dir_suffix}
+//
+// kind = Clothing:
+//   A single full-body worn-clothing overlay (suit, helmet, gloves, …).
+//   sprite_dir – path relative to extracted/mob/, e.g. "clothing/suits/spacesuit"
+//   prefix     – sprite name without dir suffix, e.g. "space"
+//   The loader key is:  {sprite_dir}/{prefix}{dir_suffix}
+//
+// kind = Inhand:
+//   A single in-hand item sprite drawn over the body.
+//   sprite_dir – path relative to extracted/mob/, e.g. "inhands/tools_lefthand"
+//   prefix     – sprite name without dir suffix, e.g. "wrench"
+//   The loader key is:  {sprite_dir}/{prefix}{dir_suffix}
+//
+// tint – RGBA colour multiply for all kinds; {255,255,255,255} = identity.
 struct SpriteColor { uint8_t r=255,g=255,b=255,a=255; };
 
+enum class HumanOverlayKind { Bodypart, Clothing, Inhand };
+
 struct HumanOverlay {
-    std::string sprite_dir = "bodyparts"; // relative to extracted/mob/human/
-    std::string prefix;                   // e.g. "default_human"
-    std::string gender;                   // "", "_f", or "_m"
-    SpriteColor tint;                     // RGBA multiply tint
+    HumanOverlayKind kind       = HumanOverlayKind::Bodypart;
+    std::string      sprite_dir = "bodyparts"; // meaning depends on kind (see above)
+    std::string      prefix;                   // sprite name (no direction suffix)
+    std::string      gender;                   // Bodypart only: "", "_f", "_m"
+    SpriteColor      tint;                     // RGBA multiply tint
 };
 
 // Component: mark an entity for overlay-based human sprite assembly.
