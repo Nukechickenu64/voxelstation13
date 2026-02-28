@@ -28,7 +28,14 @@ public:
     void enqueue(glm::ivec3 chunk_pos, const World& world);
 
     // Collect finished meshes this frame; caller uploads them to the GPU.
+    // Only meshes from the current generation are returned — stale results
+    // (enqueued before the last flush()) are silently discarded.
     std::vector<ChunkMesh> collect_finished();
+
+    // Discard all pending and finished jobs from before a map reload.
+    // Increments the internal generation counter so any in-flight worker
+    // results are automatically dropped by collect_finished().
+    void flush();
 
 private:
     void worker_loop();
@@ -42,6 +49,7 @@ private:
 
     struct Job {
         glm::ivec3 chunk_pos;
+        uint64_t   generation = 0; // generation counter when this job was enqueued
         // Snapshot data so the worker doesn't hold a World reference
         std::array<Voxel, CHUNK_VOL> voxels;
         // Per-type atlas indices: type_atlas[type_id][face_dir] = texture layer.
@@ -52,12 +60,13 @@ private:
         std::array<NeighbourSnap, 4> neighbours;
     };
 
-    std::vector<std::thread>   m_workers;
-    std::queue<Job>            m_job_queue;
-    std::vector<ChunkMesh>     m_finished;
-    std::mutex                 m_queue_mutex;
-    std::mutex                 m_finished_mutex;
-    std::condition_variable    m_cv;
-    std::atomic<bool>          m_running{false};
-    const VoxelRegistry*       m_registry = nullptr;
+    std::vector<std::thread>     m_workers;
+    std::queue<Job>              m_job_queue;
+    std::vector<ChunkMesh>       m_finished;
+    std::mutex                   m_queue_mutex;
+    std::mutex                   m_finished_mutex;
+    std::condition_variable      m_cv;
+    std::atomic<bool>            m_running{false};
+    std::atomic<uint64_t>        m_generation{0};
+    const VoxelRegistry*         m_registry = nullptr;
 };

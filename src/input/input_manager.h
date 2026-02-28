@@ -39,6 +39,11 @@ public:
     bool is_held    (Action a) const;
     bool is_pressed (Action a) const;
     bool is_released(Action a) const;
+    // Returns true if the action was just pressed and clears the flag so that
+    // calling it again in the same frame returns false.  Use this in the render
+    // callback where the same "pressed" state would otherwise persist across
+    // multiple render frames before the next fixed-tick clears it.
+    bool consume_press(Action a);
 
     // Mouse state (only meaningful when cursor is captured)
     glm::vec2 mouse_delta() const { return m_mouse_delta; }

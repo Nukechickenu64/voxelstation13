@@ -25,7 +25,8 @@ void ChunkMesher::stop()
 void ChunkMesher::enqueue(glm::ivec3 chunk_pos, const World& world)
 {
     Job job;
-    job.chunk_pos = chunk_pos;
+    job.chunk_pos  = chunk_pos;
+    job.generation = m_generation.load(std::memory_order_relaxed);
 
     // Take a snapshot of the chunk's voxel data
     const Chunk* chunk = const_cast<World&>(world).get_chunk(chunk_pos);
@@ -76,10 +77,31 @@ void ChunkMesher::enqueue(glm::ivec3 chunk_pos, const World& world)
 
 std::vector<ChunkMesh> ChunkMesher::collect_finished()
 {
+    const uint64_t cur_gen = m_generation.load(std::memory_order_relaxed);
     std::lock_guard<std::mutex> lk(m_finished_mutex);
     std::vector<ChunkMesh> result;
-    result.swap(m_finished);
+    for (auto& m : m_finished)
+        if (m.generation == cur_gen)
+            result.push_back(std::move(m));
+    m_finished.clear();
     return result;
+}
+
+void ChunkMesher::flush()
+{
+    // Advance generation so any in-flight worker results are discarded
+    // by collect_finished() once they land.
+    m_generation.fetch_add(1, std::memory_order_relaxed);
+    // Discard jobs still waiting in the queue (no point meshing the old world).
+    {
+        std::lock_guard<std::mutex> lk(m_queue_mutex);
+        while (!m_job_queue.empty()) m_job_queue.pop();
+    }
+    // Drain any results that already completed before the generation bump.
+    {
+        std::lock_guard<std::mutex> lk(m_finished_mutex);
+        m_finished.clear();
+    }
 }
 
 void ChunkMesher::worker_loop()
@@ -187,6 +209,17 @@ void ChunkMesher::worker_loop()
 
         static const float k_uvs[4][2] = {
             {0.f, 0.f}, {1.f, 0.f}, {1.f, 1.f}, {0.f, 1.f}
+        };
+        // NegX face (f==1) has its y-vertices in reverse order relative to all
+        // other side faces, causing the texture to appear upside down.  Flip V
+        // for that face only so every cube wall shares the same orientation.
+        static const bool k_face_flip_v[6] = {
+            false, // PosX
+            true,  // NegX — fix upside-down texture
+            false, // PosY
+            false, // NegY
+            false, // PosZ
+            false, // NegZ
         };
 
         for (int z = 0; z < CHUNK_SIZE; ++z)
@@ -363,6 +396,7 @@ void ChunkMesher::worker_loop()
                 // 9 floats per vertex: pos(3) + normal(3) + uv(2) + texIndex(1)
                 // Standard quad UVs: v0=(0,0), v1=(1,0), v2=(1,1), v3=(0,1)
                 const float tex_idx = atlas_idx(v.type_id, f);
+                const bool  flip_v  = k_face_flip_v[f];
                 uint32_t base = static_cast<uint32_t>(mesh.vertices.size() / 9);
 
                 for (int vi = 0; vi < 4; ++vi) {
@@ -372,9 +406,10 @@ void ChunkMesher::worker_loop()
                     mesh.vertices.push_back(fg.n[0]);
                     mesh.vertices.push_back(fg.n[1]);
                     mesh.vertices.push_back(fg.n[2]);
-                    mesh.vertices.push_back(k_uvs[vi][0]);  // u
-                    mesh.vertices.push_back(k_uvs[vi][1]);  // v
-                    mesh.vertices.push_back(tex_idx);        // texIndex (= type_id)
+                    mesh.vertices.push_back(k_uvs[vi][0]);                        // u
+                    mesh.vertices.push_back(flip_v ? 1.0f - k_uvs[vi][1]
+                                                   : k_uvs[vi][1]);               // v
+                    mesh.vertices.push_back(tex_idx);                              // texIndex (= type_id)
                 }                mesh.indices.insert(mesh.indices.end(), {
                     base, base+1, base+2,
                     base, base+2, base+3
@@ -384,6 +419,7 @@ void ChunkMesher::worker_loop()
 
         {
             std::lock_guard<std::mutex> lk(m_finished_mutex);
+            mesh.generation = job.generation;
             m_finished.push_back(std::move(mesh));
         }
     }

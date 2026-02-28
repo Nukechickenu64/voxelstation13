@@ -75,6 +75,7 @@ struct UndoOp {
 struct MapEditorResult {
     bool world_modified      = false;
     bool needs_atmos_rebuild = false;
+    bool map_reloaded        = false;  // true when a full map_load_full was performed
     bool request_close       = false;
 };
 

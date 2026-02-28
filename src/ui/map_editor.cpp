@@ -1153,6 +1153,7 @@ MapEditorResult MapEditor::draw(
         if (ok) {
             result.world_modified      = true;
             result.needs_atmos_rebuild = true;
+            result.map_reloaded        = true;
             m_status_msg   = "[OK] Loaded from " + m_map_path;
         } else {
             m_status_msg = "[ERR] Load failed: " + m_map_path;

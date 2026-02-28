@@ -572,6 +572,15 @@ void Renderer::free_mesh(glm::ivec3 chunk_pos)
     m_meshes.erase(chunk_pos);
 }
 
+void Renderer::clear_all_meshes()
+{
+    SDL_Log("clear_all_meshes: releasing %d GPU chunk meshes", (int)m_gpu_meshes.size());
+    for (auto& [pos, gm] : m_gpu_meshes)
+        release_gpu_mesh(gm);
+    m_gpu_meshes.clear();
+    m_meshes.clear();
+}
+
 // ── Tile texture array ─────────────────────────────────────────────────────────────────
 
 bool Renderer::load_tile_textures(VoxelRegistry& reg, const char* texture_dir)

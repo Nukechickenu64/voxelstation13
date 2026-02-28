@@ -18,8 +18,9 @@ struct ChunkMesh {
     glm::ivec3            chunk_pos{};
     std::vector<float>    vertices;   // 6 floats / vertex
     std::vector<uint32_t> indices;
-    bool transparent = false;
-    bool dirty       = true;
+    bool     transparent = false;
+    bool     dirty       = true;
+    uint64_t generation  = 0; // stamp set by ChunkMesher; stale results are discarded
 };
 
 // Holds all SDL3 GPU state and drives the render loop.
@@ -138,6 +139,8 @@ public:
     ChunkMesh& get_or_create_mesh(glm::ivec3 chunk_pos);
     void       upload_mesh(ChunkMesh& mesh);   // copies to GPU
     void       free_mesh(glm::ivec3 chunk_pos);
+    // Release ALL chunk GPU meshes (call after world.clear_all() on map reload).
+    void       clear_all_meshes();
 
     SDL_Window*          window()       const { return m_window; }
     SDL_GPUDevice*        gpu()          const { return m_gpu; }

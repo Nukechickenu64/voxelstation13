@@ -32,6 +32,7 @@
 #include "ui/player_stats_overlay.h"
 #include "simulation/model_objects.h"
 #include "ui/map_editor.h"
+#include "ui/admin_menu.h"
 #include "network/server.h"
 #include "network/client.h"
 
@@ -127,6 +128,7 @@ int main(int /*argc*/, char* /*argv*/[])
     bool           gas_overlay_visible   = false;
     PlayerStatsOverlay player_stats_overlay(ui_renderer);
     bool               player_stats_visible = false;
+    AdminMenu      admin_menu(ui_renderer);
     double         sim_time              = 0.0;  // monotonic seconds, for overlay animations
 
     // ── 11. Player inventory ──────────────────────────────────────────────────
@@ -384,7 +386,7 @@ int main(int /*argc*/, char* /*argv*/[])
 
     // Speed multiplier for door open/close animation.
     // 1.0 = original GIF speed, 2.0 = twice as fast, 0.5 = half speed.
-    constexpr float DOOR_ANIM_SPEED = 3.0f;
+    constexpr float DOOR_ANIM_SPEED = 6.0f;
 
     // Per-panel door animation state (one entry per door group currently animating).
     struct DoorGroup {
@@ -451,22 +453,27 @@ int main(int /*argc*/, char* /*argv*/[])
                 cam_pitch  = glm::clamp(cam_pitch - mdelta.y * SENSITIVITY, -89.f, 89.f);
             }
 
-            // F1: toggle noclip
+            // F1: toggle admin menu
+            // F2: creative menu  (unchanged)
+            // F7: map editor     (unchanged)
             EntityID player = client.local_player();
             {
                 const bool* ks = SDL_GetKeyboardState(nullptr);
-                // F1 noclip
-                if (player != NULL_ENTITY) {
-                    auto* cc_f1 = server.entities().get_component<CharacterControllerComponent>(player);
-                    if (cc_f1) {
-                        static bool s_f1_prev = false;
-                        bool f1_now = ks[SDL_SCANCODE_F1];
-                        if (f1_now && !s_f1_prev) {
-                            cc_f1->noclip = !cc_f1->noclip;
-                            SDL_Log("Noclip: %s", cc_f1->noclip ? "ON" : "OFF");
+                // F1 — admin menu
+                {
+                    static bool s_f1_prev = false;
+                    bool f1_now = ks[SDL_SCANCODE_F1];
+                    if (f1_now && !s_f1_prev) {
+                        if (admin_menu.is_open()) {
+                            admin_menu.close();
+                            if (!alt_mode.active() && !creative_menu.is_open() && !map_editor.is_open())
+                                input.capture_cursor(renderer.window(), true);
+                        } else {
+                            admin_menu.open();
+                            input.capture_cursor(renderer.window(), false);
                         }
-                        s_f1_prev = f1_now;
                     }
+                    s_f1_prev = f1_now;
                 }
                 // F2 creative menu
                 {
@@ -485,55 +492,6 @@ int main(int /*argc*/, char* /*argv*/[])
                         }
                     }
                     s_f2_prev = f2_now;
-                }
-                // F3 build mode
-                {
-                    static bool s_f3_prev = false;
-                    bool f3_now = ks[SDL_SCANCODE_F3];
-                    if (f3_now && !s_f3_prev) {
-                        build_mode = !build_mode;
-                        SDL_Log("Build mode: %s", build_mode ? "ON" : "OFF");
-                    }
-                    s_f3_prev = f3_now;
-                }
-                // F4: toggle gas overlay
-                {
-                    static bool s_f4_prev = false;
-                    bool f4_now = ks[SDL_SCANCODE_F4];
-                    if (f4_now && !s_f4_prev) {
-                        gas_overlay_visible = !gas_overlay_visible;
-                        SDL_Log("Gas overlay: %s", gas_overlay_visible ? "ON" : "OFF");
-                    }
-                    s_f4_prev = f4_now;
-                }
-                // F8: toggle verbose renderer logging
-                {
-                    static bool s_f8_prev = false;
-                    bool f8_now = ks[SDL_SCANCODE_F8];
-                    if (f8_now && !s_f8_prev) {
-                        renderer.toggle_verbose_logging();
-                    }
-                    s_f8_prev = f8_now;
-                }
-                // F5: toggle debug overlay
-                {
-                    static bool s_f5_prev = false;
-                    bool f5_now = ks[SDL_SCANCODE_F5];
-                    if (f5_now && !s_f5_prev) {
-                        debug_overlay_visible = !debug_overlay_visible;
-                        SDL_Log("Debug overlay: %s", debug_overlay_visible ? "ON" : "OFF");
-                    }
-                    s_f5_prev = f5_now;
-                }
-                // F6: toggle player stats overlay
-                {
-                    static bool s_f6_prev = false;
-                    bool f6_now = ks[SDL_SCANCODE_F6];
-                    if (f6_now && !s_f6_prev) {
-                        player_stats_visible = !player_stats_visible;
-                        SDL_Log("Player stats overlay: %s", player_stats_visible ? "ON" : "OFF");
-                    }
-                    s_f6_prev = f6_now;
                 }
                 // F7: toggle map editor
                 {
@@ -1757,6 +1715,62 @@ int main(int /*argc*/, char* /*argv*/[])
                 }
             }
 
+            // ── Admin menu (F1) ───────────────────────────────────────────────
+            if (admin_menu.is_open()) {
+                AdminMenuState adm_state;
+                {
+                    EntityID plr = client.local_player();
+                    if (plr != NULL_ENTITY) {
+                        auto* cc = server.entities().get_component<CharacterControllerComponent>(plr);
+                        if (cc) adm_state.noclip = cc->noclip;
+                    }
+                }
+                adm_state.build_mode    = build_mode;
+                adm_state.gas_overlay   = gas_overlay_visible;
+                adm_state.debug_overlay = debug_overlay_visible;
+                adm_state.player_stats  = player_stats_visible;
+                adm_state.verbose_log   = renderer.verbose_logging();
+
+                bool esc_adm = input.is_pressed(Action::Escape);
+                auto ar = admin_menu.draw(input.mouse_pos(),
+                                          input.consume_press(Action::PrimaryInteract),
+                                          esc_adm,
+                                          adm_state);
+
+                if (ar.toggle_noclip) {
+                    EntityID plr = client.local_player();
+                    if (plr != NULL_ENTITY) {
+                        auto* cc = server.entities().get_component<CharacterControllerComponent>(plr);
+                        if (cc) {
+                            cc->noclip = !cc->noclip;
+                            SDL_Log("Noclip: %s", cc->noclip ? "ON" : "OFF");
+                        }
+                    }
+                }
+                if (ar.toggle_build_mode) {
+                    build_mode = !build_mode;
+                    SDL_Log("Build mode: %s", build_mode ? "ON" : "OFF");
+                }
+                if (ar.toggle_gas_overlay) {
+                    gas_overlay_visible = !gas_overlay_visible;
+                    SDL_Log("Gas overlay: %s", gas_overlay_visible ? "ON" : "OFF");
+                }
+                if (ar.toggle_debug_overlay) {
+                    debug_overlay_visible = !debug_overlay_visible;
+                    SDL_Log("Debug overlay: %s", debug_overlay_visible ? "ON" : "OFF");
+                }
+                if (ar.toggle_player_stats) {
+                    player_stats_visible = !player_stats_visible;
+                    SDL_Log("Player stats: %s", player_stats_visible ? "ON" : "OFF");
+                }
+                if (ar.toggle_verbose_log) {
+                    renderer.toggle_verbose_logging();
+                }
+                if (ar.close_requested && !alt_mode.active() &&
+                    !creative_menu.is_open() && !map_editor.is_open())
+                    input.capture_cursor(renderer.window(), true);
+            }
+
             // ── Creative menu (F2) ────────────────────────────────────────────
             if (creative_menu.is_open()) {
                 bool esc_pressed = input.is_pressed(Action::Escape);
@@ -1814,6 +1828,43 @@ int main(int /*argc*/, char* /*argv*/[])
                     input.mouse_pos(), me_lmb, me_rmb, me_mmb,
                     frame_scroll, me_pgup, me_pgdn, me_cs, me_cl,
                     input.is_pressed(Action::Escape));
+                if (me_result.map_reloaded) {
+                    // Discard all pre-reload mesher jobs so stale GPU meshes
+                    // are never uploaded after the world is wiped.
+                    mesher.flush();
+                    // A full world.clear_all() was performed: all old chunks
+                    // are gone so the renderer's stale GPU meshes must be
+                    // wiped first, then every freshly-loaded chunk re-queued.
+                    renderer.clear_all_meshes();
+
+                    // Teleport the player to a safe, non-solid spawn position
+                    // to prevent them getting stuck inside a newly-placed wall.
+                    EntityID plr_reload = client.local_player();
+                    if (plr_reload != NULL_ENTITY) {
+                        auto* tr_pl = server.entities().get_component<TransformComponent>(plr_reload);
+                        if (tr_pl) {
+                            int px = static_cast<int>(std::floor(tr_pl->pos.x));
+                            int pz = static_cast<int>(std::floor(tr_pl->pos.z));
+                            bool found = false;
+                            for (int sy = 1; sy <= 128 && !found; ++sy) {
+                                Voxel bot = server.world().get_voxel({px, sy,     pz});
+                                Voxel top = server.world().get_voxel({px, sy + 1, pz});
+                                if (!(bot.flags & VFLAG_SOLID) && !(top.flags & VFLAG_SOLID)) {
+                                    tr_pl->pos = { tr_pl->pos.x, float(sy), tr_pl->pos.z };
+                                    auto* vel_pl = server.entities().get_component<VelocityComponent>(plr_reload);
+                                    if (vel_pl) vel_pl->linear = {};
+                                    found = true;
+                                }
+                            }
+                            if (!found) {
+                                // Fallback: just elevate above any potential geometry
+                                tr_pl->pos.y = 130.f;
+                                auto* vel_pl = server.entities().get_component<VelocityComponent>(plr_reload);
+                                if (vel_pl) vel_pl->linear = {};
+                            }
+                        }
+                    }
+                }
                 if (me_result.world_modified) {
                     for (Chunk* c : server.world().dirty_chunks())
                         mesher.enqueue(c->chunk_pos(), server.world());

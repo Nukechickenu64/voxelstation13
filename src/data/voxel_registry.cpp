@@ -14,6 +14,14 @@ bool VoxelRegistry::load_directory(const std::string& path)
         if (entry.path().extension() == ".json")
             ok &= load_file(entry.path().string());
     }
+    // Second pass: re-resolve all types to catch cross-file inheritance
+    // (child type file may have been loaded before its parent file).
+    for (auto& [id, def] : m_by_id) {
+        resolve_inheritance(def);
+        // Sync name-keyed copy
+        auto it = m_by_name.find(def.id);
+        if (it != m_by_name.end()) it->second = def;
+    }
     return ok;
 }
 
@@ -63,6 +71,11 @@ bool VoxelRegistry::load_file(const std::string& path)
             def.type_id = m_next_id++;
             m_by_name[def.id] = def;
             m_by_id[def.type_id] = def;
+            // Resolve parent inheritance immediately (parent types are ordered
+            // before child types within the same file).
+            resolve_inheritance(m_by_id[def.type_id]);
+            // Keep the name-keyed copy in sync.
+            m_by_name[def.id] = m_by_id[def.type_id];
             return true;
         } catch (const json::exception& e) {
             SDL_Log("VoxelRegistry: parse error in %s: %s", path.c_str(), e.what());

@@ -35,6 +35,12 @@ void InputManager::begin_frame()
 {
     m_mouse_delta  = {};
     m_scroll_delta = 0.f;
+    // Always poll the real absolute cursor position so that hit-tests work
+    // immediately after the cursor is uncaptured (without waiting for a
+    // motion event to arrive).
+    float mx = 0.f, my = 0.f;
+    SDL_GetMouseState(&mx, &my);
+    m_mouse_pos = {mx, my};
     for (auto& [a, s] : m_states) {
         s.pressed  = false;
         s.released = false;
@@ -84,6 +90,7 @@ void InputManager::update_action(Action a, bool down)
 bool InputManager::is_held    (Action a) const { return m_states.at(a).held;     }
 bool InputManager::is_pressed (Action a) const { return m_states.at(a).pressed;  }
 bool InputManager::is_released(Action a) const { return m_states.at(a).released; }
+bool InputManager::consume_press(Action a) { auto& s = m_states.at(a); bool v = s.pressed; s.pressed = false; return v; }
 
 void InputManager::capture_cursor(SDL_Window* window, bool capture)
 {

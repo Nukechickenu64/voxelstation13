@@ -114,6 +114,7 @@ set(SRC_UI
     src/ui/gas_overlay.cpp
     src/ui/player_stats_overlay.cpp
     src/ui/map_editor.cpp
+    src/ui/admin_menu.cpp
 )
 
 # ── Executable ────────────────────────────────────────────────────────────────
