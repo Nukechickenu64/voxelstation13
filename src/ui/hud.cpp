@@ -31,8 +31,15 @@ void HUD::draw_health_bar(const HUDState& s)
     float ratio = (s.health_max > 0) ? (s.health / s.health_max) : 0.f;
     ratio = std::clamp(ratio, 0.f, 1.f);
 
-    // Background
-    m_ui.rect(pos, {BAR_W, BAR_H}, {0.1f, 0.1f, 0.1f, 0.7f}, 4.f);
+    // Background — pulse dark red when below 25%
+    bool critical = (ratio < 0.25f);
+    float pulse = critical
+        ? (0.5f + 0.5f * std::sin(static_cast<float>(SDL_GetTicks()) * 0.008f))
+        : 0.f;
+    glm::vec4 bg_col = critical
+        ? glm::vec4{0.25f + pulse * 0.1f, 0.02f, 0.02f, 0.85f}
+        : glm::vec4{0.1f, 0.1f, 0.1f, 0.7f};
+    m_ui.rect(pos, {BAR_W, BAR_H}, bg_col, 4.f);
     // Fill — green → red
     glm::vec4 fill = {1.f - ratio, ratio * 0.8f, 0.1f, 0.9f};
     m_ui.rect(pos, {BAR_W * ratio, BAR_H}, fill, 4.f);
@@ -40,6 +47,12 @@ void HUD::draw_health_bar(const HUDState& s)
     std::ostringstream ss;
     ss << std::fixed << std::setprecision(0) << s.health << " / " << s.health_max;
     m_ui.text(pos + glm::vec2(4.f, 1.f), ss.str(), {1,1,1,1}, 12.f);
+
+    // Critical warning text (flashing)
+    if (critical && pulse > 0.4f) {
+        m_ui.text(pos + glm::vec2(BAR_W + 6.f, 1.f), "CRITICAL",
+                  {1.f, 0.15f, 0.1f, 0.9f + pulse * 0.1f}, 12.f);
+    }
 }
 
 void HUD::draw_suit_sensors(const HUDState& s)
@@ -66,19 +79,24 @@ void HUD::draw_hands(const Inventory& inv, bool left_active)
     float fb_w = static_cast<float>(m_ui.fb_width());
     float fb_h = static_cast<float>(m_ui.fb_height());
 
-    glm::vec2 lpos = {fb_w * 0.5f - SZ - PAD, fb_h - SZ - 8.f};
-    glm::vec2 rpos = {fb_w * 0.5f + PAD,       fb_h - SZ - 8.f};
+    glm::vec2 lpos = {fb_w * 0.5f - SZ - PAD, fb_h - SZ - 20.f};
+    glm::vec2 rpos = {fb_w * 0.5f + PAD,       fb_h - SZ - 20.f};
 
-    auto draw_slot = [&](glm::vec2 pos, const std::string& slot_id, bool active) {
+    auto draw_slot = [&](glm::vec2 pos, const std::string& slot_id, bool active,
+                         const char* hand_label) {
         glm::vec4 bg = active ? glm::vec4{0.25f,0.35f,0.5f,0.85f}
                               : glm::vec4{0.1f,0.1f,0.1f,0.65f};
         m_ui.rect(pos, {SZ, SZ}, bg, 4.f);
+        // Active hand ring
+        if (active)
+            m_ui.rect(pos - glm::vec2(2.f), {SZ + 4.f, SZ + 4.f},
+                      {0.4f, 0.6f, 1.f, 0.6f}, 5.f);
+
         const auto* slot = inv.find_slot(slot_id);
         if (slot && slot->item && slot->item->def) {
             const auto& def = *slot->item->def;
             SDL_GPUTexture* icon = m_ui.item_icon(def.id);
             if (icon) {
-                // Icon fills the slot with 4 px padding
                 m_ui.image(pos + glm::vec2(4.f, 4.f), {SZ - 8.f, SZ - 8.f}, icon, 1.f);
             } else {
                 // Fallback: tinted rectangle + truncated name
@@ -93,11 +111,29 @@ void HUD::draw_hands(const Inventory& inv, bool left_active)
                 std::string cnt = "x" + std::to_string(slot->item->count);
                 m_ui.text(pos + glm::vec2(2.f, 2.f), cnt, {1.f, 1.f, 0.4f, 1.f}, 9.f);
             }
+            // Integrity bar at bottom edge
+            if (slot->item->integrity < 1.f) {
+                float fil = std::max(0.f, slot->item->integrity) * (SZ - 4.f);
+                float bary = pos.y + SZ - 3.f;
+                m_ui.rect({pos.x + 2.f, bary}, {SZ - 4.f, 2.f},
+                          {0.25f, 0.25f, 0.25f, 0.7f}, 0.f);
+                glm::vec4 ic = (slot->item->integrity > 0.5f)
+                                ? glm::vec4{0.2f, 0.9f, 0.3f, 0.9f}
+                                : glm::vec4{0.9f, 0.35f, 0.1f, 0.9f};
+                m_ui.rect({pos.x + 2.f, bary}, {fil, 2.f}, ic, 0.f);
+            }
         }
+
+        // Hand label (L / R) below the slot box
+        glm::vec4 lbl_col = active
+            ? glm::vec4{0.55f, 0.8f, 1.f, 0.95f}
+            : glm::vec4{0.45f, 0.5f, 0.6f, 0.7f};
+        float lbl_x = pos.x + SZ * 0.5f - 5.f;
+        m_ui.text({lbl_x, pos.y + SZ + 2.f}, hand_label, lbl_col, 10.f);
     };
 
-    draw_slot(lpos, "l_hand", left_active);
-    draw_slot(rpos, "r_hand", !left_active);
+    draw_slot(lpos, "l_hand", left_active,  "L");
+    draw_slot(rpos, "r_hand", !left_active, "R");
 }
 
 void HUD::draw_examine_label(const std::string& label)

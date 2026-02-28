@@ -2,6 +2,7 @@
 #include "core/world.h"
 #include "core/entity_manager.h"
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <utility>
 
@@ -72,7 +73,7 @@ public:
     void tick(double dt);
 
     void on_voxel_changed(glm::ivec3 pos);
-    void on_door_changed (glm::ivec3 pos) { on_voxel_changed(pos); }
+    void on_door_changed (glm::ivec3 pos);
 
     AtmosZone*  zone(AtmosZoneID id);
     AtmosZoneID zone_at(glm::ivec3 pos) const;
@@ -99,7 +100,9 @@ private:
     void process_door_links   (double dt);
     void process_space_drain  (AtmosZone& zone, const DoorLink& lnk,
                                float conductance, double dt);
-    void equalise_zones       (AtmosZone& a, AtmosZone& b, double dt, float conductance);
+    void equalise_zones       (AtmosZone& a, AtmosZone& b, double dt,
+                               float conductance, glm::vec3 midpoint);
+    void partial_rebuild      (std::unordered_set<AtmosZoneID> zone_ids);
     void move_gas_component   (float& pa, float& pb, float Va, float Vb,
                                float conductance, double dt);
     void mix_temperature      (AtmosZone& dst, float added_moles, float src_temp);

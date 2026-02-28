@@ -36,6 +36,23 @@ void ChunkMesher::enqueue(glm::ivec3 chunk_pos, const World& world)
                 job.voxels[z * CHUNK_SIZE * CHUNK_SIZE + y * CHUNK_SIZE + x]
                     = chunk->get(x, y, z);
 
+    // Snapshot the 4 horizontal neighbours so cross-chunk boundary lookups
+    // work correctly (e.g. doors sitting on a chunk seam).
+    static const glm::ivec3 k_nb_off[4] = {
+        { 1,0,0},{-1,0,0},{0,0, 1},{0,0,-1}
+    };
+    for (int ni = 0; ni < 4; ++ni) {
+        const Chunk* nb = const_cast<World&>(world).get_chunk(chunk_pos + k_nb_off[ni]);
+        if (nb) {
+            job.neighbours[ni].present = true;
+            for (int nz = 0; nz < CHUNK_SIZE; ++nz)
+                for (int ny = 0; ny < CHUNK_SIZE; ++ny)
+                    for (int nx = 0; nx < CHUNK_SIZE; ++nx)
+                        job.neighbours[ni].voxels[nz*CHUNK_SIZE*CHUNK_SIZE + ny*CHUNK_SIZE + nx]
+                            = nb->get(nx, ny, nz);
+        }
+    }
+
     // Snapshot per-face atlas indices so the worker thread can select the
     // correct texture layer without touching the registry.
     if (m_registry) {
@@ -121,6 +138,34 @@ void ChunkMesher::worker_loop()
                    z >= 0 && z < CHUNK_SIZE;
         };
 
+        // Cross-chunk voxel sampler — handles ±1 steps outside the chunk in
+        // X and Z by redirecting to the pre-snapshotted neighbour data.
+        // Returns a static air voxel for anything out of reach.
+        static const Voxel k_air_voxel{};
+        auto sample = [&](int sx, int sy, int sz) -> const Voxel& {
+            if (sy < 0 || sy >= CHUNK_SIZE) return k_air_voxel;
+            if (sx >= 0 && sx < CHUNK_SIZE && sz >= 0 && sz < CHUNK_SIZE)
+                return job.voxels[coord(sx, sy, sz)];
+            // One step into a horizontal neighbour
+            if (sx == -1) {
+                const auto& nb = job.neighbours[1]; // NegX
+                return nb.present ? nb.voxels[coord(CHUNK_SIZE-1, sy, sz)] : k_air_voxel;
+            }
+            if (sx == CHUNK_SIZE) {
+                const auto& nb = job.neighbours[0]; // PosX
+                return nb.present ? nb.voxels[coord(0, sy, sz)] : k_air_voxel;
+            }
+            if (sz == -1) {
+                const auto& nb = job.neighbours[3]; // NegZ
+                return nb.present ? nb.voxels[coord(sx, sy, CHUNK_SIZE-1)] : k_air_voxel;
+            }
+            if (sz == CHUNK_SIZE) {
+                const auto& nb = job.neighbours[2]; // PosZ
+                return nb.present ? nb.voxels[coord(sx, sy, 0)] : k_air_voxel;
+            }
+            return k_air_voxel;
+        };
+
         // Helper: return the atlas layer index for a voxel face.
         // Falls back to type_id (the old behaviour) when no atlas table is available.
         auto atlas_idx = [&](uint16_t type_id, int face_dir) -> float {
@@ -195,27 +240,87 @@ void ChunkMesher::worker_loop()
                 continue;  // skip cube meshing
             }
 
-            // ── Vertical-plane door (VFLAG_VERT_PLANE_Z) ──────────────────────
-            // Double-sided plane at z=0.5 of the cell, spanning full X and Y.
-            // Visible from both +Z and -Z so the door shows from either side.
+            // ── Auto-oriented door (VFLAG_VERT_PLANE_Z) ─────────────────────
+            // A door covers the open (non-wall) sides of its cube hitbox with
+            // full-face panels sitting flush on the cube boundary — exactly
+            // where the face would be if it were a solid cube, but only for
+            // the directions that face air (no solid opaque wall there).
+            //
+            // Each panel is rendered double-sided (two back-to-back quads) so
+            // it is visible from both inside and outside the door cell.
+            //
+            // Examples:
+            //   Corridor along Z, walls on ±X  → NegZ + PosZ panels
+            //   Corridor along X, walls on ±Z  → NegX + PosX panels
+            //   4-way intersection (all air)   → all four panels
             if (v.flags & VFLAG_VERT_PLANE_Z) {
-                // Door plane geometry: two faces at fz+0.5, spanning x=0..1, y=0..1
-                // Vertex order places y=1 (top) at UV (0,0) so the texture is right-side-up.
-                static const FaceGeo k_door[2] = {
-                    // NegZ face: top-left=(0,1), top-right=(1,1), bot-right=(1,0), bot-left=(0,0)
-                    // CCW from -Z view → normal -Z; UV (0,0)=top-left in texture space
-                    { { {0,1,0.5f},{1,1,0.5f},{1,0,0.5f},{0,0,0.5f} }, { 0, 0,-1} },
-                    // PosZ face: looking from +Z, left=+X; top-left=(1,1), top-right=(0,1)
-                    { { {1,1,0.5f},{0,1,0.5f},{0,0,0.5f},{1,0,0.5f} }, { 0, 0, 1} },
+                // A neighbour hides a panel when it is:
+                //   • a solid opaque cube (wall), OR
+                //   • another door voxel (adjacent doors share a face boundary)
+                // Uses the cross-chunk `sample` so doors on a chunk seam see
+                // the correct neighbour even when it is in a different chunk.
+                auto is_wall_nb = [&](int nx_, int ny_, int nz_) -> bool {
+                    const Voxel& nb = sample(nx_, ny_, nz_);
+                    if (nb.type_id == 0) return false;
+                    // Adjacent door — shared face, hide it
+                    if (nb.flags & VFLAG_VERT_PLANE_Z) return true;
+                    // Solid opaque cube (wall / reinforced wall / etc.)
+                    return (nb.flags & VFLAG_OPAQUE)
+                        && !(nb.flags & (VFLAG_FLAT_PLANE | VFLAG_FLAT_TOP));
                 };
-                for (int fi = 0; fi < 2; ++fi) {
-                    const FaceGeo& fg = k_door[fi];
-                    // Door is a Z-facing plane — use NegZ or PosZ atlas slot
-                    const float tex_idx = atlas_idx(
-                        v.type_id,
-                        fi == 0 ? static_cast<int>(FaceDir::NegZ)
-                                : static_cast<int>(FaceDir::PosZ));
-                    uint32_t base_d = static_cast<uint32_t>(mesh.vertices.size() / 9);
+
+                const bool wall_px = is_wall_nb(x+1, y, z);
+                const bool wall_nx = is_wall_nb(x-1, y, z);
+                const bool wall_pz = is_wall_nb(x, y, z+1);
+                const bool wall_nz = is_wall_nb(x, y, z-1);
+
+                // Each entry: outward-normal quad, reversed-normal quad (for
+                // double-sidedness), atlas direction, and whether to emit.
+                struct DoorPanel {
+                    FaceGeo front;   // CCW from outside
+                    FaceGeo back;    // CCW from inside (same plane, flipped winding)
+                    FaceDir atlas_dir;
+                    bool    emit;
+                };
+
+                // Face positions sit flush on the cube boundary.
+                // Vertex winding puts y=1 (top) at UV.v=0, matching the door
+                // texture orientation established by the original door code.
+                DoorPanel panels[4] = {
+                    // NegZ face (z=0): outward normal -Z, inward normal +Z
+                    {
+                        { { {0,1,0},{1,1,0},{1,0,0},{0,0,0} }, { 0, 0,-1} },
+                        { { {1,1,0},{0,1,0},{0,0,0},{1,0,0} }, { 0, 0, 1} },
+                        FaceDir::NegZ, !wall_nz
+                    },
+                    // PosZ face (z=1): outward normal +Z, inward normal -Z
+                    {
+                        { { {1,1,1},{0,1,1},{0,0,1},{1,0,1} }, { 0, 0, 1} },
+                        { { {0,1,1},{1,1,1},{1,0,1},{0,0,1} }, { 0, 0,-1} },
+                        FaceDir::PosZ, !wall_pz
+                    },
+                    // NegX face (x=0): outward normal -X, inward normal +X
+                    {
+                        { { {0,1,1},{0,1,0},{0,0,0},{0,0,1} }, {-1, 0, 0} },
+                        { { {0,1,0},{0,1,1},{0,0,1},{0,0,0} }, { 1, 0, 0} },
+                        FaceDir::NegX, !wall_nx
+                    },
+                    // PosX face (x=1): outward normal +X, inward normal -X
+                    {
+                        { { {1,1,0},{1,1,1},{1,0,1},{1,0,0} }, { 1, 0, 0} },
+                        { { {1,1,1},{1,1,0},{1,0,0},{1,0,1} }, {-1, 0, 0} },
+                        FaceDir::PosX, !wall_px
+                    },
+                };
+
+                // Fallback: if somehow fully enclosed, show ±Z so door is
+                // never invisible.
+                const bool any_open = !wall_nz || !wall_pz || !wall_nx || !wall_px;
+                if (!any_open) { panels[0].emit = true; panels[1].emit = true; }
+
+                auto emit_quad = [&](const FaceGeo& fg, float tex_idx) {
+                    uint32_t base_d =
+                        static_cast<uint32_t>(mesh.vertices.size() / 9);
                     for (int vi = 0; vi < 4; ++vi) {
                         mesh.vertices.push_back(fx + fg.v[vi][0]);
                         mesh.vertices.push_back(fy + fg.v[vi][1]);
@@ -231,6 +336,14 @@ void ChunkMesher::worker_loop()
                         base_d, base_d+1, base_d+2,
                         base_d, base_d+2, base_d+3
                     });
+                };
+
+                for (const auto& panel : panels) {
+                    if (!panel.emit) continue;
+                    const float tex_idx =
+                        atlas_idx(v.type_id, static_cast<int>(panel.atlas_dir));
+                    emit_quad(panel.front, tex_idx);
+                    emit_quad(panel.back,  tex_idx);
                 }
                 continue;  // skip cube meshing
             }

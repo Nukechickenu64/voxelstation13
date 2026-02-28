@@ -157,7 +157,7 @@
     "weight":       2.0,
     "volume":       4.0,
     "stack_max":    1,
-    "equip_slot":   "shoes",
+    "equip_slot":   "boots",
     "verbs": [
       { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
       { "name": "Toggle Magnets", "range": 1.0, "handler": "verb_toggle_magnets" },
@@ -172,7 +172,7 @@
     "weight":       0.8,
     "volume":       3.0,
     "stack_max":    1,
-    "equip_slot":   "shoes",
+    "equip_slot":   "boots",
     "verbs": [
       { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }
@@ -215,7 +215,7 @@
     "weight":       0.05,
     "volume":       0.3,
     "stack_max":    1,
-    "equip_slot":   "glasses",
+    "equip_slot":   "eyes",
     "verbs": [
       { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }
@@ -229,7 +229,7 @@
     "weight":       0.2,
     "volume":       0.6,
     "stack_max":    1,
-    "equip_slot":   "glasses",
+    "equip_slot":   "eyes",
     "verbs": [
       { "name": "Wear",    "range": 1.0, "handler": "verb_wear"    },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }

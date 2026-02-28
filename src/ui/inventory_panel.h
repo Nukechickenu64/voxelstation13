@@ -18,7 +18,10 @@ struct DragState {
 
 // Result of a completed panel interaction this frame
 struct PanelInteraction {
-    enum class Type { None, SlotClicked, DragDrop, RightClick };
+    enum class Type { None, SlotClicked, DragDrop, RightClick,
+                      ContainerClose, // user clicked × on the container sub-panel
+                      DropToWorld     // item dragged outside the panel and released
+                    };
     Type        type = Type::None;
     std::string slot_id;
     std::string target_slot_id; // for DragDrop
@@ -71,7 +74,8 @@ private:
 
     UIRenderer& m_ui;
     DragState   m_drag{};
-    std::string m_hovered_slot; // updated each frame
+    std::string m_hovered_slot;           // updated each frame
+    bool        m_con_close_hovered = false; // true when cursor is over the container ×
 
 public:
     static constexpr float PANEL_WIDTH  = 320.f;

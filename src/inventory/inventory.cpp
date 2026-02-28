@@ -405,25 +405,29 @@ Inventory make_player_inventory()
 
     // ── Equipment slots (body silhouette) ─────────────────────────────────────
     // Head
-    slots.push_back(make_slot("head",     "Head",    C::Equipment, {"helmet","hat","head"}));
+    slots.push_back(make_slot("head",    "Head",    C::Equipment, {"helmet","hat","head"}));
     // Face / eyes
-    slots.push_back(make_slot("glasses",  "Glasses", C::Equipment, {"glasses","visor"}));
+    slots.push_back(make_slot("eyes",    "Eyes",    C::Equipment, {"glasses","visor","goggles"}));
     // Ears / comms
-    slots.push_back(make_slot("ears",     "Ears",    C::Equipment, {"headset","ears"}));
+    slots.push_back(make_slot("ears",    "Ears",    C::Equipment, {"headset","ears"}));
     // Mask
-    slots.push_back(make_slot("mask",     "Mask",    C::Equipment, {"mask","gas_mask"}));
-    // Suit / jumpsuit worn on body
-    slots.push_back(make_slot("suit",     "Suit",    C::Equipment, {"suit","hardsuit","jumpsuit"}));
+    slots.push_back(make_slot("mask",    "Mask",    C::Equipment, {"mask","gas_mask"}));
+    // Outer suit (spacesuit, hardsuit, coat)
+    slots.push_back(make_slot("suit",    "Suit",    C::Equipment, {"suit","hardsuit","coat"}));
+    // Uniform / jumpsuit (base layer worn under suit)
+    slots.push_back(make_slot("uniform", "Uniform", C::Equipment, {"uniform","jumpsuit"}));
     // Back slot: tanks, jetpack, backpack
-    slots.push_back(make_slot("back",     "Back",    C::Equipment, {"back","tank","jetpack","backpack"}));
+    slots.push_back(make_slot("back",    "Back",    C::Equipment, {"back","tank","jetpack","backpack"}));
     // Gloves
-    slots.push_back(make_slot("gloves",   "Gloves",  C::Equipment, {"gloves"}));
+    slots.push_back(make_slot("gloves",  "Gloves",  C::Equipment, {"gloves"}));
     // Belt (accepts toolbelts and belts)
-    slots.push_back(make_slot("belt",     "Belt",    C::Equipment, {"belt","toolbelt"}));
-    // Shoes
-    slots.push_back(make_slot("shoes",    "Shoes",   C::Equipment, {"shoes","boots"}));
+    slots.push_back(make_slot("belt",    "Belt",    C::Equipment, {"belt","toolbelt"}));
+    // Boots / shoes
+    slots.push_back(make_slot("boots",   "Boots",   C::Equipment, {"shoes","boots"}));
     // ID card
-    slots.push_back(make_slot("id_slot",  "ID",      C::Equipment, {"id_card"}));
+    slots.push_back(make_slot("id_card", "ID",      C::Equipment, {"id_card"}));
+    // PDA / tablet
+    slots.push_back(make_slot("pda",     "PDA",     C::Equipment, {"pda","tablet"}));
 
     // ── Hand slots ────────────────────────────────────────────────────────────
     slots.push_back(make_slot("l_hand",   "L.Hand",  C::General,   {"*"}));

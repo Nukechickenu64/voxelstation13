@@ -34,6 +34,12 @@ private:
     void worker_loop();
     ChunkMesh build_mesh(glm::ivec3 chunk_pos, const World& world);
 
+    // One-chunk snapshot used for cross-seam neighbour lookups.
+    struct NeighbourSnap {
+        bool                         present = false;
+        std::array<Voxel, CHUNK_VOL> voxels{};
+    };
+
     struct Job {
         glm::ivec3 chunk_pos;
         // Snapshot data so the worker doesn't hold a World reference
@@ -41,6 +47,9 @@ private:
         // Per-type atlas indices: type_atlas[type_id][face_dir] = texture layer.
         // Sized to (max_type_id + 1).  Empty when no registry is available.
         std::vector<std::array<uint16_t, static_cast<int>(FaceDir::COUNT)>> type_atlas;
+        // Horizontal neighbour snapshots for cross-chunk face culling.
+        // Index: 0=PosX  1=NegX  2=PosZ  3=NegZ
+        std::array<NeighbourSnap, 4> neighbours;
     };
 
     std::vector<std::thread>   m_workers;

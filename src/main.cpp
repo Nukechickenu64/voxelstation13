@@ -72,7 +72,7 @@ int main(int /*argc*/, char* /*argv*/[])
     renderer.load_tile_textures(voxel_reg, "textures");
     renderer.load_item_textures(item_reg,  "textures");
     renderer.load_mob_textures("textures");
-    renderer.load_door_anim("textures/specialtile/door_opening.gif",
+    renderer.load_door_anim("textures/specialtile/public/glass/opening.gif",
                              voxel_reg.id_of("door_anim"));
     renderer.load_human_bodyparts("legacysets/extracted");
     renderer.load_model("smes", "models/SMES.mesh", "textures/models/smes.png");
@@ -381,6 +381,10 @@ int main(int /*argc*/, char* /*argv*/[])
     const uint16_t door_type_id      = voxel_reg.id_of("door");
     const uint16_t door_anim_type_id = voxel_reg.id_of("door_anim");
     const uint16_t door_open_type_id = voxel_reg.id_of("door_open");
+
+    // Speed multiplier for door open/close animation.
+    // 1.0 = original GIF speed, 2.0 = twice as fast, 0.5 = half speed.
+    constexpr float DOOR_ANIM_SPEED = 3.0f;
 
     // Per-panel door animation state (one entry per door group currently animating).
     struct DoorGroup {
@@ -787,7 +791,7 @@ int main(int /*argc*/, char* /*argv*/[])
             // Advance each animating door panel, update door_anim tile layer,
             // and finalise to door_open when all frames have played.
             if (door_anim_type_id != 0 && renderer.door_anim_frame_count() > 0) {
-                const float dt_ms = static_cast<float>(dt * 1000.0);
+                const float dt_ms = static_cast<float>(dt * 1000.0) * DOOR_ANIM_SPEED;
                 int last_frame = -1;
                 for (auto it = animating_doors.begin(); it != animating_doors.end(); ) {
                     DoorGroup& grp = *it;
@@ -1571,6 +1575,21 @@ int main(int /*argc*/, char* /*argv*/[])
                 // ── SlotClicked: short click on a slot → swap with active hand ─
                 if (interaction.type == PanelInteraction::Type::SlotClicked) {
                     player_inv.swap(interaction.slot_id, player_inv.active_hand_id());
+                }
+
+                // ── ContainerClose: × button on the container sub-panel ──────
+                if (interaction.type == PanelInteraction::Type::ContainerClose) {
+                    player_inv.close_container(interaction.slot_id);
+                }
+
+                // ── DropToWorld: item dragged out of the panel → spawn world ──
+                if (interaction.type == PanelInteraction::Type::DropToWorld) {
+                    auto dropped = player_inv.take(interaction.slot_id);
+                    if (dropped) {
+                        // Spawn at approximately player feet position
+                        world_items.spawn_floating(
+                            cam_pos - glm::vec3(0.f, 0.5f, 0.f), std::move(*dropped));
+                    }
                 }
 
                 // ── World drag completion / cancellation ──────────────────────

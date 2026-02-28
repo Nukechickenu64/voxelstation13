@@ -395,7 +395,7 @@ void AtmosSimulator::process_door_links(double dt)
                        : CONDUCTANCE_SPACE_SEALED * (1.f - open_frac);
             process_space_drain(*room, lnk, sc, dt);
         } else {
-            equalise_zones(*za, *zb, dt, conductance);
+            equalise_zones(*za, *zb, dt, conductance, lnk.midpoint);
         }
     }
 }
@@ -434,7 +434,7 @@ void AtmosSimulator::process_space_drain(AtmosZone& zone, const DoorLink& lnk,
 }
 
 // ── equalise_zones ────────────────────────────────────────────────────────────
-void AtmosSimulator::equalise_zones(AtmosZone& a, AtmosZone& b, double dt, float conductance)
+void AtmosSimulator::equalise_zones(AtmosZone& a, AtmosZone& b, double dt, float conductance, glm::vec3 midpoint)
 {
     float Pa = a.gas.total_pressure();
     float Pb = b.gas.total_pressure();
@@ -464,6 +464,22 @@ void AtmosSimulator::equalise_zones(AtmosZone& a, AtmosZone& b, double dt, float
         mix_temperature(b, moles_a_change, a.gas.temperature);
     } else if (moles_a_change < 0.f) {
         mix_temperature(a, -moles_a_change, b.gas.temperature);
+    }
+
+    // Wind pull: entities in the high-pressure zone are tugged toward the door.
+    // Scale by kPa/s so it blends naturally with the space-decomp threshold.
+    if (dt > 1e-9) {
+        if (moles_a_change > 0.f) {
+            // gas left a → a was high-pressure; pull entities in a toward door
+            float kpa_s = moles_a_change / (Va * static_cast<float>(dt));
+            a.pressure_loss_rate += kpa_s;
+            a.vent_direction      = midpoint;
+        } else if (moles_a_change < 0.f) {
+            // gas left b → b was high-pressure; pull entities in b toward door
+            float kpa_s = -moles_a_change / (Vb * static_cast<float>(dt));
+            b.pressure_loss_rate += kpa_s;
+            b.vent_direction      = midpoint;
+        }
     }
 }
 
@@ -596,6 +612,34 @@ GasMixture AtmosSimulator::mix_at(glm::ivec3 pos) const
 
 void AtmosSimulator::on_voxel_changed(glm::ivec3 /*pos*/) { m_rebuild_pending = true; }
 
+void AtmosSimulator::on_door_changed(glm::ivec3 pos)
+{
+    // Collect zone IDs on either side of this door instead of doing a
+    // costly full-map rebuild.  We re-BFS only the affected zones.
+    static constexpr glm::ivec3 k_dirs[6] = {
+        { 1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}
+    };
+
+    std::unordered_set<AtmosZoneID> affected;
+    for (const glm::ivec3& d : k_dirs) {
+        auto it = m_cell_zone.find(pos + d);
+        if (it != m_cell_zone.end() && it->second != ATMOS_ZONE_SPACE)
+            affected.insert(it->second);
+    }
+    // Also check the door pos itself — it may have been passable (open door
+    // that just closed) and therefore in a zone.
+    if (auto it = m_cell_zone.find(pos); it != m_cell_zone.end()
+            && it->second != ATMOS_ZONE_SPACE)
+        affected.insert(it->second);
+
+    if (affected.empty()) {
+        // No known neighbours — fall back to full rebuild.
+        m_rebuild_pending = true;
+        return;
+    }
+    partial_rebuild(std::move(affected));
+}
+
 void AtmosSimulator::try_ignite(AtmosZoneID id)
 {
     auto* z = zone(id);
@@ -624,3 +668,239 @@ void AtmosSimulator::inject_gas(AtmosZoneID id, GasMixture delta)
     z->gas.tritium += delta.tritium;
     mix_temperature(*z, delta.total_pressure(), src_temp);
 }
+
+// ── partial_rebuild ───────────────────────────────────────────────────────────
+// Re-BFS only the zones given in zone_ids rather than scanning the entire map.
+// Called by on_door_changed to avoid an O(all-cells) rebuild on every door toggle.
+void AtmosSimulator::partial_rebuild(std::unordered_set<AtmosZoneID> zone_ids)
+{
+    // ── 1. Save gas mixes from affected zones ─────────────────────────────────
+    std::unordered_map<AtmosZoneID, GasMixture> old_gas;
+    for (AtmosZoneID id : zone_ids) {
+        if (auto it = m_zones.find(id); it != m_zones.end())
+            old_gas[id] = it->second.gas;
+    }
+
+    // ── 2. Collect and unregister cells belonging to affected zones ───────────
+    std::vector<glm::ivec3> seeds;
+    std::unordered_map<glm::ivec3, AtmosZoneID> old_cell_part;
+
+    for (auto it = m_cell_zone.begin(); it != m_cell_zone.end(); ) {
+        if (zone_ids.count(it->second)) {
+            seeds.push_back(it->first);
+            old_cell_part[it->first] = it->second;
+            it = m_cell_zone.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    // ── 3. Remove affected zones from the zone table ──────────────────────────
+    for (AtmosZoneID id : zone_ids) m_zones.erase(id);
+
+    // ── 4. Remove door links that reference any affected zone ─────────────────
+    m_door_links.erase(
+        std::remove_if(m_door_links.begin(), m_door_links.end(),
+            [&](const DoorLink& lnk) {
+                return zone_ids.count(lnk.zone_a) || zone_ids.count(lnk.zone_b);
+            }),
+        m_door_links.end());
+
+    // ── 5. Prune stale adjacency entries in surviving zones ───────────────────
+    for (auto& [id, z] : m_zones) {
+        z.adjacent_zones.erase(
+            std::remove_if(z.adjacent_zones.begin(), z.adjacent_zones.end(),
+                [&](AtmosZoneID adj) { return zone_ids.count(adj) > 0; }),
+            z.adjacent_zones.end());
+    }
+
+    // ── 6. BFS: re-discover zones from the freed (seed) cells ─────────────────
+    static constexpr glm::ivec3 k_dirs[6] = {
+        { 1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}
+    };
+    // Quick membership test: is this cell a freed seed?
+    std::unordered_set<glm::ivec3> freed(seeds.begin(), seeds.end());
+
+    std::unordered_map<AtmosZoneID, std::vector<glm::ivec3>> zone_beyond_cells;
+    std::unordered_map<AtmosZoneID, std::vector<glm::ivec3>> zone_door_voxels;
+
+    for (const glm::ivec3& seed : seeds) {
+        if (m_cell_zone.count(seed)) continue;  // already re-assigned
+
+        std::unordered_set<glm::ivec3> visited;   // actual zone cells
+        std::unordered_set<glm::ivec3> boundary;  // prevent double-processing neighbours
+        std::unordered_set<glm::ivec3> visited_doors;
+        std::vector<glm::ivec3>        beyond_cells;
+        std::vector<glm::ivec3>        door_voxels_found;
+        std::queue<glm::ivec3>         q;
+
+        visited.insert(seed);
+        q.push(seed);
+
+        while (!q.empty()) {
+            glm::ivec3 cur = q.front(); q.pop();
+
+            for (const glm::ivec3& d : k_dirs) {
+                glm::ivec3 nb = cur + d;
+                if (visited.count(nb) || boundary.count(nb)) continue;
+
+                // Already owned by a surviving (non-affected) zone → boundary.
+                if (m_cell_zone.count(nb)) {
+                    beyond_cells.push_back(nb);
+                    boundary.insert(nb);
+                    continue;
+                }
+
+                if (voxel_is_passable(nb)) {
+                    // Expand if this is a freed seed or an unassigned passable
+                    // cell (e.g. the door voxel that just opened).
+                    visited.insert(nb);
+                    q.push(nb);
+                } else if (voxel_is_closed_door(nb)) {
+                    if (visited_doors.count(nb)) continue;
+                    glm::ivec3 bv = nb + d;
+                    if (voxel_is_passable(bv) && !visited.count(bv) && !boundary.count(bv)) {
+                        visited_doors.insert(nb);
+                        door_voxels_found.push_back(nb);
+                        beyond_cells.push_back(bv);
+                    }
+                }
+            }
+
+            if (static_cast<int>(visited.size()) > SPACE_THRESHOLD) {
+                while (!q.empty()) { visited.insert(q.front()); q.pop(); }
+                for (const glm::ivec3& c : visited) m_cell_zone[c] = ATMOS_ZONE_SPACE;
+                goto next_seed_partial;
+            }
+        }
+
+        {
+            AtmosZoneID zid  = m_next_zone_id++;
+            AtmosZone   zone{};
+            zone.id          = zid;
+            zone.cell_count  = static_cast<int>(visited.size());
+
+            // Restore gas as a cell-weighted average of the old zones.
+            {
+                GasMixture acc{};
+                acc.temperature = 0.f;
+                float total_w   = 0.f;
+                for (const glm::ivec3& c : visited) {
+                    auto it2 = old_cell_part.find(c);
+                    if (it2 == old_cell_part.end()) continue;
+                    auto git = old_gas.find(it2->second);
+                    if (git == old_gas.end()) continue;
+                    const GasMixture& og = git->second;
+                    acc.o2          += og.o2;
+                    acc.n2          += og.n2;
+                    acc.co2         += og.co2;
+                    acc.plasma      += og.plasma;
+                    acc.n2o         += og.n2o;
+                    acc.bz          += og.bz;
+                    acc.tritium     += og.tritium;
+                    acc.temperature += og.temperature;
+                    total_w         += 1.f;
+                }
+                if (total_w > 0.f) {
+                    float inv            = 1.f / total_w;
+                    zone.gas.o2          = acc.o2          * inv;
+                    zone.gas.n2          = acc.n2          * inv;
+                    zone.gas.co2         = acc.co2         * inv;
+                    zone.gas.plasma      = acc.plasma      * inv;
+                    zone.gas.n2o         = acc.n2o         * inv;
+                    zone.gas.bz          = acc.bz          * inv;
+                    zone.gas.tritium     = acc.tritium     * inv;
+                    zone.gas.temperature = std::max(2.73f, acc.temperature * inv);
+                } else {
+                    // Cells came from freed area with no prior data (shouldn't
+                    // normally happen, but initialise to normal station air).
+                    zone.gas.o2          = 21.0f;
+                    zone.gas.n2          = 80.0f;
+                    zone.gas.temperature = 293.15f;
+                }
+            }
+
+            m_zones[zid] = zone;
+            for (const glm::ivec3& c : visited) m_cell_zone[c] = zid;
+
+            zone_beyond_cells[zid] = std::move(beyond_cells);
+            zone_door_voxels [zid] = std::move(door_voxels_found);
+        }
+        next_seed_partial:;
+    }
+
+    // ── 7. Second pass: build DoorLinks for the new zones ────────────────────
+    // Pre-index existing links so we can extend rather than duplicate them.
+    std::unordered_map<uint64_t, size_t> link_index;
+    for (size_t i = 0; i < m_door_links.size(); ++i) {
+        AtmosZoneID lo = std::min(m_door_links[i].zone_a, m_door_links[i].zone_b);
+        AtmosZoneID hi = std::max(m_door_links[i].zone_a, m_door_links[i].zone_b);
+        link_index[(static_cast<uint64_t>(lo) << 32) | hi] = i;
+    }
+
+    for (auto& [zid, bcells] : zone_beyond_cells) {
+        auto it_a = m_zones.find(zid);
+        if (it_a == m_zones.end()) continue;
+        AtmosZone& za = it_a->second;
+
+        const auto& dv_list = zone_door_voxels[zid];
+
+        for (const glm::ivec3& bc : bcells) {
+            auto cell_it = m_cell_zone.find(bc);
+            AtmosZoneID adj = (cell_it != m_cell_zone.end())
+                              ? cell_it->second : ATMOS_ZONE_SPACE;
+            if (adj == zid || adj == ATMOS_ZONE_NULL) continue;
+
+            AtmosZoneID lo  = std::min(zid, adj);
+            AtmosZoneID hi  = std::max(zid, adj);
+            uint64_t    key = (static_cast<uint64_t>(lo) << 32) | hi;
+
+            if (!link_index.count(key)) {
+                DoorLink lnk;
+                lnk.zone_a    = lo;
+                lnk.zone_b    = hi;
+                link_index[key] = m_door_links.size();
+                m_door_links.push_back(std::move(lnk));
+            }
+            DoorLink& lnk = m_door_links[link_index[key]];
+
+            for (const glm::ivec3& dv : dv_list) {
+                bool dup = false;
+                for (auto& ex : lnk.door_voxels)
+                    if (ex == dv) { dup = true; break; }
+                if (!dup) lnk.door_voxels.push_back(dv);
+            }
+
+            // For open-door links to space, dv_list is typically empty: the
+            // door voxel that just opened is now passable air so it was
+            // consumed into 'visited' rather than recorded as a door voxel.
+            // Without door voxels, process_door_links sees total==0 and skips
+            // the link entirely — no gas drains.  Mirror what rebuild_zones does
+            // for transient space zones: use the beyond-cell itself (a passable
+            // air/space cell, open_frac == 1) so full CONDUCTANCE_SPACE is used.
+            if (adj == ATMOS_ZONE_SPACE && lnk.door_voxels.empty()) {
+                bool dup = false;
+                for (auto& ex : lnk.door_voxels) if (ex == bc) { dup = true; break; }
+                if (!dup) lnk.door_voxels.push_back(bc);
+            }
+
+            auto add_adj = [](std::vector<AtmosZoneID>& v, AtmosZoneID id) {
+                for (auto x : v) if (x == id) return;
+                v.push_back(id);
+            };
+            add_adj(za.adjacent_zones, adj);
+            if (auto it_b = m_zones.find(adj); it_b != m_zones.end())
+                add_adj(it_b->second.adjacent_zones, zid);
+        }
+    }
+
+    // Recompute midpoints for all door links (new and updated).
+    for (DoorLink& lnk : m_door_links) {
+        if (lnk.door_voxels.empty()) continue;
+        glm::ivec3 s{0};
+        for (auto& dv : lnk.door_voxels) s += dv;
+        lnk.midpoint = glm::vec3(s) / static_cast<float>(lnk.door_voxels.size())
+                       + glm::vec3(0.5f);
+    }
+}
+

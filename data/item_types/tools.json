@@ -85,7 +85,7 @@
     "weight":     0.02,
     "volume":     0.1,
     "stack_max":  1,
-    "equip_slot": "id_slot",
+    "equip_slot": "id_card",
     "verbs": [
       { "name": "Show",    "range": 2.0, "handler": "verb_show_id" },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }
@@ -209,7 +209,7 @@
     "weight":   0.2,
     "volume":   0.5,
     "stack_max":1,
-    "equip_slot":"id_slot",
+    "equip_slot":"pda",
     "verbs": [
       { "name": "Open",    "range": 1.0, "handler": "verb_open_pda" },
       { "name": "Examine", "range": 99,  "handler": "verb_examine"  }
