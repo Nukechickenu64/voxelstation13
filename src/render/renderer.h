@@ -171,6 +171,33 @@ public:
     // Set minimum ambient light level (0-1, visible even in total darkness).
     void set_ambient(float a)   { m_ambient = a;   }
 
+    // Toggle wireframe rendering (draws triangle edges instead of filled faces).
+    void set_wireframe(bool on) { m_wireframe = on; }
+    bool wireframe() const      { return m_wireframe; }
+
+    // PSX vertex wobble: snap clip-space vertices to a low-precision grid.
+    // snap_res is the grid resolution (cells per half-NDC).  160 gives PS1-like wobble.
+    // Setting to 0 disables the effect (snap_res=0 is passed to the shader and treated
+    // as the "high precision" fallback).
+    void  set_psx_wobble(bool on)     { m_psx_wobble = on; }
+    bool  psx_wobble()   const        { return m_psx_wobble; }
+    void  set_psx_snap_res(float r)   { m_psx_snap_res = r; }
+    float psx_snap_res() const        { return m_psx_snap_res; }
+
+    // PSX y-shear: Build-engine style linear horizon pan (Duke3D look).
+    // clip.y += y_shear * clip.w  →  NDC.y += y_shear (uniform screen-space shift).
+    void  set_psx_yshear(float v)     { m_psx_yshear = v; }
+    float psx_yshear()   const        { return m_psx_yshear; }
+
+    // Affine (PS1-style non-perspective-correct) texture mapping blend [0..1].
+    // 0 = fully perspective-correct, 1 = fully affine.
+    void  set_affine_mix(float m)     { m_affine_mix = m; }
+    float affine_mix()   const        { return m_affine_mix; }
+
+    // Set the vertical field of view in degrees [60, 120].  Default 90.
+    void  set_fov(float deg)       { m_fov_degrees = deg; }
+    float fov_degrees() const      { return m_fov_degrees; }
+
     // Provide world + light map for per-entity lighting (call once after LightingSystem init).
     void set_lighting(const World* world, const LightMap* light_map) {
         m_world     = world;
@@ -195,12 +222,25 @@ private:
     float m_ao_mix     = 0.f;   // 0 = AO disabled, 1 = AO enabled
     float m_ambient    = 0.3f;  // ambient floor (visible in darkness)
 
+    // ── Wireframe mode ───────────────────────────────────────────────────────
+    bool  m_wireframe  = false;
+
+    // ── PSX vertex wobble ─────────────────────────────────────────────────────
+    bool  m_psx_wobble    = false;
+    float m_psx_snap_res  = 160.f;  // PS1: ~160 grid cells per half-NDC axis
+    float m_psx_yshear    = 0.f;    // y-shear amount (tan(pitch)*strength; 0 = off)
+    // ── Affine texture mapping ─────────────────────────────────────────
+    float m_affine_mix    = 0.f;    // 0 = perspective-correct, 1 = fully affine
+    // ── Field of view ────────────────────────────────────────────────────────
+    float m_fov_degrees = 90.f;
+
     // ── World/lightmap pointers for entity lighting ───────────────────────────
     const World*    m_world      = nullptr;
     const LightMap* m_light_map  = nullptr;
 
     // ── Pipeline ─────────────────────────────────────────────────────────────
     SDL_GPUGraphicsPipeline* m_world_pipeline     = nullptr;
+    SDL_GPUGraphicsPipeline* m_wireframe_pipeline = nullptr;  // LINE fill variant
     SDL_GPUShader*           m_vert_shader         = nullptr;
     SDL_GPUShader*           m_frag_shader         = nullptr;
     SDL_GPUTexture*          m_depth_tex           = nullptr;

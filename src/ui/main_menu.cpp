@@ -92,7 +92,7 @@ MainMenuResult MainMenu::draw(glm::vec2 cursor, bool lmb)
 
     // ── Central panel ─────────────────────────────────────────────────────────
     constexpr float PANEL_W = 380.f;
-    constexpr float PANEL_H = 320.f;
+    constexpr float PANEL_H = 380.f;
     float px = (fw - PANEL_W) * 0.5f;
     float py = (fh - PANEL_H) * 0.5f;
 
@@ -141,13 +141,19 @@ MainMenuResult MainMenu::draw(glm::vec2 cursor, bool lmb)
 
     btn_y += BTN_H + BTN_GAP;
 
+    // Setup Character button  (teal-ish — distinct from Play and Exit)
+    if (draw_button({btn_x, btn_y}, BTN_W, BTN_H, "Setup Character", cursor, lmb))
+        result.char_create_clicked = true;
+
+    btn_y += BTN_H + BTN_GAP;
+
     // Exit button
     if (draw_button({btn_x, btn_y}, BTN_W, BTN_H, "Exit", cursor, lmb))
         result.exit_clicked = true;
 
     // ── Bottom credits ────────────────────────────────────────────────────────
     {
-        const char* credit = "Press PLAY to begin";
+        const char* credit = "Setup your character before playing";
         float cw = static_cast<float>(std::strlen(credit)) * 6.5f;
         m_ui.text({px + (PANEL_W - cw) * 0.5f, py + PANEL_H - 32.f},
                   credit,

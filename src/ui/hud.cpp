@@ -244,8 +244,11 @@ void HUD::draw_status_section(const HUDState& s, glm::vec2 bar_tl, float bar_h)
     m_ui.text(ri + glm::vec2(0.f,LS*2),  "TOX", txc, 9.f);
     m_ui.text(ri + glm::vec2(22.f,LS*2), fmt(s.tox_level,1), txc, 9.f);
 
-    glm::vec4 pc = (s.suit_pressure_kpa < 20.f || s.suit_pressure_kpa > 250.f)
-        ? glm::vec4{1.f,0.38f,0.08f,1.f} : glm::vec4{0.65f,1.f,0.65f,0.88f};
+    glm::vec4 pc = (s.suit_pressure_kpa < 20.f  || s.suit_pressure_kpa > 550.f)
+        ? glm::vec4{1.f,0.38f,0.08f,1.f}
+        : (s.suit_pressure_kpa < 70.f  || s.suit_pressure_kpa > 300.f)
+        ? glm::vec4{1.f,0.75f,0.10f,1.f}
+        : glm::vec4{0.65f,1.f,0.65f,0.88f};
     m_ui.text(ri + glm::vec2(0.f,LS*3),  "KPA", pc, 9.f);
     m_ui.text(ri + glm::vec2(22.f,LS*3), fmt(s.suit_pressure_kpa,0), pc, 9.f);
 
@@ -290,16 +293,35 @@ void HUD::draw_hand_slots(const Inventory& inv, bool left_active,
     const float rx = origin.x + HAND_SZ + HAND_GAP;
     const float hy = origin.y;
 
+    const std::string grip_hand = inv.gripped_hand_id();   // "" if no two-hander
+
     auto draw_one = [&](float px, const char* sid, bool active)
     {
+        bool is_grip = (!grip_hand.empty() && std::string(sid) == grip_hand);
+
         if (active)
             m_ui.rect({px-3.f,hy-3.f}, {HAND_SZ+6.f,HAND_SZ+6.f}, k_slot_ring, 7.f);
 
+        // Amber ring for the gripped (support) hand
+        if (is_grip)
+            m_ui.rect({px-3.f,hy-3.f}, {HAND_SZ+6.f,HAND_SZ+6.f},
+                      {0.80f,0.52f,0.05f,0.85f}, 7.f);
+
         bool hov = (mouse.x >= px && mouse.x < px+HAND_SZ &&
                     mouse.y >= hy && mouse.y < hy+HAND_SZ);
-        glm::vec4 bg = active ? k_slot_act
-            : (hov ? glm::vec4{0.17f,0.18f,0.22f,0.88f} : k_slot_bg);
+        glm::vec4 bg = is_grip  ? glm::vec4{0.35f,0.22f,0.03f,0.85f}
+            : (active ? k_slot_act
+            : (hov ? glm::vec4{0.17f,0.18f,0.22f,0.88f} : k_slot_bg));
         m_ui.rect({px,hy}, {HAND_SZ,HAND_SZ}, bg, 5.f);
+
+        if (is_grip) {
+            // The item icon is already shown in the holding hand — just label this one.
+            float tw = 4.f * 6.f; // "GRIP" is 4 chars
+            m_ui.text({px + (HAND_SZ - tw) * 0.5f, hy + HAND_SZ * 0.5f - 5.f},
+                      "GRIP", {1.f, 0.78f, 0.12f, 0.95f}, 9.f);
+            if (hov && click) out_click = sid;
+            return;
+        }
 
         const auto* slot = inv.find_slot(sid);
         if (slot && slot->item && slot->item->def) {

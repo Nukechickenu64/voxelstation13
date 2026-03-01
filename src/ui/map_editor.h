@@ -116,7 +116,8 @@ private:
     // Renders voxel cells + handles voxel painting (returns true if modified).
     bool draw_grid(glm::vec2 cursor,
                    bool lmb_held, bool lmb_pressed, bool lmb_released,
-                   bool rmb_held, bool shift_held);
+                   bool rmb_held, bool rmb_pressed, bool rmb_released,
+                   bool shift_held, bool alt_held);
 
     // Draws entity/object markers overlaid on the grid.
     void draw_entity_overlay();
@@ -163,7 +164,8 @@ private:
     EditorTool m_tool = EditorTool::Brush;
 
     // ── Voxel palette ─────────────────────────────────────────────────────────
-    uint16_t m_selected_voxel_id = 1;
+    uint16_t m_selected_voxel_id   = 1;
+    uint8_t  m_paint_orientation   = 0;   // 0-3 applied when painting voxels
     std::vector<std::pair<uint16_t, const VoxelTypeDef*>> m_vox_palette;
     float    m_vox_scroll = 0.f;
 
@@ -197,8 +199,9 @@ private:
     std::vector<UndoOp> m_undo_stack;
     std::vector<UndoOp> m_redo_stack;
 
-    // Brush stroke accumulator
-    bool                         m_in_stroke   = false;
+    // Brush stroke accumulator (LMB paint + RMB erase, shared — only one active at a time)
+    bool                         m_in_stroke        = false;
+    bool                         m_erase_in_stroke  = false;  // non-Brush RMB erase
     std::unordered_set<uint64_t> m_stroke_cells;
     std::vector<VoxelEdit>       m_stroke_edits;
 
@@ -212,8 +215,9 @@ private:
     bool m_prev_b_key = false;
     bool m_prev_f_key = false;
     bool m_prev_r_key = false;
-    bool m_prev_q_key = false;
-    bool m_prev_e_key = false;
+    bool m_prev_q_key   = false;
+    bool m_prev_e_key   = false;
+    bool m_prev_alt_key = false;
 
     // ── Status ────────────────────────────────────────────────────────────────
     std::string m_status_msg;

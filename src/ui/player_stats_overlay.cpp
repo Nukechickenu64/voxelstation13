@@ -139,9 +139,14 @@ void PlayerStatsOverlay::draw(const PlayerStatsOverlayState& s)
         {
             glm::vec4 pc = (s.suit_pressure_kpa < 20.f)  ? red
                          : (s.suit_pressure_kpa < 70.f)  ? orange
+                         : (s.suit_pressure_kpa > 550.f) ? red
+                         : (s.suit_pressure_kpa > 300.f) ? orange
                          : (s.suit_pressure_kpa < 150.f) ? green
                          :                                  white;
-            emit({x, y}, "Pressure: " + fmt_f(s.suit_pressure_kpa, 1) + " kPa", pc); next();
+            std::string pressure_label = "Pressure: " + fmt_f(s.suit_pressure_kpa, 1) + " kPa";
+            if (s.suit_pressure_kpa > 550.f) pressure_label += " [CRUSH]";
+            else if (s.suit_pressure_kpa > 300.f) pressure_label += " [HIGH]";
+            emit({x, y}, pressure_label, pc); next();
         }
         if (s.tox_level > 0.5f) {
             emit({x, y}, "Toxins: " + fmt_f(s.tox_level, 2) + " kPa", red); next();

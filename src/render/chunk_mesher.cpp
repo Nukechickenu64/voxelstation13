@@ -4,6 +4,35 @@
 ChunkMesher::ChunkMesher()  = default;
 ChunkMesher::~ChunkMesher() { stop(); }
 
+void ChunkMesher::set_registry(const VoxelRegistry* reg)
+{
+    m_registry = reg;
+    m_cached_atlas.reset(); // will be rebuilt lazily on next enqueue
+    if (m_registry) rebuild_atlas();
+}
+
+void ChunkMesher::rebuild_atlas()
+{
+    if (!m_registry) { m_cached_atlas.reset(); return; }
+    const auto& all = m_registry->all();
+    uint16_t max_id = 0;
+    for (const auto& [id, def] : all)
+        if (id > max_id) max_id = id;
+    auto atlas = std::make_shared<AtlasTable>(
+        static_cast<size_t>(max_id) + 1,
+        std::array<uint16_t, static_cast<int>(FaceDir::COUNT)>{});
+    for (const auto& [id, def] : all)
+        (*atlas)[id] = def.atlas_indices;
+    m_cached_atlas = std::move(atlas);
+
+    // Rebuild the per-type emissive flag table (true = voxel emits light).
+    auto emit = std::make_shared<EmitTable>(static_cast<size_t>(max_id) + 1, false);
+    for (const auto& [id, def] : all)
+        if (def.emit_light > 0)
+            (*emit)[id] = true;
+    m_emit_table = std::move(emit);
+}
+
 void ChunkMesher::start(int num_workers)
 {
     m_running = true;
@@ -54,30 +83,80 @@ void ChunkMesher::enqueue(glm::ivec3 chunk_pos, const World& world)
         }
     }
 
-    // Snapshot per-face atlas indices so the worker thread can select the
-    // correct texture layer without touching the registry.
-    if (m_registry) {
-        const auto& all = m_registry->all();
-        uint16_t max_id = 0;
-        for (const auto& [id, def] : all)
-            if (id > max_id) max_id = id;
-        job.type_atlas.assign(
-            static_cast<size_t>(max_id) + 1,
-            std::array<uint16_t, static_cast<int>(FaceDir::COUNT)>{});
-        for (const auto& [id, def] : all)
-            job.type_atlas[id] = def.atlas_indices;
-    }
+    // Reuse the cached atlas (built once in set_registry) — pointer copy only.
+    job.type_atlas  = m_cached_atlas;
+    job.emit_table  = m_emit_table;
 
-    // Snapshot the LightMap for colored smooth lighting.
+    // Take a fresh LightMap snapshot for this single-chunk enqueue.
     if (m_lighting) {
-        job.light_colors = m_lighting->light_map().data();
+        job.light_colors = std::make_shared<LightColors>(m_lighting->light_map().data());
     }
 
     {
         std::lock_guard<std::mutex> lk(m_queue_mutex);
+        // Skip if this chunk is already queued — the existing snapshot will be
+        // processed soon enough, and a second copy wastes both memory and CPU.
+        if (m_pending.count(chunk_pos)) return;
+        m_pending.insert(chunk_pos);
         m_job_queue.push(std::move(job));
     }
     m_cv.notify_one();
+}
+
+void ChunkMesher::enqueue_batch(const std::vector<Chunk*>& chunks, const World& world)
+{
+    if (chunks.empty()) return;
+
+    // One atlas pointer (already cached), one LightMap snapshot shared by all jobs.
+    auto shared_lightmap = m_lighting
+        ? std::make_shared<LightColors>(m_lighting->light_map().data())
+        : std::shared_ptr<LightColors>{};
+
+    static const glm::ivec3 k_nb_off[4] = {
+        { 1,0,0},{-1,0,0},{0,0, 1},{0,0,-1}
+    };
+
+    const uint64_t gen = m_generation.load(std::memory_order_relaxed);
+    int notified = 0;
+
+    for (Chunk* chunk : chunks) {
+        if (!chunk) continue;
+        glm::ivec3 chunk_pos = chunk->chunk_pos();
+
+        Job job;
+        job.chunk_pos  = chunk_pos;
+        job.generation = gen;
+        job.type_atlas   = m_cached_atlas;   // shared — pointer copy
+        job.light_colors = shared_lightmap;  // shared — pointer copy
+        job.emit_table   = m_emit_table;     // shared — pointer copy
+
+        for (int z = 0; z < CHUNK_SIZE; ++z)
+            for (int y = 0; y < CHUNK_SIZE; ++y)
+                for (int x = 0; x < CHUNK_SIZE; ++x)
+                    job.voxels[z*CHUNK_SIZE*CHUNK_SIZE + y*CHUNK_SIZE + x]
+                        = chunk->get(x, y, z);
+
+        for (int ni = 0; ni < 4; ++ni) {
+            const Chunk* nb = const_cast<World&>(world).get_chunk(chunk_pos + k_nb_off[ni]);
+            if (nb) {
+                job.neighbours[ni].present = true;
+                for (int nz = 0; nz < CHUNK_SIZE; ++nz)
+                    for (int ny = 0; ny < CHUNK_SIZE; ++ny)
+                        for (int nx = 0; nx < CHUNK_SIZE; ++nx)
+                            job.neighbours[ni].voxels[nz*CHUNK_SIZE*CHUNK_SIZE + ny*CHUNK_SIZE + nx]
+                                = nb->get(nx, ny, nz);
+            }
+        }
+
+        {
+            std::lock_guard<std::mutex> lk(m_queue_mutex);
+            if (m_pending.count(chunk_pos)) continue;
+            m_pending.insert(chunk_pos);
+            m_job_queue.push(std::move(job));
+        }
+        m_cv.notify_one();
+        ++notified;
+    }
 }
 
 std::vector<ChunkMesh> ChunkMesher::collect_finished()
@@ -101,6 +180,7 @@ void ChunkMesher::flush()
     {
         std::lock_guard<std::mutex> lk(m_queue_mutex);
         while (!m_job_queue.empty()) m_job_queue.pop();
+        m_pending.clear();
     }
     // Drain any results that already completed before the generation bump.
     {
@@ -119,6 +199,9 @@ void ChunkMesher::worker_loop()
             if (!m_running && m_job_queue.empty()) return;
             job = std::move(m_job_queue.front());
             m_job_queue.pop();
+            // Free the pending slot so a new snapshot can be enqueued if the
+            // chunk changes again while we are processing this one.
+            m_pending.erase(job.chunk_pos);
         }
         // Build mesh using a dummy world view — full World ref not available here.
         // In a full implementation build_mesh would use the snapshot in job.
@@ -202,9 +285,9 @@ void ChunkMesher::worker_loop()
         // Helper: return the atlas layer index for a voxel face.
         // Falls back to type_id (the old behaviour) when no atlas table is available.
         auto atlas_idx = [&](uint16_t type_id, int face_dir) -> float {
-            if (!job.type_atlas.empty() &&
-                static_cast<size_t>(type_id) < job.type_atlas.size())
-                return static_cast<float>(job.type_atlas[type_id][face_dir]);
+            if (job.type_atlas && !job.type_atlas->empty() &&
+                static_cast<size_t>(type_id) < job.type_atlas->size())
+                return static_cast<float>((*job.type_atlas)[type_id][face_dir]);
             return static_cast<float>(type_id);
         };
 
@@ -297,9 +380,11 @@ void ChunkMesher::worker_loop()
             glm::ivec3 cp3 = job.chunk_pos * CHUNK_SIZE;
             auto lc = [&](int sx, int sy, int sz) -> glm::vec3 {
                 glm::ivec3 wp = cp3 + glm::ivec3(sx, sy, sz);
-                auto it = job.light_colors.find(wp);
-                if (it != job.light_colors.end()) {
-                    return { it->second.r / 255.0f, it->second.g / 255.0f, it->second.b / 255.0f };
+                if (job.light_colors) {
+                    auto it = job.light_colors->find(wp);
+                    if (it != job.light_colors->end()) {
+                        return { it->second.r / 255.0f, it->second.g / 255.0f, it->second.b / 255.0f };
+                    }
                 }
                 return { 1.0f, 1.0f, 1.0f };
             };
@@ -332,7 +417,13 @@ void ChunkMesher::worker_loop()
             const float fz = static_cast<float>(z);
             const bool is_flat = (v.flags & (VFLAG_FLAT_PLANE | VFLAG_FLAT_TOP)) != 0;
 
-            // ── Flat-plane voxel (catwalk / grating) ──────────────────────────
+            // Emissive voxels are rendered fullbright: light color is overridden to
+            // 2.0 (which beats the minimum diffuse factor of 0.55, guaranteeing the
+            // output is clamped to full brightness) and AO is suppressed.
+            const bool is_emissive = job.emit_table
+                && v.type_id < static_cast<uint16_t>(job.emit_table->size())
+                && (*job.emit_table)[v.type_id];
+
             if (is_flat) {
                 // plane_off: 0 = bottom of cell (FLAT_PLANE), 1 = top of cell (FLAT_TOP)
                 const float plane_off = (v.flags & VFLAG_FLAT_TOP) ? 1.f : 0.f;
@@ -360,6 +451,7 @@ void ChunkMesher::worker_loop()
                             static_cast<int>(fg.v[vi][2])
                         };
                         glm::vec3 lc = vertex_light_color(fi == 0 ? 2 : 3, flat_verts, x, y, z);
+                        if (is_emissive) lc = glm::vec3(2.0f);  // fullbright
                         mesh.vertices.push_back(fx + fg.v[vi][0]);
                         mesh.vertices.push_back(fy + fg.v[vi][1] + plane_off);
                         mesh.vertices.push_back(fz + fg.v[vi][2]);
@@ -480,16 +572,21 @@ void ChunkMesher::worker_loop()
                             if (lvl > best_lvl) {
                                 best_lvl = lvl;
                                 glm::ivec3 wp = cp3 + glm::ivec3(x+d.x, y+d.y, z+d.z);
-                                auto it = job.light_colors.find(wp);
-                                if (it != job.light_colors.end())
-                                    best_col = glm::vec3(it->second.r/255.0f,
-                                                         it->second.g/255.0f,
-                                                         it->second.b/255.0f);
-                                else
+                                if (job.light_colors) {
+                                    auto it = job.light_colors->find(wp);
+                                    if (it != job.light_colors->end())
+                                        best_col = glm::vec3(it->second.r/255.0f,
+                                                             it->second.g/255.0f,
+                                                             it->second.b/255.0f);
+                                    else
+                                        best_col = glm::vec3(1.0f);
+                                } else {
                                     best_col = glm::vec3(1.0f);
+                                }
                             }
                         }
                         door_lc = best_col * best_lvl;
+                        if (is_emissive) door_lc = glm::vec3(2.0f);  // fullbright
                     }
                     for (int vi = 0; vi < 4; ++vi) {
                         mesh.vertices.push_back(fx + fg.v[vi][0]);
@@ -551,6 +648,7 @@ void ChunkMesher::worker_loop()
                     };
                     float ao_val = vertex_ao(f, verts, x, y, z);
                     glm::vec3 lc = vertex_light_color(f, verts, x, y, z);
+                    if (is_emissive) { lc = glm::vec3(2.0f); ao_val = 1.0f; }  // fullbright
 
                     mesh.vertices.push_back(fx + fg.v[vi][0]);
                     mesh.vertices.push_back(fy + fg.v[vi][1]);

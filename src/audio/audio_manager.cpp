@@ -56,7 +56,33 @@ SoundHandle AudioManager::play(const std::string& event_id, glm::vec3 world_pos)
     s.spatial   = true;
     s.base_vol  = it->second.volume;
     s.event_def = &it->second;
-    // TODO: load audio file and create SDL_AudioStream
+    // Load audio file and create SDL_AudioStream bound to the output device.
+    {
+        std::string wav_path = "sounds/" + it->second.file;
+        SDL_IOStream* io = SDL_IOFromFile(wav_path.c_str(), "rb");
+        if (io) {
+            SDL_AudioSpec wav_spec{};
+            Uint8* wav_buf  = nullptr;
+            Uint32 wav_len  = 0;
+            if (SDL_LoadWAV_IO(io, true, &wav_spec, &wav_buf, &wav_len)) {
+                SDL_AudioSpec dst{ SDL_AUDIO_F32, 2, 48000 };
+                s.stream = SDL_CreateAudioStream(&wav_spec, &dst);
+                if (s.stream) {
+                    SDL_SetAudioStreamGain(s.stream, s.base_vol);
+                    SDL_PutAudioStreamData(s.stream, wav_buf, (int)wav_len);
+                    SDL_BindAudioStream(m_device_id, s.stream);
+                } else {
+                    SDL_Log("AudioManager: SDL_CreateAudioStream failed: %s", SDL_GetError());
+                }
+                SDL_free(wav_buf);
+            } else {
+                SDL_Log("AudioManager: SDL_LoadWAV_IO failed for '%s': %s",
+                        wav_path.c_str(), SDL_GetError());
+            }
+        } else {
+            SDL_Log("AudioManager: file not found: %s", wav_path.c_str());
+        }
+    }
     m_active[h] = std::move(s);
     return h;
 }
@@ -83,9 +109,12 @@ void AudioManager::stop(SoundHandle handle)
     m_active.erase(it);
 }
 
-void AudioManager::set_volume(SoundHandle /*handle*/, float /*vol*/)
+void AudioManager::set_volume(SoundHandle handle, float vol)
 {
-    // TODO: adjust SDL_AudioStream gain
+    auto it = m_active.find(handle);
+    if (it == m_active.end()) return;
+    if (it->second.stream)
+        SDL_SetAudioStreamGain(it->second.stream, vol);
 }
 
 void AudioManager::update(float /*dt*/)
@@ -101,8 +130,8 @@ void AudioManager::update(float /*dt*/)
         // Attenuate harder in low-pressure (vacuum) — linear ramp to 0 at <5 kPa
         float pressure_factor = std::min(m_local_pressure / 20.f, 1.f);
         float final_vol = s.base_vol * atten * pressure_factor;
-        (void)final_vol;
-        // TODO: apply final_vol to SDL_AudioStream
+        if (s.stream)
+            SDL_SetAudioStreamGain(s.stream, final_vol);
     }
 }
 

@@ -15,6 +15,11 @@ public:
     void     destroy(EntityID id);
     bool     alive(EntityID id) const;
 
+    // Adopt an externally-created entity ID as alive in this manager.
+    // Used when transferring entities between grids (vehicle ↔ map) to
+    // preserve the ID while moving components across EntityManagers.
+    void adopt(EntityID id) { m_alive[id] = true; }
+
     template<typename T>
     T& add_component(EntityID id, T component = {}) {
         auto& store = m_stores[std::type_index(typeid(T))];

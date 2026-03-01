@@ -4,6 +4,8 @@
 #include "core/game_loop.h"
 #include "core/world.h"
 #include "core/entity_manager.h"
+#include "core/signals.h"
+#include "core/master_controller.h"
 #include "render/renderer.h"
 #include "render/chunk_mesher.h"
 #include "render/lighting.h"
@@ -15,6 +17,9 @@
 #include "simulation/world_items.h"
 #include "simulation/mob_system.h"
 #include "simulation/enclosure.h"
+#include "simulation/status_effects.h"
+#include "simulation/attack_chain.h"
+#include "simulation/reagents.h"
 #include "input/input_manager.h"
 #include "input/alt_mode.h"
 #include "inventory/inventory.h"
@@ -34,6 +39,8 @@
 #include "ui/map_editor.h"
 #include "ui/admin_menu.h"
 #include "ui/main_menu.h"
+#include "ui/pause_menu.h"
+#include "ui/character_creator.h"
 #include "core/object_types.h"
 #include "network/server.h"
 #include "network/client.h"
@@ -115,6 +122,14 @@ int main(int /*argc*/, char* /*argv*/[])
     // Initialise the global prototype/type-path registry before item loading.
     init_prototype_registry();
 
+    // ── TG SS13 systems ───────────────────────────────────────────────────────
+    // Signal bus:  must come first (server's spawn_player registers signals)
+    init_signals();
+    // Master Controller: processing list subsystem
+    init_master_controller();
+    // Reagent registry: built-in reagent defs
+    init_reagents();
+
     ItemRegistry item_reg;
     item_reg.load_directory("data/item_types");
 
@@ -180,9 +195,18 @@ int main(int /*argc*/, char* /*argv*/[])
     PlayerStatsOverlay player_stats_overlay(ui_renderer);
     bool               player_stats_visible = false;
     AdminMenu      admin_menu(ui_renderer);
+    PauseMenu      pause_menu(ui_renderer);
+    GameSettings   game_settings;                  // player-controlled settings
     bool           fullbright_enabled   = false;   // toggled via F1 admin menu
     bool           ao_enabled           = true;    // AO on by default
     double         sim_time              = 0.0;  // monotonic seconds, for overlay animations
+
+    // ── Dev-tool simulation flags (F1 admin menu) ─────────────────────────
+    bool           freeze_sim           = false;   // pause server/physics tick
+    bool           slow_motion          = false;   // 0.1× time scale
+    bool           auto_heal            = false;   // regen HP to max every frame
+    bool           zerog_override       = false;   // force zero-G regardless of atmos
+    bool           infinite_oxy         = false;   // zero out oxy-damage every frame
 
     // ── 11. Player inventory ──────────────────────────────────────────────────
     Inventory player_inv = make_player_inventory();
@@ -352,8 +376,7 @@ int main(int /*argc*/, char* /*argv*/[])
         }
 
         // Enqueue all dirty chunks for meshing
-        for (Chunk* c : server.world().dirty_chunks())
-            mesher.enqueue(c->chunk_pos(), server.world());
+        mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
 
         // ── Lighting: place light tubes, then run full light propagation ─────
         // Light tubes sit just below the ceiling (y=WALL_TOP-1 = 3), flush with
@@ -383,8 +406,7 @@ int main(int /*argc*/, char* /*argv*/[])
         lighting.rebuild();
 
         // Re-enqueue chunks whose light_level values changed.
-        for (Chunk* c : server.world().dirty_chunks())
-            mesher.enqueue(c->chunk_pos(), server.world());
+        mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
 
         // Spawn a couple of test items on the floor for M1 testing.
         // Use spawn_scattered() so items land at random offsets on the turf.
@@ -444,8 +466,14 @@ int main(int /*argc*/, char* /*argv*/[])
     // ── 14. Camera state ──────────────────────────────────────────────────────
     float cam_yaw   = 0.f;
     float cam_pitch = 0.f;
-    float cam_roll  = 0.f;  // current camera roll in degrees (0=upright, 90=lying on side)
+    float cam_roll  = 0.f;  // camera roll in degrees — used by Dizzy status effect; 0 when healthy/prone
+    float prone_t   = 0.f;  // smooth 0→1 transition: 0=standing upright, 1=fully prone/crawling
     glm::vec3 cam_pos = {0.f, 1.5f, 0.f};  // player feet at y=1, eyes at +0.5
+
+    // ── 14d. View bob & Quake-style movement sway ─────────────────────────────
+    float bob_time   = 0.f;   // walk cycle phase (radians)
+    float bob_blend  = 0.f;   // smoothed blend weight (0=still, 1=full walk speed)
+    float bob_sway   = 0.f;   // smoothed lateral strafe-sway offset (degrees yaw)
     float player_body_yaw   = 0.f;         // body direction; decoupled from cam_yaw during 3P orbit
     bool  third_person      = false;
     static constexpr float k_3p_dist = 0.7f;  // pull-back distance in world units
@@ -521,7 +549,10 @@ int main(int /*argc*/, char* /*argv*/[])
 
     render_loading_frame("Ready to play!");
 
-    // ── 15. Main menu ─────────────────────────────────────────────────────────
+    // ── 15. Character profile (TG SS13-style appearance preferences) ──────────
+    CharacterProfile player_profile;   // default; overridden by Setup Character
+
+    // ── 16. Main menu ─────────────────────────────────────────────────────────
     {
         MainMenu main_menu(ui_renderer);
         bool in_menu = true;
@@ -551,10 +582,72 @@ int main(int /*argc*/, char* /*argv*/[])
                 renderer.end_frame();
                 if (mr.exit_clicked) return 0;
                 if (mr.play_clicked) in_menu = false;
+
+                // ── Character creation sub-screen ──────────────────────────────
+                if (mr.char_create_clicked) {
+                    CharacterCreator creator(ui_renderer, renderer.window(), player_profile);
+                    bool in_creator = true;
+                    while (in_creator) {
+                        SDL_Event ce;
+                        bool clmb = false;
+                        while (SDL_PollEvent(&ce)) {
+                            if (ce.type == SDL_EVENT_QUIT)           return 0;
+                            if (ce.type == SDL_EVENT_WINDOW_RESIZED)
+                                ui_renderer.on_resize(ce.window.data1, ce.window.data2);
+                            if (ce.type == SDL_EVENT_MOUSE_BUTTON_DOWN
+                                && ce.button.button == SDL_BUTTON_LEFT)
+                                clmb = true;
+                            creator.process_event(ce);
+                        }
+                        float cmx = 0.f, cmy = 0.f;
+                        SDL_GetMouseState(&cmx, &cmy);
+                        creator.tick(1.0 / 60.0);
+                        renderer.begin_frame(0.0);
+                        if (renderer.swapchain_tex()) {
+                            renderer.end_world_pass();
+                            ui_renderer.begin();
+                            auto cr = creator.draw({cmx, cmy}, clmb);
+                            ui_renderer.end(renderer.cmd_buf(), renderer.swapchain_tex(),
+                                            renderer.width(), renderer.height());
+                            renderer.end_frame();
+                            if (cr.accepted) {
+                                player_profile = creator.profile();
+                                in_creator = false;
+                            }
+                            if (cr.back) { in_creator = false; }
+                        } else {
+                            renderer.end_frame();
+                        }
+                        SDL_Delay(16);
+                    }
+                }
             } else {
                 renderer.end_frame();
             }
             SDL_Delay(16); // ~60 fps
+        }
+    }
+
+    // ── 17. Apply character profile to the local player entity ────────────────
+    {
+        EntityID player_ent = client.local_player();
+        if (player_ent != NULL_ENTITY) {
+            // Patch the Bodypart layer with chosen gender + skin tone
+            auto* app = server.entities().get_component<HumanAppearance>(player_ent);
+            if (app) {
+                for (auto& layer : app->layers) {
+                    if (layer.kind == HumanOverlayKind::Bodypart) {
+                        layer.gender = player_profile.is_male ? "_m" : "_f";
+                        layer.tint   = { player_profile.skin_color.r,
+                                         player_profile.skin_color.g,
+                                         player_profile.skin_color.b, 255 };
+                    }
+                }
+                app->dirty = true;
+            }
+            // Update display name shown in examine / context menu
+            auto* nc = server.entities().get_component<NameComponent>(player_ent);
+            if (nc) nc->name = player_profile.name;
         }
     }
 
@@ -587,19 +680,52 @@ int main(int /*argc*/, char* /*argv*/[])
             (void)mode_changed;
 
             // Camera look (only when not in alt-mode)
-            if (!alt_mode.active()) {
-                const float SENSITIVITY = 0.15f;
+            // Rotate raw mouse delta by -cam_roll so that mouse axes always align
+            // with the camera's local up/right, not world up/right.
+            // e.g. when rolled 90° (prone on side), mouse-up cranes the head up
+            // (which is a yaw change in world space, not a pitch change).
+            auto apply_look = [&](float mx, float my) {
+                const float SENSITIVITY = game_settings.mouse_sensitivity;
+                if (game_settings.invert_mouse_y) my = -my;
+
+                // Counter-rotate input by -cam_roll (used by Dizzy; 0 when healthy).
+                float cr = std::cos(glm::radians(-cam_roll));
+                float sr = std::sin(glm::radians(-cam_roll));
+                float eff_x = mx * cr - my * sr;
+                float eff_y = mx * sr + my * cr;
+
+                // Yaw: when prone, limit to ±90° from body direction (can't look backward).
+                float new_yaw = cam_yaw + eff_x * SENSITIVITY;
+                if (prone_t > 0.01f) {
+                    float yaw_limit = glm::mix(360.f, 90.f, prone_t);
+                    float delta = new_yaw - player_body_yaw;
+                    // Normalise delta to [-180, 180]
+                    while (delta >  180.f) delta -= 360.f;
+                    while (delta < -180.f) delta += 360.f;
+                    delta = glm::clamp(delta, -yaw_limit, yaw_limit);
+                    new_yaw = player_body_yaw + delta;
+                }
+                cam_yaw = new_yaw;
+
+                // Pitch limits: standing ±89°; prone allows same down range but tighter up.
+                float new_pitch  = cam_pitch - eff_y * SENSITIVITY;
+                float pitch_max  = glm::mix( 89.f,  70.f, prone_t);
+                float pitch_min  = -89.f;
+                cam_pitch = glm::clamp(new_pitch, pitch_min, pitch_max);
+            };
+
+            bool any_menu_open = creative_menu.is_open() || map_editor.is_open() || admin_menu.is_open() || pause_menu.is_open();
+            if (!alt_mode.active() && !any_menu_open) {
                 glm::vec2 mdelta = input.mouse_delta();
-                cam_yaw   += mdelta.x * SENSITIVITY;
-                cam_pitch  = glm::clamp(cam_pitch - mdelta.y * SENSITIVITY, -89.f, 89.f);
-                // Body tracks camera when not orbiting
-                player_body_yaw = cam_yaw;
-            } else if (third_person) {
+                apply_look(mdelta.x, mdelta.y);
+                // Body tracks camera yaw only when upright — when prone the body
+                // stays fixed so the yaw constraint has a stable reference.
+                if (prone_t < 0.1f)
+                    player_body_yaw = cam_yaw;
+            } else if (third_person && !any_menu_open) {
                 // Alt held in 3P: drag orbits camera around player without rotating the body
-                const float SENSITIVITY = 0.15f;
                 glm::vec2 mdelta = input.mouse_delta();
-                cam_yaw   += mdelta.x * SENSITIVITY;
-                cam_pitch  = glm::clamp(cam_pitch - mdelta.y * SENSITIVITY, -89.f, 89.f);
+                apply_look(mdelta.x, mdelta.y);
                 // player_body_yaw intentionally NOT updated here
             }
 
@@ -609,6 +735,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 bool c_now = input.is_held(Action::ToggleCamera);
                 if (c_now && !s_cam_prev) {
                     third_person = !third_person;
+                    game_settings.third_person = third_person;
                     if (!third_person) {
                         // Snap camera back to body direction when returning to 1P
                         cam_yaw = player_body_yaw;
@@ -778,9 +905,13 @@ int main(int /*argc*/, char* /*argv*/[])
             sim_time += dt;
 
             // Server tick (applies pending inputs, steps physics + simulations)
-            server.tick(dt);
-            client.tick(dt);
-            world_items.tick(dt);  // settle floating items that have come to rest
+            // Dev tools: freeze pauses tick entirely; slow-motion reduces dt.
+            if (!freeze_sim && !pause_menu.is_open()) {
+                double eff_dt = slow_motion ? dt * 0.1 : dt;
+                server.tick(eff_dt);
+                client.tick(eff_dt);
+                world_items.tick(eff_dt);  // settle floating items that have come to rest
+            }
 
             // ── Zero-G: anywhere outside a pressurised room is zero-G ──────────
             // Untracked cells (null zone) = open space → zero-G ON.
@@ -789,18 +920,37 @@ int main(int /*argc*/, char* /*argv*/[])
                 auto* cc2 = server.entities().get_component<CharacterControllerComponent>(player);
                 auto* tr2 = server.entities().get_component<TransformComponent>(player);
                 if (cc2 && tr2) {
-                    glm::ivec3 cell = {
-                        static_cast<int>(std::floor(tr2->pos.x)),
-                        static_cast<int>(std::floor(tr2->pos.y)),
-                        static_cast<int>(std::floor(tr2->pos.z))
-                    };
-                    AtmosZoneID az        = server.atmos().zone_at(cell);
-                    const AtmosZone* zptr = server.atmos().zone(az);
-                    // In space if: no tracked zone (open void) OR zone is explicitly space
-                    bool in_space = !zptr || zptr->is_space;
+                    bool in_space;
+                    if (zerog_override) {
+                        in_space = true;
+                    } else {
+                        glm::ivec3 cell = {
+                            static_cast<int>(std::floor(tr2->pos.x)),
+                            static_cast<int>(std::floor(tr2->pos.y)),
+                            static_cast<int>(std::floor(tr2->pos.z))
+                        };
+                        AtmosZoneID az        = server.atmos().zone_at(cell);
+                        const AtmosZone* zptr = server.atmos().zone(az);
+                        // In space if: no tracked zone (open void) OR zone is explicitly space
+                        in_space = !zptr || zptr->is_space;
+                    }
                     if (in_space != cc2->zero_g) {
                         cc2->zero_g = in_space;
                         SDL_Log("Zero-G: %s", in_space ? "entered space" : "left space");
+                    }
+                }
+            }
+
+            // ── Dev-tool: auto-heal & infinite oxygen ────────────────────────────
+            if ((auto_heal || infinite_oxy) && player != NULL_ENTITY) {
+                auto* hp = server.entities().get_component<HealthComponent>(player);
+                if (hp) {
+                    if (auto_heal) {
+                        hp->brute = hp->burn = hp->tox = hp->oxy = 0.f;
+                        hp->dead  = false;
+                    } else if (infinite_oxy) {
+                        hp->oxy  = 0.f;
+                        if (hp->current() > 0.f) hp->dead = false;
                     }
                 }
             }
@@ -819,15 +969,14 @@ int main(int /*argc*/, char* /*argv*/[])
 
                     tr->yaw = player_body_yaw;  // body faces its own direction, not the orbit angle
 
-                    // Eye height and position: lower + offset toward head when prone.
-                    // Smoothly interpolate a "prone_t" 0→1 using cam_roll as the lerp variable
-                    // (repurposed: 0=standing, 1=fully prone) so the transition is animated.
-                    float prone_t = std::abs(cam_roll) / 90.f;  // 0 upright, 1 fully prone
-                    float eye_h   = 0.50f + prone_t * (0.05f - 0.50f);  // 0.5 → 0.05 (just above floor)
+                    // Eye height: drops from face-height (0.50 m) to crawl-height (0.14 m).
+                    // 0.14 keeps the camera above floor geometry without Z-fighting.
+                    float eye_h = glm::mix(0.50f, 0.14f, prone_t);
+
                     // Head forward offset along body direction:
-                    // prone sprite head is at feet + body_fwd * 0.65 m (full MOB_HEIGHT)
-                    static constexpr float k_head_offset = 0.65f;
-                    float fwd_offset = 0.10f + prone_t * (k_head_offset - 0.10f);
+                    // upright: slight 0.05 m offset (centred on body).
+                    // prone:   0.50 m forward — head is in front of the body origin.
+                    float fwd_offset = glm::mix(0.05f, 0.50f, prone_t);
 
                     if (third_person) {
                         glm::vec3 cam_fwd3 = {
@@ -843,6 +992,48 @@ int main(int /*argc*/, char* /*argv*/[])
                                 + body_horiz_fwd * fwd_offset;
                     }
                 }
+            }
+
+            // ── View bob & sway: advance cycle from player velocity ─────────
+            {
+                float horiz_speed = 0.f;
+                bool  grounded    = false;
+                if (player != NULL_ENTITY) {
+                    auto* vc3  = server.entities().get_component<VelocityComponent>(player);
+                    auto* cc3  = server.entities().get_component<CharacterControllerComponent>(player);
+                    if (vc3)  horiz_speed = glm::length(glm::vec2(vc3->linear.x, vc3->linear.z));
+                    if (cc3)  grounded    = cc3->on_ground;
+                }
+
+                // Blend weight: ramp up/down quickly when starting/stopping.
+                // Cap lower when sprinting so the faster cycle stays subtle.
+                constexpr float BOB_FULL_SPEED   = 4.5f;   // m/s that gives blend=1 while walking
+                constexpr float BOB_SPRINT_CAP   = 0.2f;  // max blend while sprinting
+                bool is_sprinting = false;
+                if (player != NULL_ENTITY) {
+                    auto* cc3s = server.entities().get_component<CharacterControllerComponent>(player);
+                    if (cc3s) is_sprinting = cc3s->sprinting;
+                }
+                float blend_max    = is_sprinting ? BOB_SPRINT_CAP : 1.f;
+                float target_blend = (!third_person && grounded)
+                                   ? glm::clamp(horiz_speed / BOB_FULL_SPEED, 0.f, blend_max) : 0.f;
+                float blend_alpha  = 1.f - std::exp(-8.f * static_cast<float>(dt));
+                bob_blend = bob_blend + (target_blend - bob_blend) * blend_alpha;
+
+                // Advance bob cycle proportional to distance walked
+                constexpr float BOB_FREQ = 7.0f;  // radians per metre
+                if (!third_person && grounded)
+                    bob_time += horiz_speed * static_cast<float>(dt) * BOB_FREQ;
+
+                // Quake-style strafe sway: lean slightly in strafe direction
+                float strafe_input = 0.f;
+                if (!third_person) {
+                    if (input.is_held(Action::MoveRight)) strafe_input += 1.f;
+                    if (input.is_held(Action::MoveLeft))  strafe_input -= 1.f;
+                }
+                float sway_target = strafe_input * 1.5f;  // max ±1.5 degree yaw nudge
+                float sway_alpha  = 1.f - std::exp(-5.f * static_cast<float>(dt));
+                bob_sway = bob_sway + (sway_target - bob_sway) * sway_alpha;
             }
 
             // Upload any finished chunk meshes
@@ -871,21 +1062,31 @@ int main(int /*argc*/, char* /*argv*/[])
             }
             audio.update(static_cast<float>(dt));
 
-            // Update HUD state
-            hud_state.clock_str          = "00:00"; // TODO: round timer
+            // Update HUD state — format elapsed round time as MM:SS
+            {
+                int total_secs = static_cast<int>(sim_time);
+                int mm = total_secs / 60;
+                int ss = total_secs % 60;
+                char buf[8];
+                SDL_snprintf(buf, sizeof(buf), "%02d:%02d", mm, ss);
+                hud_state.clock_str = buf;
+            }
             hud_state.cam_pitch          = cam_pitch;
             hud_state.active_hand_is_left = (player_inv.active_hand_id() == "l_hand");
 
-            // ── Camera roll: drive prone_t for position lerp, no view rotation ─
+            // ── Prone transition: animate prone_t 0→1 when mob_state != Normal ─
             {
-                float roll_target = 0.f;
+                bool is_prone = false;
                 if (player != NULL_ENTITY) {
-                    auto* cc_roll = server.entities().get_component<CharacterControllerComponent>(player);
-                    if (cc_roll && cc_roll->mob_state != MobState::Normal)
-                        roll_target = 90.f;  // 90 = fully prone (used as t, not actual roll degrees)
+                    auto* cc_p = server.entities().get_component<CharacterControllerComponent>(player);
+                    if (cc_p && cc_p->mob_state != MobState::Normal)
+                        is_prone = true;
                 }
-                float roll_alpha = 1.0f - std::exp(-12.0f * static_cast<float>(dt));
-                cam_roll = cam_roll + (roll_target - cam_roll) * roll_alpha;
+                float prone_target = is_prone ? 1.f : 0.f;
+                // Stand-up is slightly slower than lying down for a weightier feel.
+                float prone_rate  = is_prone ? 8.f : 6.f;
+                float prone_alpha = 1.f - std::exp(-prone_rate * static_cast<float>(dt));
+                prone_t = glm::clamp(prone_t + (prone_target - prone_t) * prone_alpha, 0.f, 1.f);
             }
 
             // ── Player health from HealthComponent ───────────────────────────
@@ -1018,8 +1219,7 @@ int main(int /*argc*/, char* /*argv*/[])
                                 }
                                 for (auto& p : grp.voxels)
                                     server.world().set_voxel(p, open_v);
-                                for (Chunk* c : server.world().dirty_chunks())
-                                    mesher.enqueue(c->chunk_pos(), server.world());
+                                mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
                             }
                             // Door is now gas-passable — notify atmos so zones merge.
                             if (!grp.voxels.empty())
@@ -1043,8 +1243,7 @@ int main(int /*argc*/, char* /*argv*/[])
                                 closed_v.flags   = VFLAG_SOLID | VFLAG_VERT_PLANE_Z;
                                 for (auto& p : grp.voxels)
                                     server.world().set_voxel(p, closed_v);
-                                for (Chunk* c : server.world().dirty_chunks())
-                                    mesher.enqueue(c->chunk_pos(), server.world());
+                                mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
                             }
                             // Door is now fully sealed — notify atmos to finalise zone split.
                             if (!grp.voxels.empty())
@@ -1065,10 +1264,12 @@ int main(int /*argc*/, char* /*argv*/[])
             // ── LMB / E: interact with world based on active hand ─────────────
             // Empty hand  + item  → pick up
             // Empty hand  + turf  → nothing (can't pick up turf)
+            // Empty hand  + mob   → punch / interact
             // Held item   + item  → item-on-item interaction
+            // Held item   + mob   → attack_chain (TG SS13 click path)
             // Held item   + turf  → knock on the wall with held item
             {
-                bool fps_lmb = !alt_mode.active() && !build_mode && !ctx_menu.is_open() && input.is_pressed(Action::PrimaryInteract);
+                bool fps_lmb = !alt_mode.active() && !build_mode && !ctx_menu.is_open() && !creative_menu.is_open() && input.is_pressed(Action::PrimaryInteract);
                 bool e_press = !alt_mode.active() && !ctx_menu.is_open() && input.is_pressed(Action::PickUp);
                 if (fps_lmb || e_press) {
                     constexpr float ITEM_REACH = 1.5f;
@@ -1087,7 +1288,61 @@ int main(int /*argc*/, char* /*argv*/[])
                         cam_pos, rdir, ITEM_REACH,
                         fhit.valid ? fhit.distance : ITEM_REACH, item_dist);
 
-                    if (item_ent != NULL_ENTITY) {
+                    // ── Mob target detection (TG attack_chain) ────────────────
+                    // Simple nearest-entity ray test: find any mob with MobTypeTag
+                    // whose centre is within MELEE_REACH of cam_pos and within ±45°
+                    // of the ray direction (cone test).
+                    EntityID mob_target = NULL_ENTITY;
+                    float    mob_target_dist = MELEE_REACH;
+                    if (player != NULL_ENTITY) {
+                        server.entities().each<MobTypeTag>([&](EntityID eid, MobTypeTag&) {
+                            if (eid == player) return;
+                            auto* tr = server.entities().get_component<TransformComponent>(eid);
+                            if (!tr) return;
+                            // Use mob centre (waist height ≈ +0.5)
+                            glm::vec3 mob_centre = tr->pos + glm::vec3(0.f, 0.5f, 0.f);
+                            glm::vec3 to_mob = mob_centre - cam_pos;
+                            float dist = glm::length(to_mob);
+                            if (dist > MELEE_REACH || dist <= 0.f) return;
+                            // Cone check: dot with ray dir > 0.7 (~45°)
+                            if (glm::dot(glm::normalize(to_mob), rdir) < 0.7f) return;
+                            if (dist < mob_target_dist) {
+                                mob_target = eid;
+                                mob_target_dist = dist;
+                            }
+                        });
+                    }
+
+                    // ── Attack chain (LMB on mob) ──────────────────────────────
+                    if (fps_lmb && mob_target != NULL_ENTITY
+                        && (item_ent == NULL_ENTITY || mob_target_dist < item_dist)) {
+                        // Build attack context
+                        AttackContext ctx;
+                        ctx.attacker  = player;
+                        ctx.target    = mob_target;
+                        ctx.click_pos = cam_pos + rdir * mob_target_dist;
+                        ctx.reach     = MELEE_REACH + 0.1f; // small tolerance
+                        if (!hand_empty && active_slot->item->def) {
+                            ctx.weapon = &(*active_slot->item);
+                        }
+                        AttackResult ar = attack_chain(ctx, server.entities(), signals());
+                        (void)ar;
+                        // Log + audio feedback
+                        const char* result_str = [&]{
+                            switch(ar) {
+                                case AttackResult::Missed:         return "missed";
+                                case AttackResult::HitMob:         return "hit";
+                                case AttackResult::BlockedByItem:  return "blocked";
+                                case AttackResult::Disarmed:       return "disarmed";
+                                default:                           return "?";
+                            }
+                        }();
+                        SDL_Log("Attack: %s target=%u (%.2f brute) → %s",
+                            hand_empty ? "fist" : active_slot->item->def->name.c_str(),
+                            mob_target, ctx.damage_dealt, result_str);
+                        if (ctx.hit)
+                            audio.play("click", cam_pos);
+                    } else if (item_ent != NULL_ENTITY) {
                         if (hand_empty || e_press) {
                             // Pick up — auto_equip tries all slots; re-spawn if no room
                             auto picked = world_items.pick_up(item_ent);
@@ -1125,8 +1380,7 @@ int main(int /*argc*/, char* /*argv*/[])
                                 anim_v.flags   = VFLAG_SOLID | VFLAG_VERT_PLANE_Z;
                                 for (auto& p : grp_voxels)
                                     server.world().set_voxel(p, anim_v);
-                                for (Chunk* c : server.world().dirty_chunks())
-                                    mesher.enqueue(c->chunk_pos(), server.world());
+                                mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
                                 DoorGroup dg;
                                 dg.voxels = std::move(grp_voxels);
                                 animating_doors.push_back(std::move(dg));
@@ -1168,8 +1422,7 @@ int main(int /*argc*/, char* /*argv*/[])
                                     anim_v.flags   = VFLAG_SOLID | VFLAG_VERT_PLANE_Z;
                                     for (auto& p : grp_voxels)
                                         server.world().set_voxel(p, anim_v);
-                                    for (Chunk* c : server.world().dirty_chunks())
-                                        mesher.enqueue(c->chunk_pos(), server.world());
+                                    mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
                                     // Door panels are now solid — trigger an immediate zone
                                     // split so the sealed side stops losing gas to space
                                     // even before the closing animation completes.
@@ -1217,7 +1470,121 @@ int main(int /*argc*/, char* /*argv*/[])
                     (int)alt_mode.active(), (int)build_mode, (int)ctx_menu.is_open(),
                     (unsigned)ctx_ent, ict_dist);
 
-                if (ctx_ent != NULL_ENTITY) {
+                // ── Mob target detection for RMB context menu ─────────────────
+                // Same cone test used for LMB melee, but we extend to CTX_REACH
+                // so the player can examine or grab mobs from further away.
+                EntityID rmb_mob = NULL_ENTITY;
+                float    rmb_mob_dist = CTX_REACH;
+                if (player != NULL_ENTITY) {
+                    server.entities().each<MobTypeTag>([&](EntityID eid, MobTypeTag&) {
+                        if (eid == player) return;
+                        auto* tr = server.entities().get_component<TransformComponent>(eid);
+                        if (!tr) return;
+                        glm::vec3 to_mob = (tr->pos + glm::vec3(0.f, 0.5f, 0.f)) - cam_pos;
+                        float dist = glm::length(to_mob);
+                        if (dist > CTX_REACH || dist <= 0.f) return;
+                        if (glm::dot(glm::normalize(to_mob), rdir2) < 0.7f) return;
+                        if (dist < rmb_mob_dist) { rmb_mob = eid; rmb_mob_dist = dist; }
+                    });
+                }
+
+                // ── Mob context menu (takes priority over world item if nearer) ─
+                if (rmb_mob != NULL_ENTITY
+                    && (ctx_ent == NULL_ENTITY || rmb_mob_dist <= ict_dist)) {
+                    // Collect data from components before entering lambdas
+                    auto* mob_nc = server.entities().get_component<NameComponent>(rmb_mob);
+                    auto* mob_hp = server.entities().get_component<HealthComponent>(rmb_mob);
+                    auto* mob_se = server.entities().get_component<StatusEffectsComponent>(rmb_mob);
+                    auto* mob_gc = server.entities().get_component<GrabbedComponent>(rmb_mob);
+
+                    std::string mob_name = mob_nc ? mob_nc->name : "Unknown";
+                    std::string mob_desc = mob_nc ? mob_nc->desc : "";
+                    float hp_cur   = mob_hp ? mob_hp->current()  : 0.f;
+                    float hp_max   = mob_hp ? mob_hp->health_max : 100.f;
+                    bool  is_dead  = mob_hp && mob_hp->dead;
+                    bool  is_stun  = mob_se && mob_se->is_stunned();
+                    bool  is_kd    = mob_se && mob_se->is_knocked_down();
+                    bool already_grabbed = mob_gc && mob_gc->grabber == player;
+                    EntityID rmb_mob_id = rmb_mob;
+
+                    std::vector<ContextEntry> entries;
+
+                    // ── Examine ────────────────────────────────────────────────
+                    entries.push_back({"Examine", true, false,
+                        [&hud_state, mob_name, mob_desc,
+                         hp_cur, hp_max, is_dead, is_stun, is_kd]() {
+                            // Health status label (mirrors TG's examine_status_effects)
+                            const char* hp_label =
+                                is_dead  ? "dead" :
+                                hp_cur <= hp_max * 0.25f ? "critically injured" :
+                                hp_cur <= hp_max * 0.5f  ? "severely injured"   :
+                                hp_cur <= hp_max * 0.75f ? "injured"            :
+                                                           "healthy";
+                            const char* stun_str = is_stun ? " [STUNNED]" : (is_kd ? " [DOWNED]" : "");
+                            char buf[220];
+                            std::snprintf(buf, sizeof(buf),
+                                "[Examine] %s — %s (%.0f/%.0f)%s%s",
+                                mob_name.c_str(), hp_label,
+                                hp_cur, hp_max, stun_str,
+                                mob_desc.empty() ? "" : (" | " + mob_desc).c_str());
+                            if (hud_state.radio_log.size() >= 30)
+                                hud_state.radio_log.pop_front();
+                            hud_state.radio_log.push_back(buf);
+                        }});
+
+                    // ── Grab / Upgrade Grab ────────────────────────────────────
+                    if (!is_dead) {
+                        const char* grab_label = already_grabbed ? "Upgrade Grab" : "Grab";
+                        entries.push_back({grab_label, true, false,
+                            [&server, rmb_mob_id, player, &hud_state]() {
+                                bool ok = upgrade_grab(player, rmb_mob_id,
+                                                       server.entities(), signals());
+                                if (hud_state.radio_log.size() >= 30)
+                                    hud_state.radio_log.pop_front();
+                                hud_state.radio_log.push_back(
+                                    ok ? "[Grab] Grab upgraded." : "[Grab] Already at max.");
+                            }});
+                    }
+
+                    // ── Resist (player is being grabbed by this mob) ────────────
+                    {
+                        auto* self_gc = server.entities().get_component<GrabbedComponent>(player);
+                        if (self_gc && self_gc->grabber == rmb_mob) {
+                            EntityID mob_id2 = rmb_mob;
+                            entries.push_back({"Resist", true, false,
+                                [&server, mob_id2, player, &hud_state]() {
+                                    release_grab(mob_id2, player,
+                                                 server.entities(), signals());
+                                    if (hud_state.radio_log.size() >= 30)
+                                        hud_state.radio_log.pop_front();
+                                    hud_state.radio_log.push_back("[Resist] Broke free!");
+                                }});
+                        }
+                    }
+
+                    // ── Release Grab (if we're grabbing the mob) ───────────────
+                    if (already_grabbed) {
+                        entries.push_back({"Release", true, false,
+                            [&server, rmb_mob_id, player, &hud_state]() {
+                                release_grab(player, rmb_mob_id,
+                                             server.entities(), signals());
+                                if (hud_state.radio_log.size() >= 30)
+                                    hud_state.radio_log.pop_front();
+                                hud_state.radio_log.push_back("[Grab] Released.");
+                            }});
+                    }
+
+                    if (!entries.empty()) {
+                        glm::vec2 mob_menu_pos = {
+                            renderer.width()  * 0.5f - 86.f,
+                            renderer.height() * 0.5f - 20.f
+                        };
+                        ctx_menu.open(mob_menu_pos, std::move(entries));
+                        fps_ctx_rclick      = true;
+                        fps_ctx_just_opened = true;
+                    }
+
+                } else if (ctx_ent != NULL_ENTITY) {
                     auto* wic = server.entities().get_component<WorldItemComponent>(ctx_ent);
                     if (wic && wic->item.def) {
                         std::vector<ContextEntry> entries;
@@ -1325,13 +1692,12 @@ int main(int /*argc*/, char* /*argv*/[])
                     RayHit bhit = server.world().raycast(cam_pos, rdir, 8.f);
                     if (bhit.valid) {
                         server.world().set_voxel(bhit.voxel, Voxel{});
-                        for (Chunk* c : server.world().dirty_chunks())
-                            mesher.enqueue(c->chunk_pos(), server.world());
                         server.atmos().on_voxel_changed(bhit.voxel);
-                        // Propagate lighting change from removed voxel.
+                        // Propagate lighting change from removed voxel, then
+                        // enqueue all dirty chunks in one pass (avoids double
+                        // snapshot before lighting has touched neighbour chunks).
                         lighting.update({bhit.voxel});
-                        for (Chunk* c : server.world().dirty_chunks())
-                            mesher.enqueue(c->chunk_pos(), server.world());
+                        mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
                         SDL_Log("Build: destroyed voxel at (%d,%d,%d)",
                                 bhit.voxel.x, bhit.voxel.y, bhit.voxel.z);
                     }
@@ -1343,13 +1709,11 @@ int main(int /*argc*/, char* /*argv*/[])
                         glm::ivec3 place_pos = bhit.voxel + face_normal(bhit.face);
                         if (server.world().get_voxel(place_pos).type_id == 0) {
                             server.world().set_voxel(place_pos, build_voxel);
-                            for (Chunk* c : server.world().dirty_chunks())
-                                mesher.enqueue(c->chunk_pos(), server.world());
                             server.atmos().on_voxel_changed(place_pos);
-                            // Propagate lighting change from placed voxel.
+                            // Propagate lighting change from placed voxel, then
+                            // enqueue all dirty chunks in one pass.
                             lighting.update({place_pos});
-                            for (Chunk* c : server.world().dirty_chunks())
-                                mesher.enqueue(c->chunk_pos(), server.world());
+                            mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
                             SDL_Log("Build: placed voxel at (%d,%d,%d)",
                                     place_pos.x, place_pos.y, place_pos.z);
                         }
@@ -1357,8 +1721,18 @@ int main(int /*argc*/, char* /*argv*/[])
                 }
             }
 
+            // Escape: open pause menu if nothing else is consuming it.
+            // (Context menu, admin, creative, map editor all handle their own Escape above.)
             if (input.is_pressed(Action::Escape)) {
-                SDL_SetWindowRelativeMouseMode(renderer.window(), false);
+                bool any_esc_handled = creative_menu.is_open() || map_editor.is_open()
+                                     || admin_menu.is_open()  || ctx_menu.is_open();
+                if (!any_esc_handled && !pause_menu.is_open()) {
+                    pause_menu.open();
+                    input.capture_cursor(renderer.window(), false);
+                    // Consume the press so the render callback's pause menu draw
+                    // does NOT see it and immediately close the menu on the same frame.
+                    input.consume_press(Action::Escape);
+                }
             }
         },
 
@@ -1369,17 +1743,28 @@ int main(int /*argc*/, char* /*argv*/[])
             // ── Camera basis + view-projection (mirrors draw_world) ──────────
             float yaw_r   = glm::radians(cam_yaw);
             float pitch_r = glm::radians(cam_pitch);
+            float roll_r  = glm::radians(cam_roll);
             glm::vec3 ray_dir = {
                 std::cos(pitch_r) * std::sin(yaw_r),
                 std::sin(pitch_r),
                -std::cos(pitch_r) * std::cos(yaw_r)
             };
-            // No camera roll — up is always world up.
+            // Roll-aware camera up — mirrors Renderer::draw_world.
+            glm::vec3 world_up_r = {0.f, 1.f, 0.f};
+            glm::vec3 right_raw_r;
+            if (std::abs(glm::dot(ray_dir, world_up_r)) > 0.99f)
+                right_raw_r = {std::sin(yaw_r + glm::half_pi<float>()), 0.f,
+                               -std::cos(yaw_r + glm::half_pi<float>())};
+            else
+                right_raw_r = glm::normalize(glm::cross(ray_dir, world_up_r));
+            glm::vec3 up_no_roll_r = glm::normalize(glm::cross(right_raw_r, ray_dir));
+            glm::vec3 cam_up_r = up_no_roll_r * std::cos(roll_r)
+                               - right_raw_r  * std::sin(roll_r);
             glm::mat4 vp_mat = glm::perspective(
-                glm::radians(90.f),
+                glm::radians(game_settings.fov),
                 renderer.height() > 0 ? float(renderer.width()) / renderer.height() : 1.f,
                 0.1f, 400.f)
-                * glm::lookAt(cam_pos, cam_pos + ray_dir, {0.f, 1.f, 0.f});
+                * glm::lookAt(cam_pos, cam_pos + ray_dir, cam_up_r);
 
             // ── Voxel face ray cast ──────────────────────────────────────────
             RayHit hit = server.world().raycast(cam_pos, ray_dir, 4.f);
@@ -1517,9 +1902,18 @@ int main(int /*argc*/, char* /*argv*/[])
                         if (slt && slt->item && slt->item->def)
                             fp += sl + std::string("=") + slt->item->def->id + ";";
                     }
+                    // For the local player, include character profile in fingerprint
+                    // so hair/skin changes trigger a rebuild.
+                    if (&inv == &player_inv) {
+                        fp += "|hair=" + player_profile.hair_file;
+                        fp += "|hcol=" + std::to_string(player_profile.hair_col_idx);
+                        fp += "|facial=" + player_profile.facial_file;
+                        fp += "|fcol=" + std::to_string(player_profile.facial_col_idx);
+                        fp += "|skin=" + std::to_string(player_profile.skin_idx);
+                        fp += "|gend="; fp += (player_profile.is_male ? 'm' : 'f');
+                    }
                     if (fp == last_fp) return;
                     last_fp = fp;
-
                     // Keep Bodypart layers; drop old Clothing/Inhand
                     std::vector<HumanOverlay> new_layers;
                     new_layers.reserve(app.layers.size() + 10);
@@ -1563,6 +1957,30 @@ int main(int /*argc*/, char* /*argv*/[])
                     add_inhand("l_hand", false);
                     add_inhand("r_hand", true);
 
+                    // Hair and facial hair from the character profile (local player only).
+                    // These are re-added every rebuild so they survive clothing changes.
+                    if (&inv == &player_inv) {
+                        if (!player_profile.hair_file.empty()) {
+                            HumanOverlay ov;
+                            ov.kind       = HumanOverlayKind::Clothing;
+                            ov.sprite_dir = "human/human_face";
+                            ov.prefix     = player_profile.hair_file;
+                            ov.tint       = { player_profile.hair_color.r,
+                                              player_profile.hair_color.g,
+                                              player_profile.hair_color.b, 255 };
+                            new_layers.push_back(ov);
+                        }
+                        if (!player_profile.facial_file.empty()) {
+                            HumanOverlay ov;
+                            ov.kind       = HumanOverlayKind::Clothing;
+                            ov.sprite_dir = "human/human_face";
+                            ov.prefix     = player_profile.facial_file;
+                            ov.tint       = { player_profile.facial_color.r,
+                                              player_profile.facial_color.g,
+                                              player_profile.facial_color.b, 255 };
+                            new_layers.push_back(ov);
+                        }
+                    }
                     app.layers = std::move(new_layers);
                     app.dirty  = true;
                 };
@@ -1596,9 +2014,14 @@ int main(int /*argc*/, char* /*argv*/[])
             renderer.begin_frame(alpha);
 
             // Push lighting state to renderer
+            renderer.set_fov(game_settings.fov);
             renderer.set_fullbright(fullbright_enabled);
             renderer.set_ao_mix(ao_enabled ? 1.0f : 0.0f);
             renderer.set_ambient(0.05f);  // dark station; light tubes provide illumination
+            renderer.set_psx_wobble(game_settings.psx_wobble);
+            renderer.set_psx_snap_res(game_settings.psx_snap_res);
+            renderer.set_affine_mix(game_settings.affine_enabled ? game_settings.affine_mix : 0.0f);
+            // Y-shear is pitch-driven; set value once render_cam_pitch is known (below)
 
             // Dynamic point light: follows the player when a flashlight item is held
             {
@@ -1621,26 +2044,105 @@ int main(int /*argc*/, char* /*argv*/[])
                         lighting.add_dynamic_light(pv, 12, src, {255, 200, 140});
                         s_last_light_pos = pv;
                         // Re-mesh chunks whose light_levels changed.
-                        for (Chunk* c : server.world().dirty_chunks())
-                            mesher.enqueue(c->chunk_pos(), server.world());
+                        mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
                     }
                 } else if (s_last_held) {
                     lighting.remove_dynamic_light(src);
                     // Re-mesh to restore steady-state static lighting.
-                    for (Chunk* c : server.world().dirty_chunks())
-                        mesher.enqueue(c->chunk_pos(), server.world());
+                    mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
                 }
                 s_last_held = holds_flashlight;
             }
 
-            renderer.draw_world(server.world(), cam_pos, cam_yaw, cam_pitch, 0.f);
+            // ── Apply view bob & sway offsets (render only, not physics) ────
+            glm::vec3 render_cam_pos   = cam_pos;
+            float     render_cam_yaw   = cam_yaw;
+            float     render_cam_pitch = cam_pitch;
+            if (!third_person) {
+                constexpr float BOB_Y_AMP     = 0.022f;  // ±0.022 m vertical bounce
+                constexpr float BOB_PITCH_AMP = 0.45f;   // ±0.45 deg pitch nudge
+                constexpr float BOB_YAW_AMP   = 0.28f;   // ±0.28 deg yaw oscillation
+                float b = bob_blend;
+                render_cam_pos.y    += std::sin(bob_time)       * BOB_Y_AMP     * b;
+                render_cam_pitch    += std::sin(bob_time)       * BOB_PITCH_AMP * b;
+                render_cam_yaw      += std::sin(bob_time * 0.5f)* BOB_YAW_AMP  * b
+                                     + bob_sway;
+            }
+
+            // ── Status-effect camera distortions (render only) ─────────────────
+            // Read active status effects on the local player and apply visual-only
+            // perturbations to the render camera.
+            bool se_blind  = false;
+            bool se_jitter = false;
+            bool se_dizzy  = false;
+            float dizzy_str = 0.f;
+            {
+                EntityID plr_se = client.local_player();
+                if (plr_se != NULL_ENTITY) {
+                    auto* se_pl = server.entities().get_component<StatusEffectsComponent>(plr_se);
+                    if (se_pl) {
+                        se_blind  = se_pl->is_blinded();
+                        se_jitter = se_pl->is_jittering();
+                        se_dizzy  = se_pl->is_dizzy();
+                        if (se_dizzy) {
+                            const auto* deff = se_pl->get(StatusEffectType::Dizzy);
+                            dizzy_str = deff ? deff->strength : 1.f;
+                        }
+                    }
+                }
+            }
+            // Jitter: random micro shake derived from sim_time (high-frequency)
+            if (se_jitter && !third_person) {
+                constexpr float JITTER_YAW   = 0.40f;  // ±0.4 degrees
+                constexpr float JITTER_PITCH = 0.20f;  // ±0.2 degrees
+                render_cam_yaw   += std::sin(static_cast<float>(sim_time) * 71.3f) * JITTER_YAW;
+                render_cam_yaw   += std::cos(static_cast<float>(sim_time) * 53.7f) * JITTER_YAW * 0.5f;
+                render_cam_pitch += std::sin(static_cast<float>(sim_time) * 97.1f) * JITTER_PITCH;
+            }
+            // Dizzy: slow oscillating screen roll (up to ±12 degrees)
+            float render_cam_roll = cam_roll;
+            if (se_dizzy && !third_person) {
+                constexpr float DIZZY_ROLL_MAX = 12.f;
+                render_cam_roll += std::sin(static_cast<float>(sim_time) * 1.1f)
+                                 * DIZZY_ROLL_MAX * dizzy_str;
+            }
+
+            // Y-shear: Build-engine style linear horizon shift — pitch/89 * 0.6
+            // At max pitch the horizon sits ~60% of the way to the screen edge,
+            // matching the "horiz" pan look of Duke Nukem 3D / Build engine games.
+            {
+                float yshear = 0.f;
+                if (game_settings.psx_yshear)
+                    yshear = (render_cam_pitch / 89.f) * 0.6f;
+                renderer.set_psx_yshear(yshear);
+            }
+
+            renderer.draw_world(server.world(), render_cam_pos, render_cam_yaw,
+                render_cam_pitch, render_cam_roll);
             renderer.draw_world_items();
             renderer.draw_mobs();
             renderer.draw_models();
-            renderer.draw_viewmodel(0); // TODO: held item type id
+            renderer.draw_viewmodel(0);
+            // Pass the held item's type_id when the item pipeline is ready.
+            // For now type_id=0 silently skips the draw; the call at least
+            // exercises the code path so future shader work compiles cleanly.
+            // When item meshes are wired in, replace 0 with:
+            //   const auto* aslot = player_inv.active_hand();
+            //   uint16_t held_id = (aslot && aslot->item && aslot->item->def)
+            //       ? voxel_reg.id_of(aslot->item->def->id) : 0;
+            //   renderer.draw_viewmodel(held_id);
 
             // UI pass
             ui_renderer.begin();
+
+            // ── Status-effect fullscreen overlays ─────────────────────────────
+            // Drawn first (bottom of UI stack) so all HUD elements render on top.
+            if (se_blind) {
+                // Full blindness: pitch-black screen
+                ui_renderer.rect({0.f, 0.f},
+                    {static_cast<float>(renderer.width()), static_cast<float>(renderer.height())},
+                    {0.f, 0.f, 0.f, 0.96f});
+            }
 
             // ── World item name labels (projected to screen) ──────────────────
             {
@@ -1736,7 +2238,8 @@ int main(int /*argc*/, char* /*argv*/[])
             }
 
             // ── Crosshair ─────────────────────────────────────────────────
-            if (!creative_menu.is_open() && !map_editor.is_open()) {
+            if (!creative_menu.is_open() && !map_editor.is_open()
+                && game_settings.show_crosshair) {
                 const float cx = static_cast<float>(ui_renderer.fb_width())  * 0.5f;
                 const float cy = static_cast<float>(ui_renderer.fb_height()) * 0.5f;
                 constexpr float HALF = 6.f;   // half-size of the outer square
@@ -1909,13 +2412,51 @@ int main(int /*argc*/, char* /*argv*/[])
                     alt_drag_entity = NULL_ENTITY;
                 }
 
-                // TODO: RMB on HUD inventory slot → item verb context menu
+                // RMB on a HUD inventory slot → item verb context menu
+                if (rmb_pressed) {
+                    // Find which slot (if any) is under the alt-mode cursor.
+                    // The HUD draws slots in a fixed layout; we poll the slot
+                    // the cursor is over via the HUD's draw result on alt-cursor.
+                    bool hud_rmb_handled = false;
+                    // Item verb list: build from the hovered world-item entity
+                    if (hovered_item_entity != NULL_ENTITY) {
+                        auto* wic = server.entities().get_component<WorldItemComponent>(hovered_item_entity);
+                        if (wic && wic->item.def && !wic->item.def->verbs.empty()) {
+                            std::vector<ContextEntry> entries;
+                            for (const auto& verb : wic->item.def->verbs)
+                                entries.push_back({verb.name, true, false,
+                                    [name = verb.name]() { SDL_Log("Verb: %s", name.c_str()); }});
+                            ctx_menu.open(alt_mode.cursor_pos(), std::move(entries));
+                            fps_ctx_rclick     = false;
+                            fps_ctx_just_opened = true;
+                            hud_rmb_handled     = true;
+                        }
+                    }
+                    (void)hud_rmb_handled;
 
-                // Also open ctx menu on right-click on a world face in alt-mode
-                if (rmb_pressed && alt_mode.active() && hit.valid) {
-                    (void)hit; // TODO: populate verb list from voxel type
+                    // RMB on a world face in alt-mode → populate verb list from voxel type
+                    if (!hud_rmb_handled && alt_mode.active() && hit.valid && !ctx_menu.is_open()) {
+                        Voxel hv = server.world().get_voxel(hit.voxel);
+                        const VoxelTypeDef* hvd = voxel_reg.get(hv.type_id);
+                        std::vector<ContextEntry> voxel_entries;
+                        if (hvd) {
+                            if (!hvd->on_hit.empty())
+                                voxel_entries.push_back({hvd->on_hit, true, false,
+                                    [name = hvd->on_hit]() { SDL_Log("Voxel verb: %s", name.c_str()); }});
+                            if (!hvd->on_walk.empty() && hvd->on_walk != hvd->on_hit)
+                                voxel_entries.push_back({hvd->on_walk, true, false,
+                                    [name = hvd->on_walk]() { SDL_Log("Voxel verb: %s", name.c_str()); }});
+                            if (voxel_entries.empty())
+                                voxel_entries.push_back({hvd->name.empty() ? hvd->id : hvd->name,
+                                    false, false, {}});
+                        }
+                        if (!voxel_entries.empty()) {
+                            ctx_menu.open(alt_mode.cursor_pos(), std::move(voxel_entries));
+                            fps_ctx_rclick      = false;
+                            fps_ctx_just_opened = true;
+                        }
+                    }
                 }
-            } else {
                 // Only auto-close if the menu was opened from alt-mode (not FPS RMB)
                 if (!fps_ctx_rclick)
                     ctx_menu.close();
@@ -1988,13 +2529,19 @@ int main(int /*argc*/, char* /*argv*/[])
                         if (hp) adm_state.godmode = hp->godmode;
                     }
                 }
-                adm_state.build_mode    = build_mode;
-                adm_state.gas_overlay   = gas_overlay_visible;
-                adm_state.debug_overlay = debug_overlay_visible;
-                adm_state.player_stats  = player_stats_visible;
-                adm_state.verbose_log   = renderer.verbose_logging();
-                adm_state.fullbright    = fullbright_enabled;
+                adm_state.build_mode        = build_mode;
+                adm_state.gas_overlay       = gas_overlay_visible;
+                adm_state.debug_overlay     = debug_overlay_visible;
+                adm_state.player_stats      = player_stats_visible;
+                adm_state.verbose_log       = renderer.verbose_logging();
+                adm_state.fullbright        = fullbright_enabled;
                 adm_state.ambient_occlusion = ao_enabled;
+                adm_state.wireframe         = renderer.wireframe();
+                adm_state.freeze_sim        = freeze_sim;
+                adm_state.slow_motion       = slow_motion;
+                adm_state.auto_heal         = auto_heal;
+                adm_state.zerog_override    = zerog_override;
+                adm_state.infinite_oxy      = infinite_oxy;
 
                 bool esc_adm = input.is_pressed(Action::Escape);
                 auto ar = admin_menu.draw(input.mouse_pos(),
@@ -2049,6 +2596,100 @@ int main(int /*argc*/, char* /*argv*/[])
                     ao_enabled = !ao_enabled;
                     SDL_Log("Ambient Occlusion: %s", ao_enabled ? "ON" : "OFF");
                 }
+                if (ar.toggle_wireframe) {
+                    renderer.set_wireframe(!renderer.wireframe());
+                    SDL_Log("Wireframe: %s", renderer.wireframe() ? "ON" : "OFF");
+                }
+                // ── New simulation / dev-tool toggles ──────────────────────
+                if (ar.toggle_freeze_sim) {
+                    freeze_sim = !freeze_sim;
+                    SDL_Log("Freeze Simulation: %s", freeze_sim ? "ON" : "OFF");
+                }
+                if (ar.toggle_slow_motion) {
+                    slow_motion = !slow_motion;
+                    SDL_Log("Slow Motion: %s", slow_motion ? "ON" : "OFF");
+                }
+                if (ar.toggle_auto_heal) {
+                    auto_heal = !auto_heal;
+                    SDL_Log("Auto-Heal: %s", auto_heal ? "ON" : "OFF");
+                }
+                if (ar.toggle_zerog_override) {
+                    zerog_override = !zerog_override;
+                    SDL_Log("Zero-G Override: %s", zerog_override ? "ON" : "OFF");
+                }
+                if (ar.toggle_infinite_oxy) {
+                    infinite_oxy = !infinite_oxy;
+                    SDL_Log("Infinite Oxygen: %s", infinite_oxy ? "ON" : "OFF");
+                }
+                // ── One-shot actions ────────────────────────────────────────
+                if (ar.action_full_heal) {
+                    EntityID plr = client.local_player();
+                    if (plr != NULL_ENTITY) {
+                        auto* hp = server.entities().get_component<HealthComponent>(plr);
+                        if (hp) {
+                            hp->brute = hp->burn = hp->tox = hp->oxy = 0.f;
+                            hp->dead  = false;
+                            SDL_Log("Dev: full heal applied");
+                        }
+                    }
+                }
+                if (ar.action_kill_player) {
+                    EntityID plr = client.local_player();
+                    if (plr != NULL_ENTITY) {
+                        auto* hp = server.entities().get_component<HealthComponent>(plr);
+                        if (hp) {
+                            bool was_god = hp->godmode;
+                            hp->godmode = false;
+                            hp->apply("brute", hp->health_max * 2.f);
+                            hp->godmode = was_god;
+                            SDL_Log("Dev: kill player");
+                        }
+                    }
+                }
+                if (ar.action_teleport_origin) {
+                    EntityID plr = client.local_player();
+                    if (plr != NULL_ENTITY) {
+                        auto* tr_pl = server.entities().get_component<TransformComponent>(plr);
+                        auto* vel_pl = server.entities().get_component<VelocityComponent>(plr);
+                        if (tr_pl) {
+                            // Find first open Y at (0, 0)
+                            bool found_y = false;
+                            for (int sy = 1; sy <= 128 && !found_y; ++sy) {
+                                Voxel bot = server.world().get_voxel({0, sy,     0});
+                                Voxel top = server.world().get_voxel({0, sy + 1, 0});
+                                if (!(bot.flags & VFLAG_SOLID) && !(top.flags & VFLAG_SOLID)) {
+                                    tr_pl->pos = {0.5f, static_cast<float>(sy), 0.5f};
+                                    found_y = true;
+                                }
+                            }
+                            if (!found_y) tr_pl->pos = {0.5f, 5.f, 0.5f};
+                            if (vel_pl) vel_pl->linear = {};
+                            SDL_Log("Dev: teleported to origin (%.1f,%.1f,%.1f)",
+                                    tr_pl->pos.x, tr_pl->pos.y, tr_pl->pos.z);
+                        }
+                    }
+                }
+                if (ar.action_force_atmos) {
+                    server.atmos().rebuild_zones();
+                    SDL_Log("Dev: atmos zones rebuilt");
+                }
+                if (ar.action_spawn_items) {
+                    // Scatter up to 8 items from the registry at the player's feet
+                    EntityID plr = client.local_player();
+                    glm::vec3 drop_pos = (plr != NULL_ENTITY) ? cam_pos : glm::vec3{0.5f, 1.f, 0.5f};
+                    RayHit drop_floor  = server.world().raycast(drop_pos, {0.f,-1.f,0.f}, 4.f);
+                    int spawned = 0;
+                    for (const auto& [id, def] : item_reg.all()) {
+                        if (spawned >= 8) break;
+                        ItemStack st; st.def = &def; st.count = 1; st.integrity = 1.f;
+                        if (drop_floor.valid)
+                            world_items.spawn_scattered(drop_floor.voxel, drop_floor.face, std::move(st));
+                        else
+                            world_items.spawn_floating(drop_pos, std::move(st));
+                        ++spawned;
+                    }
+                    SDL_Log("Dev: spawned %d test items", spawned);
+                }
                 if (ar.close_requested && !alt_mode.active() &&
                     !creative_menu.is_open() && !map_editor.is_open())
                     input.capture_cursor(renderer.window(), true);
@@ -2059,7 +2700,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 bool esc_pressed = input.is_pressed(Action::Escape);
                 auto cr = creative_menu.draw(
                     input.mouse_pos(),
-                    input.is_pressed(Action::PrimaryInteract),
+                    input.consume_press(Action::PrimaryInteract),
                     frame_scroll,
                     esc_pressed);
                 if (cr.give_item) {
@@ -2148,8 +2789,7 @@ int main(int /*argc*/, char* /*argv*/[])
                     }
                 }
                 if (me_result.world_modified) {
-                    for (Chunk* c : server.world().dirty_chunks())
-                        mesher.enqueue(c->chunk_pos(), server.world());
+                    mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
                 }
                 if (me_result.needs_atmos_rebuild)
                     server.atmos().rebuild_zones();
@@ -2158,6 +2798,50 @@ int main(int /*argc*/, char* /*argv*/[])
                     if (!alt_mode.active())
                         input.capture_cursor(renderer.window(), true);
                 }
+            }
+
+            // ── Pause menu overlay (drawn on top of all other UI) ─────────
+            if (pause_menu.is_open()) {
+                // Sync live flags → game_settings so the menu reflects reality
+                game_settings.fullbright        = fullbright_enabled;
+                game_settings.ambient_occlusion = ao_enabled;
+                game_settings.wireframe         = renderer.wireframe();
+                game_settings.psx_wobble        = renderer.psx_wobble();
+                game_settings.psx_snap_res       = renderer.psx_snap_res();
+                game_settings.show_debug_overlay = debug_overlay_visible;
+                game_settings.show_gas_overlay   = gas_overlay_visible;
+                game_settings.show_player_stats  = player_stats_visible;
+                game_settings.third_person       = third_person;
+                game_settings.freeze_sim         = freeze_sim;
+
+                SDL_MouseButtonFlags mb_pm = SDL_GetMouseState(nullptr, nullptr);
+                bool lmb_held_pm  = (mb_pm & SDL_BUTTON_LMASK) != 0;
+                bool lmb_press_pm = input.consume_press(Action::PrimaryInteract);
+                bool esc_pm       = input.is_pressed(Action::Escape);
+
+                auto pm_result = pause_menu.draw(
+                    input.mouse_pos(), lmb_press_pm, lmb_held_pm,
+                    esc_pm, game_settings);
+
+                // Sync game_settings → live flags after any in-menu changes
+                fullbright_enabled    = game_settings.fullbright;
+                ao_enabled            = game_settings.ambient_occlusion;
+                renderer.set_wireframe(game_settings.wireframe);
+                debug_overlay_visible = game_settings.show_debug_overlay;
+                gas_overlay_visible   = game_settings.show_gas_overlay;
+                player_stats_visible  = game_settings.show_player_stats;
+                if (third_person != game_settings.third_person) {
+                    third_person = game_settings.third_person;
+                    if (!third_person) cam_yaw = player_body_yaw;
+                }
+                freeze_sim = game_settings.freeze_sim;
+
+                if (pm_result.resume_clicked)
+                    input.capture_cursor(renderer.window(), true);
+                if (pm_result.exit_game_clicked)
+                    loop.stop();
+                if (pm_result.exit_to_main_clicked)
+                    loop.stop();  // breaks the game loop so we return to main()
             }
 
             // End world pass before UI so swapchain texture is free for the UI pass

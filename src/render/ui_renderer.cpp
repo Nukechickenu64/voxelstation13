@@ -577,6 +577,15 @@ void UIRenderer::image(glm::vec2 pos, glm::vec2 size, SDL_GPUTexture* tex,
     push_quad(pos, size, u0, 0.f, u1, 1.f, { 1.f, 1.f, 1.f, alpha }, tex);
 }
 
+void UIRenderer::image_tinted(glm::vec2 pos, glm::vec2 size, SDL_GPUTexture* tex,
+                               glm::vec4 tint, bool flip_x)
+{
+    if (!tex) return;
+    float u0 = flip_x ? 1.f : 0.f;
+    float u1 = flip_x ? 0.f : 1.f;
+    push_quad(pos, size, u0, 0.f, u1, 1.f, tint, tex);
+}
+
 bool UIRenderer::hit_test(glm::vec2 /*screen_pos*/) const
 {
     return false;

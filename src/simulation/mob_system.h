@@ -129,3 +129,28 @@ struct HumanAppearance {
     std::vector<HumanOverlay> layers;  // composited bottom-to-top
     bool dirty = true;                 // set true whenever layers change
 };
+
+// ── DensityComponent ──────────────────────────────────────────────────────────
+// Mirrors TG SS13's /atom/var/density.
+// When dense == true the entity occupies physical space and blocks movement:
+//   • Other CharacterControllers cannot pass through the entity's AABB.
+//   • Attempting to do so triggers bump_attack() / COMSIG_ATOM_BUMPED.
+// Set dense = false for ghosts, incorporeal mobs, etc.
+struct DensityComponent {
+    bool dense = true;
+};
+
+// ── NameComponent ─────────────────────────────────────────────────────────────
+// Human-readable name shown in examine / context menus and examine output.
+// Mirrors /atom/var/name in TG.
+struct NameComponent {
+    std::string name;
+    std::string desc;  // examine description (mirrors /atom/var/desc)
+};
+
+// ── MobTypeTag ────────────────────────────────────────────────────────────────
+// Marker: entity is a mob (living or not).  Used for quick istype() checks
+// without looking up the full type-path hierarchy.
+struct MobTypeTag {
+    std::string type_path = "/mob/living/carbon/human";
+};

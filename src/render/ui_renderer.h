@@ -53,6 +53,10 @@ public:
     void image(glm::vec2 pos, glm::vec2 size, SDL_GPUTexture* tex,
                float alpha = 1.f, bool flip_x = false);
 
+    // Draw texture multiplied by tint colour (for greyscale sprite tinting).
+    void image_tinted(glm::vec2 pos, glm::vec2 size, SDL_GPUTexture* tex,
+                      glm::vec4 tint, bool flip_x = false);
+
     bool hit_test(glm::vec2 screen_pos) const;
 
     int fb_width()  const { return m_fb_w; }

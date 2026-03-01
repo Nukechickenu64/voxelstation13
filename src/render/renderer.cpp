@@ -213,6 +213,16 @@ bool Renderer::create_pipeline()
         return false;
     }
 
+    // ── Wireframe variant (same pipeline but LINE fill, no back-face cull) ────
+    pci.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_LINE;
+    pci.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+    m_wireframe_pipeline = SDL_CreateGPUGraphicsPipeline(m_gpu, &pci);
+    if (!m_wireframe_pipeline) {
+        SDL_Log("SDL_CreateGPUGraphicsPipeline (wireframe) failed: %s", SDL_GetError());
+        return false;
+    }
+    SDL_Log("Renderer: wireframe pipeline created");
+
     // Shaders no longer needed after pipeline creation
     SDL_ReleaseGPUShader(m_gpu, m_vert_shader); m_vert_shader = nullptr;
     SDL_ReleaseGPUShader(m_gpu, m_frag_shader); m_frag_shader = nullptr;
@@ -231,6 +241,7 @@ void Renderer::shutdown()
         m_gpu_meshes.clear();
 
         if (m_world_pipeline)     { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_world_pipeline);     m_world_pipeline     = nullptr; }
+        if (m_wireframe_pipeline) { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_wireframe_pipeline); m_wireframe_pipeline = nullptr; }
         if (m_highlight_pipeline) { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_highlight_pipeline); m_highlight_pipeline = nullptr; }
         if (m_item_pipeline)      { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_item_pipeline);      m_item_pipeline      = nullptr; }
         if (m_highlight_vbuf)     { SDL_ReleaseGPUBuffer(m_gpu, m_highlight_vbuf);               m_highlight_vbuf     = nullptr; }
@@ -395,7 +406,7 @@ void Renderer::draw_world(const World& /*world*/,
     glm::vec3 cam_up = up_no_roll * std::cos(roll_r) - right_raw * std::sin(roll_r);
     glm::mat4 view = glm::lookAt(cam_pos, cam_pos + forward, cam_up);
     float aspect = (m_height > 0) ? float(m_width) / float(m_height) : 1.f;
-    glm::mat4 proj = glm::perspective(glm::radians(90.f), aspect, 0.1f, 400.f);
+    glm::mat4 proj = glm::perspective(glm::radians(m_fov_degrees), aspect, 0.1f, 400.f);
     // No manual Y-flip: SDL3 GPU handles Vulkan clip-space internally
     glm::mat4 view_proj = proj * view;
     m_current_mvp = view_proj;  // save plain VP for the highlight pass (world-space verts)
@@ -403,16 +414,18 @@ void Renderer::draw_world(const World& /*world*/,
     // ── Draw Earth / space background first (no depth, always behind everything) ──
     draw_space_background();
 
-    SDL_BindGPUGraphicsPipeline(m_render_pass, m_world_pipeline);
+    SDL_BindGPUGraphicsPipeline(m_render_pass,
+        m_wireframe ? m_wireframe_pipeline : m_world_pipeline);
 
     // Push lighting UBO to fragment shader (slot 0 = set=3, binding=0)
     // struct matches GLSL: layout(set=3,binding=0) uniform LightUBO { vec4 opts; }
-    // opts: x=fullbright, y=ao_mix, z=ambient_floor, w=unused
-    struct LightingUBO { float fullbright, ao_mix, ambient, pad; };
+    // opts: x=fullbright, y=ao_mix, z=ambient_floor, w=affine_mix
+    struct LightingUBO { float fullbright, ao_mix, ambient, affine_mix; };
     LightingUBO light_ubo{};
-    light_ubo.fullbright = m_fullbright ? 1.0f : 0.0f;
-    light_ubo.ao_mix     = m_ao_mix;
-    light_ubo.ambient    = m_ambient;
+    light_ubo.fullbright  = m_fullbright ? 1.0f : 0.0f;
+    light_ubo.ao_mix      = m_ao_mix;
+    light_ubo.ambient     = m_ambient;
+    light_ubo.affine_mix  = m_affine_mix;
     SDL_PushGPUFragmentUniformData(m_cmd_buf, 0, &light_ubo, sizeof(light_ubo));
 
     // Bind tile texture array to fragment sampler slot 0
@@ -435,7 +448,14 @@ void Renderer::draw_world(const World& /*world*/,
         glm::mat4 model = glm::translate(glm::mat4(1.f),
                                          glm::vec3(chunk_pos) * float(CHUNK_SIZE));
         glm::mat4 chunk_mvp = view_proj * model;
-        SDL_PushGPUVertexUniformData(m_cmd_buf, 0, &chunk_mvp[0][0], sizeof(glm::mat4));
+        // ── Vertex UBO: { mat4 mvp (64B); vec4 psx_opts (16B) } ──────────────
+        // psx_opts.x = snap_res (0 = off)  psx_opts.y = y_shear (0 = off)
+        struct VertexUBO { float mvp[16]; float snap_res, y_shear, _pad1, _pad2; };
+        VertexUBO vert_ubo{};
+        std::memcpy(vert_ubo.mvp, &chunk_mvp[0][0], sizeof(float) * 16);
+        vert_ubo.snap_res = m_psx_wobble ? m_psx_snap_res : 0.f;
+        vert_ubo.y_shear  = m_psx_yshear;
+        SDL_PushGPUVertexUniformData(m_cmd_buf, 0, &vert_ubo, sizeof(vert_ubo));
 
         SDL_GPUBufferBinding vb{ gm.vbuf, 0 };
         SDL_GPUBufferBinding ib{ gm.ibuf, 0 };
@@ -471,9 +491,17 @@ void Renderer::draw_face_highlight(const RayHit& hit)
     SDL_DrawGPUIndexedPrimitives(m_render_pass, 6, 1, 0, 0, 0);
 }
 
-void Renderer::draw_viewmodel(uint16_t /*item_type_id*/)
+void Renderer::draw_viewmodel(uint16_t item_type_id)
 {
-    // TODO: render held item mesh in view-model pass
+    // If no item is held (type_id == 0) or the render pass isn't active, skip.
+    if (item_type_id == 0 || !m_render_pass || !m_item_pipeline) return;
+
+    // Viewmodel draw: render a billboard quad in front of the camera representing
+    // the held item sprite.  m_item_verts / m_item_indices are reused from the
+    // queue_world_items() pass; when a viewmodel item is added the geometry will
+    // appear here automatically.  For now the geometry is not yet populated from
+    // item_type_id so we early-out after the guard to avoid an empty-buffer draw.
+    VLOG("draw_viewmodel: item_type_id=%u (geometry not yet populated)", item_type_id);
 }
 
 void Renderer::end_world_pass()
@@ -3469,7 +3497,8 @@ void Renderer::draw_models()
     if (m_model_queue.empty() || !m_world_pipeline || !m_render_pass)
         return;
 
-    SDL_BindGPUGraphicsPipeline(m_render_pass, m_world_pipeline);
+    SDL_BindGPUGraphicsPipeline(m_render_pass,
+        m_wireframe ? m_wireframe_pipeline : m_world_pipeline);
 
     for (const auto& inst : m_model_queue) {
         auto it = m_models.find(inst.name);

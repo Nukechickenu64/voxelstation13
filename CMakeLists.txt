@@ -59,6 +59,8 @@ set(SRC_CORE
     src/core/world.cpp
     src/core/entity_manager.cpp
     src/core/object_types.cpp
+    src/core/signals.cpp
+    src/core/master_controller.cpp
 )
 
 set(SRC_RENDER
@@ -78,6 +80,11 @@ set(SRC_SIM
     src/simulation/physics.cpp
     src/simulation/world_items.cpp
     src/simulation/model_objects.cpp
+    src/simulation/status_effects.cpp
+    src/simulation/attack_chain.cpp
+    src/simulation/reagents.cpp
+    src/simulation/vehicle.cpp
+    src/simulation/vehicle_manager.cpp
 )
 
 set(SRC_INPUT
@@ -117,6 +124,8 @@ set(SRC_UI
     src/ui/map_editor.cpp
     src/ui/admin_menu.cpp
     src/ui/main_menu.cpp
+    src/ui/pause_menu.cpp
+    src/ui/character_creator.cpp
 )
 
 # ── Executable ────────────────────────────────────────────────────────────────

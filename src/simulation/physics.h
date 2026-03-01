@@ -1,6 +1,7 @@
 #pragma once
 #include "core/world.h"
 #include "core/entity_manager.h"
+#include <functional>
 
 // Movement / incapacitation state for a mob.
 enum class MobState : uint8_t {
@@ -54,6 +55,10 @@ struct CharacterControllerComponent {
     MobState mob_state = MobState::Normal;
 };
 
+// Callback fired when entity `mover` is blocked by dense entity `blocker`.
+// Used to trigger bump_attack() from the game loop.
+using BumpCallback = std::function<void(EntityID mover, EntityID blocker)>;
+
 // Kinematic character physics and projectile movement.
 class PhysicsSystem {
 public:
@@ -79,12 +84,23 @@ public:
     // The pointer must remain valid for the lifetime of this PhysicsSystem.
     void set_model_objects(ModelObjectManager* mgr) { m_model_objects = mgr; }
 
+    // Register a bump callback fired when an entity tries to move into a dense entity.
+    // Mirrors TG's Bump() proc — the game loop uses this to trigger attack_chain().
+    void set_bump_callback(BumpCallback cb) { m_bump_cb = std::move(cb); }
+
 private:
     glm::vec3 resolve_collisions(glm::vec3 pos, glm::vec3 delta, float radius, float height) const;
+
+    // Check if any dense entity (other than `mover`) blocks the target AABB.
+    // Sets `out_blocker` to the blocking entity (or NULL_ENTITY if clear).
+    bool check_entity_density(EntityID mover, glm::vec3 min, glm::vec3 max,
+                               EntityID& out_blocker) const;
 
     World&         m_world;
     EntityManager& m_entities;
     ModelObjectManager* m_model_objects = nullptr;
+    BumpCallback        m_bump_cb;
+
     static constexpr float GRAVITY          = -9.8f;
     // Jetpack: acceleration (m/s²) and terminal speed (m/s) in zero-G
     static constexpr float JETPACK_ACCEL    = 6.f;

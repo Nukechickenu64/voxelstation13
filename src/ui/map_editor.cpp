@@ -35,9 +35,11 @@ void MapEditor::open(glm::vec3 player_pos)
     m_status_timer = 0.f;
 
     // Reset tool / undo state
-    m_tab        = EditorTab::Voxels;
-    m_tool       = EditorTool::Brush;
-    m_in_stroke  = false;
+    m_tab              = EditorTab::Voxels;
+    m_tool             = EditorTool::Brush;
+    m_in_stroke        = false;
+    m_erase_in_stroke  = false;
+    m_paint_orientation = 0;
     m_stroke_cells.clear();
     m_stroke_edits.clear();
     m_rect_active = false;
@@ -187,7 +189,7 @@ static uint64_t encode_cell2(int x, int z) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void MapEditor::push_undo(UndoOp op) {
-    if (op.edits.empty()) return;
+    if (op.edits.empty() && op.spawned_entities.empty() && op.placed_model_objs.empty()) return;
     m_redo_stack.clear();
     m_undo_stack.push_back(std::move(op));
     if (static_cast<int>(m_undo_stack.size()) > UNDO_MAX)
@@ -248,9 +250,10 @@ bool MapEditor::do_fill(glm::ivec2 start_cell) {
 
     const VoxelTypeDef* def = (m_selected_voxel_id != 0) ? m_voxel_reg.get(m_selected_voxel_id) : nullptr;
     Voxel paint_v;
-    paint_v.type_id = m_selected_voxel_id;
-    paint_v.flags   = def ? def->default_flags
-                          : static_cast<uint16_t>(VFLAG_SOLID | VFLAG_OPAQUE);
+    paint_v.type_id     = m_selected_voxel_id;
+    paint_v.orientation = m_paint_orientation;
+    paint_v.flags       = def ? def->default_flags
+                              : static_cast<uint16_t>(VFLAG_SOLID | VFLAG_OPAQUE);
 
     constexpr int FILL_LIMIT = 4096;
     UndoOp op;
@@ -310,8 +313,8 @@ void MapEditor::draw_top_bar()
         m_ui.text({160.f, 9.f}, buf, {0.85f, 0.92f, 1.f, 0.9f}, 13.f);
     }
 
-    // Tool indicator
-    {
+    // Tool indicator (Voxels tab only)
+    if (m_tab == EditorTab::Voxels) {
         const char* tname = (m_tool == EditorTool::Brush) ? "BRUSH [B]"
                           : (m_tool == EditorTool::Fill)  ? "FILL  [F]"
                                                           : "RECT  [R]";
@@ -319,6 +322,12 @@ void MapEditor::draw_top_bar()
                        : (m_tool == EditorTool::Fill)  ? glm::vec4{1.0f, 0.75f, 0.30f, 1.f}
                                                        : glm::vec4{0.45f, 0.85f, 1.0f, 1.f};
         m_ui.text({390.f, 9.f}, tname, tcol, 13.f);
+
+        // Paint orientation indicator
+        const char* ori_names[4] = { "N", "E", "S", "W" };
+        char oribuf[32];
+        std::snprintf(oribuf, sizeof(oribuf), "Ori:%s [Q/E]", ori_names[m_paint_orientation & 3]);
+        m_ui.text({480.f, 9.f}, oribuf, {0.85f, 0.75f, 0.40f, 0.9f}, 12.f);
     }
 
     // Undo/redo depth indicator
@@ -327,7 +336,7 @@ void MapEditor::draw_top_bar()
         std::snprintf(ubuf, sizeof(ubuf), "U:%d R:%d",
                       static_cast<int>(m_undo_stack.size()),
                       static_cast<int>(m_redo_stack.size()));
-        m_ui.text({510.f, 9.f}, ubuf, {0.5f, 0.6f, 0.75f, 0.7f}, 11.f);
+        m_ui.text({610.f, 9.f}, ubuf, {0.5f, 0.6f, 0.75f, 0.7f}, 11.f);
     }
 
     // Zoom indicator
@@ -840,7 +849,8 @@ bool MapEditor::handle_entity_placement(glm::vec2 cursor,
 // ─────────────────────────────────────────────────────────────────────────────
 bool MapEditor::draw_grid(glm::vec2 cursor,
                           bool lmb_held, bool lmb_pressed, bool lmb_released,
-                          bool rmb_held, bool shift_held)
+                          bool rmb_held, bool rmb_pressed, bool rmb_released,
+                          bool shift_held, bool alt_held)
 {
     const float fb_w = static_cast<float>(m_ui.fb_width());
     const float fb_h = static_cast<float>(m_ui.fb_height());
@@ -949,14 +959,26 @@ bool MapEditor::draw_grid(glm::vec2 cursor,
     if (cursor_in_grid && m_tab == EditorTab::Voxels) {
         const VoxelTypeDef* def = (m_selected_voxel_id != 0) ? m_voxel_reg.get(m_selected_voxel_id) : nullptr;
         Voxel paint_v;
-        paint_v.type_id = m_selected_voxel_id;
-        paint_v.flags   = def ? def->default_flags
-                              : static_cast<uint16_t>(VFLAG_SOLID | VFLAG_OPAQUE);
+        paint_v.type_id     = m_selected_voxel_id;
+        paint_v.orientation = m_paint_orientation;
+        paint_v.flags       = def ? def->default_flags
+                                  : static_cast<uint16_t>(VFLAG_SOLID | VFLAG_OPAQUE);
 
+        // ── Eyedropper (Alt+LMB) ────────────────────────────────────────────
+        if (alt_held && lmb_pressed) {
+            Voxel picked = m_world.get_voxel({hcell.x, m_layer, hcell.y});
+            m_selected_voxel_id  = picked.type_id;
+            m_paint_orientation  = picked.orientation;
+            const VoxelTypeDef* pd = m_voxel_reg.get(picked.type_id);
+            std::string pname = pd ? pd->name : (picked.type_id == 0 ? "Air" : "?");
+            m_status_msg   = "[EYE] Picked: " + pname;
+            m_status_timer = 1.5f;
+            // Do not paint — just pick
+        } else {
         // ── Brush tool ──────────────────────────────────────────────────────
         if (m_tool == EditorTool::Brush && !shift_held) {
             // Begin stroke on pen-down
-            if (lmb_pressed || (lmb_pressed && rmb_held)) {
+            if (lmb_pressed) {
                 m_in_stroke = true;
                 m_stroke_cells.clear();
                 m_stroke_edits.clear();
@@ -965,7 +987,7 @@ bool MapEditor::draw_grid(glm::vec2 cursor,
                 uint64_t key = encode_pos3({hcell.x, m_layer, hcell.y});
                 if (!m_stroke_cells.count(key)) {
                     Voxel cur_v = m_world.get_voxel({hcell.x, m_layer, hcell.y});
-                    if (cur_v.type_id != m_selected_voxel_id) {
+                    if (cur_v.type_id != paint_v.type_id || cur_v.orientation != paint_v.orientation) {
                         m_stroke_cells.insert(key);
                         m_stroke_edits.push_back({{hcell.x, m_layer, hcell.y}, cur_v, paint_v});
                         m_world.set_voxel({hcell.x, m_layer, hcell.y}, paint_v);
@@ -985,8 +1007,12 @@ bool MapEditor::draw_grid(glm::vec2 cursor,
                 m_stroke_edits.clear();
             }
 
-            // RMB erase (own stroke)
-            if (lmb_released || lmb_pressed) { /* handled above */ }
+            // RMB erase — use stroke batching (same cells set, separate arm)
+            if (rmb_pressed) {
+                m_erase_in_stroke = true;
+                m_stroke_cells.clear();
+                m_stroke_edits.clear();
+            }
             if (rmb_held) {
                 uint64_t key = encode_pos3({hcell.x, m_layer, hcell.y});
                 if (!m_stroke_cells.count(key)) {
@@ -998,6 +1024,16 @@ bool MapEditor::draw_grid(glm::vec2 cursor,
                         world_modified = true;
                     }
                 }
+            }
+            if (rmb_released && m_erase_in_stroke) {
+                if (!m_stroke_edits.empty()) {
+                    UndoOp op;
+                    op.edits = std::move(m_stroke_edits);
+                    push_undo(std::move(op));
+                }
+                m_erase_in_stroke = false;
+                m_stroke_cells.clear();
+                m_stroke_edits.clear();
             }
         }
 
@@ -1021,7 +1057,7 @@ bool MapEditor::draw_grid(glm::vec2 cursor,
                     for (int ix = rx0; ix <= rx1; ++ix) {
                         glm::ivec3 pos{ix, m_layer, iz};
                         Voxel cur = m_world.get_voxel(pos);
-                        if (cur.type_id != m_selected_voxel_id) {
+                        if (cur.type_id != paint_v.type_id || cur.orientation != paint_v.orientation) {
                             op.edits.push_back({pos, cur, paint_v});
                             m_world.set_voxel(pos, paint_v);
                             world_modified = true;
@@ -1038,18 +1074,39 @@ bool MapEditor::draw_grid(glm::vec2 cursor,
             if (!lmb_held) m_rect_active = false;
         }
 
-        // ── RMB erase (non-Brush, or always for non-Brush tools) ───────────
-        if (m_tool != EditorTool::Brush && rmb_held) {
-            Voxel cur_v = m_world.get_voxel({hcell.x, m_layer, hcell.y});
-            if (cur_v.type_id != 0) {
-                // Single-cell erase without stroke batching for non-brush tools
-                UndoOp op;
-                op.edits.push_back({{hcell.x, m_layer, hcell.y}, cur_v, Voxel{}});
-                m_world.set_voxel({hcell.x, m_layer, hcell.y}, Voxel{});
-                push_undo(std::move(op));
-                world_modified = true;
+        // ── RMB erase for non-Brush tools — stroke-batched ──────────────────
+        if (m_tool != EditorTool::Brush) {
+            if (rmb_pressed) {
+                m_erase_in_stroke = true;
+                m_stroke_cells.clear();
+                m_stroke_edits.clear();
+            }
+            if (rmb_held) {
+                uint64_t key = encode_pos3({hcell.x, m_layer, hcell.y});
+                if (!m_stroke_cells.count(key)) {
+                    Voxel cur_v = m_world.get_voxel({hcell.x, m_layer, hcell.y});
+                    if (cur_v.type_id != 0) {
+                        m_stroke_cells.insert(key);
+                        m_stroke_edits.push_back({{hcell.x, m_layer, hcell.y}, cur_v, Voxel{}});
+                        m_world.set_voxel({hcell.x, m_layer, hcell.y}, Voxel{});
+                        world_modified = true;
+                    }
+                }
+            }
+            if (rmb_released && m_erase_in_stroke) {
+                if (!m_stroke_edits.empty()) {
+                    m_status_msg   = "[OK] Erased " + std::to_string(m_stroke_edits.size()) + " cells";
+                    m_status_timer = 1.5f;
+                    UndoOp op;
+                    op.edits = std::move(m_stroke_edits);
+                    push_undo(std::move(op));
+                }
+                m_erase_in_stroke = false;
+                m_stroke_cells.clear();
+                m_stroke_edits.clear();
             }
         }
+        } // end else (not eyedropper)
     }
 
     // ── Hover tooltip (voxel type name) ────────────────────────────────────
@@ -1057,9 +1114,15 @@ bool MapEditor::draw_grid(glm::vec2 cursor,
         Voxel hv = m_world.get_voxel({hcell.x, m_layer, hcell.y});
         const VoxelTypeDef* hvd = m_voxel_reg.get(hv.type_id);
         std::string tip = hvd ? hvd->name : (hv.type_id == 0 ? "Air" : "?");
-        char tipbuf[64];
-        std::snprintf(tipbuf, sizeof(tipbuf), "(%d,%d,%d)  %s",
-                      hcell.x, m_layer, hcell.y, tip.c_str());
+        const char* ori_names[4] = { "N", "E", "S", "W" };
+        char tipbuf[80];
+        if (hv.type_id != 0)
+            std::snprintf(tipbuf, sizeof(tipbuf), "(%d,%d,%d)  %s [%s]",
+                          hcell.x, m_layer, hcell.y, tip.c_str(),
+                          ori_names[hv.orientation & 3]);
+        else
+            std::snprintf(tipbuf, sizeof(tipbuf), "(%d,%d,%d)  %s",
+                          hcell.x, m_layer, hcell.y, tip.c_str());
         float tw = static_cast<float>(strlen(tipbuf)) * 7.f + 10.f;
         glm::vec2 tp = cursor + glm::vec2(14.f, 6.f);
         // Clamp to screen
@@ -1186,11 +1249,27 @@ MapEditorResult MapEditor::draw(
         if (b_now && !m_prev_b_key) { m_tool = EditorTool::Brush; m_status_msg = "Tool: Brush";  m_status_timer = 1.f; }
         if (f_now && !m_prev_f_key) { m_tool = EditorTool::Fill;  m_status_msg = "Tool: Fill";   m_status_timer = 1.f; }
         if (r_now && !m_prev_r_key) { m_tool = EditorTool::Rect;  m_status_msg = "Tool: Rect";   m_status_timer = 1.f; }
-        // Q/E rotate model yaw (Objects tab)
-        if (q_now && !m_prev_q_key && m_tab == EditorTab::Objects)
-            m_place_yaw = std::fmod(m_place_yaw - 90.f + 360.f, 360.f);
-        if (e_now && !m_prev_e_key && m_tab == EditorTab::Objects)
-            m_place_yaw = std::fmod(m_place_yaw + 90.f, 360.f);
+        // Q/E — rotate model yaw (Objects tab) or paint orientation (Voxels tab)
+        if (q_now && !m_prev_q_key) {
+            if (m_tab == EditorTab::Objects)
+                m_place_yaw = std::fmod(m_place_yaw - 90.f + 360.f, 360.f);
+            else if (m_tab == EditorTab::Voxels) {
+                m_paint_orientation = (m_paint_orientation + 3) & 3;  // -1 mod 4
+                const char* ori_names[4] = { "N", "E", "S", "W" };
+                m_status_msg   = std::string("Paint orientation: ") + ori_names[m_paint_orientation];
+                m_status_timer = 1.f;
+            }
+        }
+        if (e_now && !m_prev_e_key) {
+            if (m_tab == EditorTab::Objects)
+                m_place_yaw = std::fmod(m_place_yaw + 90.f, 360.f);
+            else if (m_tab == EditorTab::Voxels) {
+                m_paint_orientation = (m_paint_orientation + 1) & 3;
+                const char* ori_names[4] = { "N", "E", "S", "W" };
+                m_status_msg   = std::string("Paint orientation: ") + ori_names[m_paint_orientation];
+                m_status_timer = 1.f;
+            }
+        }
 
         m_prev_z_key = z_now;
         m_prev_y_key = y_now;
@@ -1201,9 +1280,10 @@ MapEditorResult MapEditor::draw(
         m_prev_e_key = e_now;
     }
 
-    // ── Shift state (for Shift+LMB rect override on any tool) ────────────────
+    // ── Shift / Alt state ────────────────────────────────────────────────────
     const bool* ks_shift = SDL_GetKeyboardState(nullptr);
     bool shift_held = ks_shift[SDL_SCANCODE_LSHIFT] || ks_shift[SDL_SCANCODE_RSHIFT];
+    bool alt_held   = ks_shift[SDL_SCANCODE_LALT]   || ks_shift[SDL_SCANCODE_RALT];
 
     // ── Cursor world position for bottom bar ─────────────────────────────────
     glm::vec2 cursor_world = screen_to_world(cursor);
@@ -1224,7 +1304,9 @@ MapEditorResult MapEditor::draw(
                                    lmb_pressed   && cursor.x > PAL_W,
                                    lmb_released  && cursor.x > PAL_W,
                                    rmb_held      && cursor.x > PAL_W,
-                                   shift_held);
+                                   rmb_pressed   && cursor.x > PAL_W,
+                                   !rmb_held && m_prev_rmb && cursor.x > PAL_W,
+                                   shift_held, alt_held);
     if (grid_modified) result.world_modified = true;
 
     // Entity placement (Items / Mobs / Objects tabs)

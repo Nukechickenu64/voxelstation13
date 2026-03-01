@@ -12,11 +12,18 @@
 //   - Pressure loss pushes all velocity-bearing entities toward the vent.
 //     Force scales with pressure_loss_rate; grounded entities resist via
 //     WIND_GROUND_RESIST; velocity is capped per-entity along wind direction.
+//   - Pressure-differential status effects (requires StatusEffectsComponent):
+//       >= WIND_JITTER_THRESHOLD (0.5 kPa/s)    → Jitter
+//       >= WIND_DIZZY_THRESHOLD  (1.5 kPa/s)    → Dizzy
+//       >= WIND_KNOCKDOWN_THRESHOLD (4.0 kPa/s) → Knockdown (duration scales)
+//   - Barotrauma and decompression brute/burn damage are applied in server.cpp
+//     (atmos simulator handles velocity + status; server handles health).
 // ─────────────────────────────────────────────────────────────────────────────
 #include "simulation/atmos.h"
 #include "simulation/physics.h"
 #include "simulation/mob_system.h"
 #include "simulation/model_objects.h"
+#include "simulation/status_effects.h"
 #include <SDL3/SDL.h>
 #include <queue>
 #include <algorithm>
@@ -188,18 +195,46 @@ void AtmosSimulator::rebuild_zones()
                     for (const glm::ivec3& c : cells)
                         m_cell_zone[c] = new_zid;
 
-                    // Build a space DoorLink.  Use the cells themselves as the
-                    // "door voxels" — they are passable, so open_frac == 1 and
-                    // full CONDUCTANCE_SPACE drainage is applied each tick.
+                    // Build a space DoorLink.
+                    // door_voxels must only contain the breach-edge cells —
+                    // those room cells that directly border the newly-opened
+                    // space.  Two reasons:
+                    //   1) All breach-edge cells are passable air, so
+                    //      open_frac == 1 and full CONDUCTANCE_SPACE is applied.
+                    //   2) The final midpoint recompute (at end of rebuild_zones)
+                    //      averages door_voxels, so using the breach edge puts
+                    //      vent_direction at the hole, not the room center.
+                    // Falls back to all cells if none are detected (shouldn't
+                    // normally happen — whole-map decompression edge case).
+                    static constexpr glm::ivec3 k6[6] = {
+                        { 1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}
+                    };
+                    std::unordered_set<glm::ivec3> cell_set(cells.begin(), cells.end());
                     DoorLink lnk;
                     lnk.zone_a = ATMOS_ZONE_SPACE;
                     lnk.zone_b = new_zid;
-                    for (const glm::ivec3& c : cells)
-                        lnk.door_voxels.push_back(c);
-                    glm::ivec3 s{0};
-                    for (const glm::ivec3& c : cells) s += c;
-                    lnk.midpoint = glm::vec3(s) / static_cast<float>(cells.size())
-                                   + glm::vec3(0.5f);
+                    for (const glm::ivec3& c : cells) {
+                        bool breach_edge = false;
+                        for (const auto& d : k6) {
+                            glm::ivec3 nb = c + d;
+                            // Neighbour is passable, not in this group, and is
+                            // tagged as space → c is right next to the breach.
+                            if (!cell_set.count(nb)
+                                    && voxel_is_passable(nb)
+                                    && m_cell_zone.count(nb)
+                                    && m_cell_zone.at(nb) == ATMOS_ZONE_SPACE) {
+                                breach_edge = true;
+                                break;
+                            }
+                        }
+                        if (breach_edge) lnk.door_voxels.push_back(c);
+                    }
+                    // Fallback: nothing detected → use all cells (open_frac=1 preserved).
+                    if (lnk.door_voxels.empty()) {
+                        for (const glm::ivec3& c : cells)
+                            lnk.door_voxels.push_back(c);
+                    }
+                    // midpoint is computed by the final pass at the end of rebuild_zones.
                     m_door_links.push_back(std::move(lnk));
                 }
 
@@ -611,6 +646,51 @@ void AtmosSimulator::apply_entity_effects(double dt)
         if (add <= 0.f) return;
 
         vel.linear += wind_dir * add;
+    });
+
+    // ── Pressure-differential status effects ──────────────────────────────
+    // Entities with a StatusEffectsComponent that are in a decompressing zone
+    // receive sensory and incapacitation effects scaled to severity:
+    //
+    //   rate >= WIND_JITTER_THRESHOLD   → Jitter (screen micro-shake)
+    //   rate >= WIND_DIZZY_THRESHOLD    → Dizzy  (orientation overlay)
+    //   rate >= WIND_KNOCKDOWN_THRESHOLD→ Knockdown (prone, grounded by wind)
+    //
+    // Duration is proportional to rate, capped at WIND_KNOCKDOWN_DUR_MAX.
+    // Jitter/Dizzy refresh every tick so they persist as long as the wind does.
+    m_entities->each<StatusEffectsComponent>([&](EntityID eid, StatusEffectsComponent& se) {
+        auto* tr = m_entities->get_component<TransformComponent>(eid);
+        if (!tr) return;
+
+        glm::ivec3 feet = {
+            static_cast<int>(std::floor(tr->pos.x)),
+            static_cast<int>(std::floor(tr->pos.y)),
+            static_cast<int>(std::floor(tr->pos.z))
+        };
+        AtmosZoneID zid = zone_at(feet);
+        if (zid == ATMOS_ZONE_NULL || zid == ATMOS_ZONE_SPACE) return;
+        AtmosZone* z = zone_at_id(zid);
+        if (!z) return;
+
+        const float rate = z->pressure_loss_rate;
+
+        if (rate >= WIND_JITTER_THRESHOLD) {
+            // Jitter duration: refresh to ~0.5 s so it stays while wind blows.
+            se.apply(StatusEffectType::Jitter, 0.5f, std::min(rate / WIND_KNOCKDOWN_THRESHOLD, 1.f));
+        }
+
+        if (rate >= WIND_DIZZY_THRESHOLD) {
+            se.apply(StatusEffectType::Dizzy, 0.5f, std::min(rate / WIND_KNOCKDOWN_THRESHOLD, 1.f));
+        }
+
+        if (rate >= WIND_KNOCKDOWN_THRESHOLD) {
+            // Duration scales with rate; more violent decomp = longer knockdown.
+            float kd_dur = std::clamp(
+                WIND_KNOCKDOWN_DUR_BASE * (rate / WIND_KNOCKDOWN_THRESHOLD),
+                WIND_KNOCKDOWN_DUR_BASE,
+                WIND_KNOCKDOWN_DUR_MAX);
+            se.apply(StatusEffectType::Knockdown, kd_dur, 1.f);
+        }
     });
 }
 

@@ -141,6 +141,17 @@ private:
     static constexpr float WIND_ACCEL_PER_KPA_S  = 1.2f;
     static constexpr float WIND_GROUND_RESIST    = 0.35f;
     static constexpr float WIND_VEL_CAP          = 12.f;
+    // ── Pressure-differential status effect thresholds ─────────────────────
+    // WIND_JITTER_THRESHOLD   : kPa/s at which mild jitter begins (0.5 kPa/s).
+    // WIND_DIZZY_THRESHOLD    : kPa/s at which dizzy overlay appears (1.5 kPa/s).
+    // WIND_KNOCKDOWN_THRESHOLD: kPa/s causing outright knockdown (4.0 kPa/s).
+    // WIND_KNOCKDOWN_DUR_BASE : base knockdown duration in seconds.
+    // WIND_KNOCKDOWN_DUR_MAX  : cap on knockdown duration regardless of rate.
+    static constexpr float WIND_JITTER_THRESHOLD    = 0.5f;
+    static constexpr float WIND_DIZZY_THRESHOLD     = 1.5f;
+    static constexpr float WIND_KNOCKDOWN_THRESHOLD = 4.0f;
+    static constexpr float WIND_KNOCKDOWN_DUR_BASE  = 1.0f;
+    static constexpr float WIND_KNOCKDOWN_DUR_MAX   = 4.0f;
     static constexpr float O2_CONSUMPTION_RATE      = 0.018f;
     static constexpr float CO2_PRODUCTION_RATE      = 0.014f;
     static constexpr float IGNITION_TEMPERATURE     = 360.f;

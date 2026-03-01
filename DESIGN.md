@@ -382,6 +382,7 @@ The atmospheric model is a direct 3-D extension of SS13's ZAS (Zone-based Atmosp
 | **Post-round** | Short cooldown; players re-enter lobby. Map can optionally reset or persist. |
 
 Example game modes (defined in JSON, not hard-coded):
+- **Cult** - a blood cult attempt to summon their god
 - **Extended** — no antagonists, pure role-play/build.
 - **Traitor** — 1–2 players receive secret objectives; win by completing without being caught.
 - **Nuclear Emergency** — antagonist team must detonate a nuke; crew must prevent it.

@@ -1,5 +1,6 @@
 #include "simulation/physics.h"
 #include "simulation/model_objects.h"
+#include "simulation/mob_system.h"   // DensityComponent
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <cmath>
@@ -155,6 +156,22 @@ void PhysicsSystem::tick(double dt)
             if (vel->linear.y > 0.f &&
                 std::abs(new_pos.y - (tr.pos.y + delta.y)) > 0.0001f)
                 vel->linear.y = 0.f;
+
+            // ── Density check (TG-style): block horizontal movement into dense entities ──
+            // If another dense entity (mob) occupies the proposed AABB, cancel
+            // horizontal movement and fire the bump callback.
+            if (m_bump_cb) {
+                EntityID blocker = NULL_ENTITY;
+                glm::vec3 nmin = new_pos + glm::vec3(-cc->radius, 0.f, -cc->radius);
+                glm::vec3 nmax = new_pos + glm::vec3( cc->radius, cc->height, cc->radius);
+                if (check_entity_density(id, nmin, nmax, blocker)) {
+                    new_pos.x     = tr.pos.x;
+                    new_pos.z     = tr.pos.z;
+                    vel->linear.x = 0.f;
+                    vel->linear.z = 0.f;
+                    m_bump_cb(id, blocker);
+                }
+            }
 
             tr.pos = new_pos;
 
@@ -312,4 +329,33 @@ glm::vec3 PhysicsSystem::resolve_collisions(glm::vec3 pos, glm::vec3 delta,
     }
 
     return result;
+}
+
+// ── check_entity_density ─────────────────────────────────────────────────────
+// Returns true if any dense entity (other than `mover`) has its centre inside
+// the AABB [mn, mx].  Sets out_blocker to that entity (or NULL_ENTITY).
+// This is intentionally simple (point-vs-AABB) for the skeleton; a more robust
+// implementation would do AABB-vs-AABB but that requires knowing every entity's
+// extents at query time.
+bool PhysicsSystem::check_entity_density(EntityID mover,
+                                          glm::vec3 mn, glm::vec3 mx,
+                                          EntityID& out_blocker) const
+{
+    out_blocker = NULL_ENTITY;
+    bool found = false;
+
+    m_entities.each<DensityComponent>([&](EntityID id, DensityComponent& dc) {
+        if (found || id == mover || !dc.dense) return;
+        auto* tr = m_entities.get_component<TransformComponent>(id);
+        if (!tr) return;
+        // Point-in-AABB check (mob centre)
+        if (tr->pos.x >= mn.x && tr->pos.x <= mx.x &&
+            tr->pos.y >= mn.y && tr->pos.y <= mx.y &&
+            tr->pos.z >= mn.z && tr->pos.z <= mx.z) {
+            out_blocker = id;
+            found = true;
+        }
+    });
+
+    return found;
 }

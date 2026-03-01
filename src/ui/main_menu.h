@@ -7,8 +7,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 struct MainMenuResult {
-    bool play_clicked = false;
-    bool exit_clicked = false;
+    bool play_clicked         = false;
+    bool char_create_clicked  = false;  // TG SS13-style "Setup Character" button
+    bool exit_clicked         = false;
 };
 
 class MainMenu {
@@ -30,7 +31,7 @@ private:
     UIRenderer& m_ui;
     double      m_time = 0.0;
 
-    static constexpr float BTN_W = 260.f;
-    static constexpr float BTN_H = 52.f;
-    static constexpr float BTN_GAP = 16.f;
+    static constexpr float BTN_W   = 260.f;
+    static constexpr float BTN_H   = 48.f;
+    static constexpr float BTN_GAP  = 12.f;
 };
