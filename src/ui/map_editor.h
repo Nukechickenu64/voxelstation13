@@ -60,13 +60,17 @@ struct UndoOp {
 //   Ctrl+Z / Ctrl+Y — undo / redo (voxels + model objects; entity spawns undo-only)
 //   Ctrl+S          — save map (voxels+items+mobs+objects) to maps/current.json
 //   Ctrl+L          — load map from maps/current.json
-//   Escape / F7     — close editor
+//   Escape / F7     — close editor (also cancels paste mode)
 //
 // Voxels tab:
 //   LMB drag        — Brush paint
 //   RMB drag        — Erase (air)
-//   Shift+LMB drag  — Rectangle fill
+//   Shift+LMB drag  — Rectangle fill (sets selection on release)
 //   B / F / R       — Brush / Fill / Rect tool
+//   Q / E           — cycle paint orientation −90° / +90° (N→E→S→W)
+//   Alt+LMB         — Eyedropper: pick type + orientation under cursor
+//   Ctrl+C          — Copy selection rect to clipboard (after any Rect fill)
+//   Ctrl+V          — Enter paste mode; LMB on grid to confirm paste
 //
 // Objects tab:
 //   Q / E           — rotate placement yaw -90° / +90°
@@ -141,6 +145,10 @@ private:
     bool do_redo();
     bool do_fill(glm::ivec2 start_cell);
 
+    // ── Copy / paste ──────────────────────────────────────────────────────────
+    void do_copy();   // copies m_sel_min..m_sel_max at m_layer into clipboard
+    bool do_paste(glm::ivec2 anchor);  // writes clipboard at anchor, returns true if any edit
+
     // ── Core references ───────────────────────────────────────────────────────
     UIRenderer&         m_ui;
     World&              m_world;
@@ -168,6 +176,10 @@ private:
     uint8_t  m_paint_orientation   = 0;   // 0-3 applied when painting voxels
     std::vector<std::pair<uint16_t, const VoxelTypeDef*>> m_vox_palette;
     float    m_vox_scroll = 0.f;
+    // Palette search filter
+    std::string m_vox_filter;              // current filter string (lowercase)
+    bool        m_letter_prev[26] = {};    // prev-frame state per letter A-Z
+    bool        m_backspace_prev  = false;
 
     // ── Item palette ──────────────────────────────────────────────────────────
     std::string                  m_selected_item_id;
@@ -209,6 +221,19 @@ private:
     bool       m_rect_active = false;
     glm::ivec2 m_rect_origin = {};
 
+    // Persistent selection (set when any rect op completes, Ctrl+C copies it)
+    bool       m_sel_active  = false;
+    glm::ivec2 m_sel_min     = {};   // world-space inclusive min (x,z)
+    glm::ivec2 m_sel_max     = {};   // world-space inclusive max (x,z)
+
+    // Copy / paste clipboard
+    struct ClipCell { int dx; int dz; Voxel v; };
+    std::vector<ClipCell> m_clipboard;
+    int  m_clip_w        = 0;   // width  of copied region
+    int  m_clip_d        = 0;   // depth  of copied region
+    bool m_has_clipboard = false;
+    bool m_paste_mode    = false;  // LMB on grid confirms paste at cursor
+
     // ── Internal key prev-state ───────────────────────────────────────────────
     bool m_prev_z_key = false;
     bool m_prev_y_key = false;
@@ -218,6 +243,8 @@ private:
     bool m_prev_q_key   = false;
     bool m_prev_e_key   = false;
     bool m_prev_alt_key = false;
+    bool m_prev_c_key   = false;
+    bool m_prev_v_key   = false;
 
     // ── Status ────────────────────────────────────────────────────────────────
     std::string m_status_msg;

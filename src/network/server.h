@@ -2,6 +2,7 @@
 #include "core/world.h"
 #include "core/entity_manager.h"
 #include "simulation/atmos.h"
+#include "simulation/liquids.h"
 #include "simulation/power.h"
 #include "simulation/pipes.h"
 #include "simulation/physics.h"
@@ -59,10 +60,17 @@ public:
     EntityID spawn_player(const std::string& species = "human");
     void     remove_player(EntityID id);
 
-    World&          world()    { return *m_world; }
-    EntityManager&  entities() { return *m_entities; }
-    PhysicsSystem&  physics()  { return *m_physics; }
-    AtmosSimulator& atmos()    { return *m_atmos; }
+    // Spawn an autonomous NPC mob at the given world position.
+    // Adds NpcAiComponent so the entity wanders automatically.
+    // species must exist in the MobSpeciesRegistry (set_species_registry).
+    EntityID spawn_npc(const std::string& species, glm::vec3 pos, float yaw = 0.f,
+                       const std::string& name = "");
+
+    World&           world()   { return *m_world; }
+    EntityManager&   entities(){ return *m_entities; }
+    PhysicsSystem&   physics() { return *m_physics; }
+    AtmosSimulator&  atmos()   { return *m_atmos; }
+    LiquidSimulator& liquids() { return *m_liquids; }
 
     // Pass a ModelObjectManager to physics (mob collision) and atmos (gas flow).
     // Must be called before the first tick.  Pointer must outlive this Server.
@@ -87,12 +95,13 @@ private:
     void send_to(NetAddress addr, PacketType type,
                  const void* data, size_t len);
 
-    std::unique_ptr<World>          m_world;
-    std::unique_ptr<EntityManager>  m_entities;
-    std::unique_ptr<AtmosSimulator> m_atmos;
-    std::unique_ptr<PowerGrid>      m_power;
-    std::unique_ptr<PipeNetwork>    m_pipes;
-    std::unique_ptr<PhysicsSystem>  m_physics;
+    std::unique_ptr<World>           m_world;
+    std::unique_ptr<EntityManager>   m_entities;
+    std::unique_ptr<AtmosSimulator>  m_atmos;
+    std::unique_ptr<LiquidSimulator> m_liquids;
+    std::unique_ptr<PowerGrid>       m_power;
+    std::unique_ptr<PipeNetwork>     m_pipes;
+    std::unique_ptr<PhysicsSystem>   m_physics;
 
     MobSpeciesRegistry* m_species_reg = nullptr;
 
@@ -100,6 +109,7 @@ private:
 
     double m_atmos_acc = 0.0;  // accumulated dt for fixed-rate atmos ticks
     static constexpr double ATMOS_TICK_DT = 1.0 / 20.0;  // 20 Hz
+    // Liquid accumulator is internal to LiquidSimulator (LIQUID_TICK_DT = 0.5 s)
 
     struct Peer {
         NetAddress addr;

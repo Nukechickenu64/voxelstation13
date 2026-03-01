@@ -141,6 +141,15 @@ AttackResult attack_chain(AttackContext& ctx,
         if (hp->dead) {
             signals.send_signal(ctx.target, COMSIG_MOB_LIVING_DEATH,
                 SigDeath{ ctx.attacker });
+            // Attach CorpseComponent so the body can be examined, dragged, or revived.
+            if (!entities.get_component<CorpseComponent>(ctx.target)) {
+                CorpseComponent corpse{};
+                if (ctx.weapon && ctx.weapon->def)
+                    corpse.cause_of_death = ctx.weapon->def->name;
+                else
+                    corpse.cause_of_death = "blunt force trauma";
+                entities.add_component<CorpseComponent>(ctx.target, corpse);
+            }
         } else {
             signals.send_signal(ctx.target, COMSIG_MOB_HEALTHUPDATE,
                 SigAttacked{ ctx.attacker, dmg, dmg_type, true });

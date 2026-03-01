@@ -18,6 +18,7 @@ struct VoxelTypeDef {
     std::string          material;
     std::string          on_hit;       // verb handler name
     std::string          on_walk;      // verb handler name
+    std::string          pry_item;     // item ID spawned when crowbar pries this voxel ("" = not pryable)
     uint8_t              emit_light    = 0;   // 0-15
     uint8_t              emit_r        = 255; // light color red   (0-255)
     uint8_t              emit_g        = 255; // light color green (0-255)
@@ -29,6 +30,13 @@ struct VoxelTypeDef {
     std::string          tex_sides;   // PosX/NegX/PosZ/NegZ faces
     // Layer indices into texture atlas per face direction (populated by Renderer)
     std::array<uint16_t, static_cast<int>(FaceDir::COUNT)> atlas_indices{};
+
+    // Bitmask connectivity sprites (VFLAG_BITMASK_FLAT types: wires, pipes).
+    // bitmask_icon_tpl = path template, e.g. "tiles/wire_{n}", where {n} is replaced
+    // by 0..bitmask_count-1.  bitmask_atlas_base is the atlas layer of variant 0.
+    std::string bitmask_icon_tpl;       // path template (empty = not a bitmask type)
+    uint8_t     bitmask_count      = 0; // number of variants, typically 16
+    uint16_t    bitmask_atlas_base = 0; // filled by Renderer::load_tile_textures()
 };
 
 // Loads all voxel type JSON files, resolves prototype chains, and

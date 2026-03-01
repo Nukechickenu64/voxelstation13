@@ -1,0 +1,12 @@
+{
+  "species": "mouse",
+  "name": "Mouse",
+  "health_max": 20,
+  "move_speed": 3.5,
+  "sprint_mult": 2.5,
+  "jump_vel": 4.0,
+  "height": 0.45,
+  "radius": 0.15,
+  "damage_types": ["brute", "burn", "tox", "oxy"],
+  "slots": []
+}

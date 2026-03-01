@@ -12,7 +12,8 @@
     "icon":  "tiles/floor_dark",
     "flags": ["SOLID", "OPAQUE"],
     "health": 200,
-    "material": "steel"
+    "material": "steel",
+    "pry_item": "steel_tile"
   },
   {
     "id":    "wall",
@@ -46,6 +47,52 @@
     "flags": ["SOLID", "OPAQUE"],
     "health": 150,
     "material": "steel"
+  },
+  {
+    "id":    "floor_monk_steel",
+    "name":  "Monk Steel Floor",
+    "icon":  "tiles/floor_monk_steel",
+    "flags": ["SOLID", "OPAQUE"],
+    "health": 200,
+    "material": "steel",
+    "pry_item": "steel_tile"
+  },
+  {
+    "id":    "floor_monk_maint",
+    "name":  "Monk Maintenance Floor",
+    "icon":  "tiles/floor_monk_maint",
+    "flags": ["SOLID", "OPAQUE"],
+    "health": 180,
+    "material": "steel",
+    "pry_item": "steel_tile"
+  },
+  {
+    "id":    "plating_monk",
+    "name":  "Monk Plating",
+    "icon":  "tiles/plating_monk",
+    "flags": ["SOLID", "OPAQUE"],
+    "health": 150,
+    "material": "steel"
+  },
+  {
+    "id":    "wire",
+    "name":  "Power Wire",
+    "icon":  "tiles/wire_0",
+    "flags": ["FLAT_PLANE", "BITMASK_FLAT"],
+    "health": 20,
+    "material": "copper",
+    "bitmask_icon_tpl": "tiles/wire_{n}",
+    "bitmask_count": 16
+  },
+  {
+    "id":    "pipe",
+    "name":  "Atmos Pipe",
+    "icon":  "tiles/pipe_0",
+    "flags": ["FLAT_PLANE", "BITMASK_FLAT"],
+    "health": 50,
+    "material": "steel",
+    "bitmask_icon_tpl": "tiles/pipe_{n}",
+    "bitmask_count": 16
   },
   {
     "id":    "catwalk",
@@ -109,5 +156,59 @@
     "flags": ["SOLID", "OPAQUE"],
     "health": 150,
     "material": "steel"
+  },
+  {
+    "id":    "floor_white",
+    "name":  "White Floor Tile",
+    "icon":  "tiles/floor_white",
+    "flags": ["SOLID", "OPAQUE"],
+    "health": 200,
+    "material": "plastic",
+    "pry_item": "white_tile"
+  },
+  {
+    "id":    "floor_grey",
+    "name":  "Grey Floor Tile",
+    "icon":  "tiles/floor_grey",
+    "flags": ["SOLID", "OPAQUE"],
+    "health": 200,
+    "material": "plastic",
+    "pry_item": "grey_tile"
+  },
+  {
+    "id":    "floor_wood",
+    "name":  "Wood Floor",
+    "icon":  "tiles/floor_wood",
+    "flags": ["SOLID", "OPAQUE"],
+    "health": 150,
+    "material": "wood",
+    "pry_item": "wood_tile"
+  },
+  {
+    "id":    "floor_carpet",
+    "name":  "Carpet Floor",
+    "icon":  "tiles/floor_carpet",
+    "flags": ["SOLID", "OPAQUE"],
+    "health": 100,
+    "material": "cloth",
+    "pry_item": "carpet_tile"
+  },
+  {
+    "id":    "floor_freezer",
+    "name":  "Freezer Floor Tile",
+    "icon":  "tiles/floor_freezer",
+    "flags": ["SOLID", "OPAQUE"],
+    "health": 200,
+    "material": "plastic",
+    "pry_item": "freezer_tile"
+  },
+  {
+    "id":    "floor_green",
+    "name":  "Green Floor Tile",
+    "icon":  "tiles/floor_green",
+    "flags": ["SOLID", "OPAQUE"],
+    "health": 200,
+    "material": "plastic",
+    "pry_item": "green_tile"
   }
 ]

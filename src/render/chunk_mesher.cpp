@@ -8,12 +8,17 @@ void ChunkMesher::set_registry(const VoxelRegistry* reg)
 {
     m_registry = reg;
     m_cached_atlas.reset(); // will be rebuilt lazily on next enqueue
+    m_cached_bitmask_atlas.reset();
     if (m_registry) rebuild_atlas();
 }
 
 void ChunkMesher::rebuild_atlas()
 {
-    if (!m_registry) { m_cached_atlas.reset(); return; }
+    if (!m_registry) {
+        m_cached_atlas.reset();
+        m_cached_bitmask_atlas.reset();
+        return;
+    }
     const auto& all = m_registry->all();
     uint16_t max_id = 0;
     for (const auto& [id, def] : all)
@@ -24,6 +29,13 @@ void ChunkMesher::rebuild_atlas()
     for (const auto& [id, def] : all)
         (*atlas)[id] = def.atlas_indices;
     m_cached_atlas = std::move(atlas);
+
+    // Build per-type bitmask connectivity atlas (base layer for VFLAG_BITMASK_FLAT types).
+    auto bm = std::make_shared<BitmaskAtlasTable>(static_cast<size_t>(max_id) + 1, 0u);
+    for (const auto& [id, def] : all)
+        if (def.bitmask_count > 0 && def.bitmask_atlas_base > 0)
+            (*bm)[id] = def.bitmask_atlas_base;
+    m_cached_bitmask_atlas = std::move(bm);
 
     // Rebuild the per-type emissive flag table (true = voxel emits light).
     auto emit = std::make_shared<EmitTable>(static_cast<size_t>(max_id) + 1, false);
@@ -84,8 +96,9 @@ void ChunkMesher::enqueue(glm::ivec3 chunk_pos, const World& world)
     }
 
     // Reuse the cached atlas (built once in set_registry) — pointer copy only.
-    job.type_atlas  = m_cached_atlas;
-    job.emit_table  = m_emit_table;
+    job.type_atlas    = m_cached_atlas;
+    job.bitmask_atlas = m_cached_bitmask_atlas;
+    job.emit_table    = m_emit_table;
 
     // Take a fresh LightMap snapshot for this single-chunk enqueue.
     if (m_lighting) {
@@ -126,9 +139,10 @@ void ChunkMesher::enqueue_batch(const std::vector<Chunk*>& chunks, const World& 
         Job job;
         job.chunk_pos  = chunk_pos;
         job.generation = gen;
-        job.type_atlas   = m_cached_atlas;   // shared — pointer copy
-        job.light_colors = shared_lightmap;  // shared — pointer copy
-        job.emit_table   = m_emit_table;     // shared — pointer copy
+        job.type_atlas    = m_cached_atlas;   // shared — pointer copy
+        job.bitmask_atlas = m_cached_bitmask_atlas; // shared — pointer copy
+        job.light_colors  = shared_lightmap;  // shared — pointer copy
+        job.emit_table    = m_emit_table;     // shared — pointer copy
 
         for (int z = 0; z < CHUNK_SIZE; ++z)
             for (int y = 0; y < CHUNK_SIZE; ++y)
@@ -304,16 +318,17 @@ void ChunkMesher::worker_loop()
         static const float k_uvs[4][2] = {
             {0.f, 0.f}, {1.f, 0.f}, {1.f, 1.f}, {0.f, 1.f}
         };
-        // NegX face (f==1) has its y-vertices in reverse order relative to all
-        // other side faces, causing the texture to appear upside down.  Flip V
-        // for that face only so every cube wall shares the same orientation.
+        // PosX, PosZ, NegZ faces start their vertex list at y=0 (bottom of the
+        // voxel), which maps to v=0 (top of the texture), making the texture
+        // appear upside down.  NegX uniquely starts at y=1 and is already
+        // correct.  Flip V for the three affected side faces.
         static const bool k_face_flip_v[6] = {
-            false, // PosX
-            true,  // NegX — fix upside-down texture
+            true,  // PosX — fix upside-down texture
+            false, // NegX — already correct (starts at y=1)
             false, // PosY
             false, // NegY
-            false, // PosZ
-            false, // NegZ
+            true,  // PosZ — fix upside-down texture
+            true,  // NegZ — fix upside-down texture
         };
 
         // ── Vertex ambient occlusion ──────────────────────────────────────────
@@ -438,11 +453,29 @@ void ChunkMesher::worker_loop()
                                 && !(at(nx2, ny2, nz2).flags & (VFLAG_FLAT_PLANE | VFLAG_FLAT_TOP | VFLAG_VERT_PLANE_Z));
                     if (blocked) continue;
                     const FaceGeo& fg = k_flat[fi];
-                    // Flat planes are horizontal — use PosY (top) or NegY (bottom) atlas slot
-                    const float tex_idx = atlas_idx(
-                        v.type_id,
-                        fi == 0 ? static_cast<int>(FaceDir::PosY)
-                                : static_cast<int>(FaceDir::NegY));
+                    // Flat planes are horizontal — use PosY (top) or NegY (bottom) atlas slot.
+                    // VFLAG_BITMASK_FLAT types (wires, pipes) pick sprite by local connectivity
+                    // bitmask (1=S, 2=N, 4=E, 8=W) sampled at render time.
+                    const float tex_idx = [&]() -> float {
+                        if (job.bitmask_atlas
+                            && v.type_id < static_cast<uint16_t>(job.bitmask_atlas->size())
+                            && (*job.bitmask_atlas)[v.type_id] != 0) {
+                            uint8_t mask = 0;
+                            auto connects_to_same = [&](int sx, int sy, int sz) -> bool {
+                                const Voxel& nb = sample(sx, sy, sz);
+                                return nb.type_id == v.type_id;
+                            };
+                            if (connects_to_same(x,     y, z + 1)) mask |= 1; // south
+                            if (connects_to_same(x,     y, z - 1)) mask |= 2; // north
+                            if (connects_to_same(x + 1, y, z    )) mask |= 4; // east
+                            if (connects_to_same(x - 1, y, z    )) mask |= 8; // west
+                            return static_cast<float>(
+                                (*job.bitmask_atlas)[v.type_id] + mask);
+                        }
+                        return atlas_idx(v.type_id,
+                            fi == 0 ? static_cast<int>(FaceDir::PosY)
+                                    : static_cast<int>(FaceDir::NegY));
+                    }();
                     uint32_t base2 = static_cast<uint32_t>(mesh.vertices.size() / 13);
                     for (int vi = 0; vi < 4; ++vi) {
                         const int flat_verts[3] = {

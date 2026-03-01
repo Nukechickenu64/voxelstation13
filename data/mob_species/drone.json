@@ -1,0 +1,15 @@
+{
+  "species": "drone",
+  "name": "Maintenance Drone",
+  "health_max": 60,
+  "move_speed": 1.8,
+  "sprint_mult": 1.0,
+  "jump_vel": 0.0,
+  "height": 0.85,
+  "radius": 0.3,
+  "damage_types": ["brute", "burn"],
+  "slots": [
+    { "id": "tool_l", "accepts": ["*"] },
+    { "id": "tool_r", "accepts": ["*"] }
+  ]
+}

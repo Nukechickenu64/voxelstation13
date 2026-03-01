@@ -2,6 +2,7 @@
 #include "data/map_io.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <climits>
 #include <cstring>
@@ -45,7 +46,14 @@ void MapEditor::open(glm::vec3 player_pos)
     m_rect_active = false;
     m_undo_stack.clear();
     m_redo_stack.clear();
-    m_place_yaw = 0.f;
+    m_place_yaw   = 0.f;
+    m_sel_active  = false;
+    m_paste_mode  = false;
+    m_has_clipboard = false;
+    m_clipboard.clear();
+    m_vox_filter.clear();
+    std::fill(std::begin(m_letter_prev), std::end(m_letter_prev), false);
+    m_backspace_prev = false;
 
     // ── Build voxel palette ───────────────────────────────────────────────────
     m_vox_palette.clear();
@@ -294,6 +302,60 @@ bool MapEditor::do_fill(glm::ivec2 start_cell) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Copy selection region → clipboard
+// ─────────────────────────────────────────────────────────────────────────────
+void MapEditor::do_copy()
+{
+    if (!m_sel_active) {
+        m_status_msg   = "[ERR] No selection to copy (finish a Rect first)";
+        m_status_timer = 2.f;
+        return;
+    }
+    m_clipboard.clear();
+    m_clip_w = m_sel_max.x - m_sel_min.x + 1;
+    m_clip_d = m_sel_max.y - m_sel_min.y + 1;
+
+    for (int iz = m_sel_min.y; iz <= m_sel_max.y; ++iz) {
+        for (int ix = m_sel_min.x; ix <= m_sel_max.x; ++ix) {
+            Voxel v = m_world.get_voxel({ix, m_layer, iz});
+            m_clipboard.push_back({ ix - m_sel_min.x, iz - m_sel_min.y, v });
+        }
+    }
+    m_has_clipboard = true;
+    m_status_msg   = "[OK] Copied " + std::to_string(m_clip_w) + "x"
+                   + std::to_string(m_clip_d) + " cells";
+    m_status_timer = 1.5f;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Paste clipboard at anchor (top-left corner in world)
+// ─────────────────────────────────────────────────────────────────────────────
+bool MapEditor::do_paste(glm::ivec2 anchor)
+{
+    if (!m_has_clipboard || m_clipboard.empty()) return false;
+    UndoOp op;
+    for (const auto& cc : m_clipboard) {
+        glm::ivec3 pos{ anchor.x + cc.dx, m_layer, anchor.y + cc.dz };
+        Voxel cur = m_world.get_voxel(pos);
+        if (cur.type_id != cc.v.type_id || cur.orientation != cc.v.orientation) {
+            op.edits.push_back({pos, cur, cc.v});
+            m_world.set_voxel(pos, cc.v);
+        }
+    }
+    if (!op.edits.empty()) {
+        m_status_msg   = "[OK] Pasted " + std::to_string(op.edits.size()) + " cells";
+        m_status_timer = 1.5f;
+        push_undo(std::move(op));
+        // Update selection to match pasted region
+        m_sel_active = true;
+        m_sel_min    = anchor;
+        m_sel_max    = { anchor.x + m_clip_w - 1, anchor.y + m_clip_d - 1 };
+        return true;
+    }
+    return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Top bar
 // ─────────────────────────────────────────────────────────────────────────────
 void MapEditor::draw_top_bar()
@@ -315,19 +377,25 @@ void MapEditor::draw_top_bar()
 
     // Tool indicator (Voxels tab only)
     if (m_tab == EditorTab::Voxels) {
-        const char* tname = (m_tool == EditorTool::Brush) ? "BRUSH [B]"
-                          : (m_tool == EditorTool::Fill)  ? "FILL  [F]"
-                                                          : "RECT  [R]";
-        glm::vec4 tcol = (m_tool == EditorTool::Brush) ? glm::vec4{0.55f, 1.0f, 0.65f, 1.f}
-                       : (m_tool == EditorTool::Fill)  ? glm::vec4{1.0f, 0.75f, 0.30f, 1.f}
-                                                       : glm::vec4{0.45f, 0.85f, 1.0f, 1.f};
-        m_ui.text({390.f, 9.f}, tname, tcol, 13.f);
+        if (m_paste_mode) {
+            // Paste mode takes over the tool area
+            m_ui.text({390.f, 9.f}, "PASTE [LMB=place  ESC=cancel]",
+                      {0.7f, 1.0f, 0.5f, 1.f}, 13.f);
+        } else {
+            const char* tname = (m_tool == EditorTool::Brush) ? "BRUSH [B]"
+                              : (m_tool == EditorTool::Fill)  ? "FILL  [F]"
+                                                              : "RECT  [R]";
+            glm::vec4 tcol = (m_tool == EditorTool::Brush) ? glm::vec4{0.55f, 1.0f, 0.65f, 1.f}
+                           : (m_tool == EditorTool::Fill)  ? glm::vec4{1.0f, 0.75f, 0.30f, 1.f}
+                                                           : glm::vec4{0.45f, 0.85f, 1.0f, 1.f};
+            m_ui.text({390.f, 9.f}, tname, tcol, 13.f);
 
-        // Paint orientation indicator
-        const char* ori_names[4] = { "N", "E", "S", "W" };
-        char oribuf[32];
-        std::snprintf(oribuf, sizeof(oribuf), "Ori:%s [Q/E]", ori_names[m_paint_orientation & 3]);
-        m_ui.text({480.f, 9.f}, oribuf, {0.85f, 0.75f, 0.40f, 0.9f}, 12.f);
+            // Paint orientation indicator
+            const char* ori_names[4] = { "N", "E", "S", "W" };
+            char oribuf[32];
+            std::snprintf(oribuf, sizeof(oribuf), "Ori:%s [Q/E]", ori_names[m_paint_orientation & 3]);
+            m_ui.text({480.f, 9.f}, oribuf, {0.85f, 0.75f, 0.40f, 0.9f}, 12.f);
+        }
     }
 
     // Undo/redo depth indicator
@@ -347,7 +415,7 @@ void MapEditor::draw_top_bar()
     }
 
     // Ctrl+S / Ctrl+L hints
-    m_ui.text({fb_w - 370.f, 9.f}, "^S Save  ^L Load  ^Z Undo  ^Y Redo  F7/ESC Close",
+    m_ui.text({fb_w - 465.f, 9.f}, "^S Save  ^L Load  ^Z Undo  ^Y Redo  ^C Copy  ^V Paste  Alt+LMB Pick  F7/ESC Close",
               {0.5f, 0.6f, 0.75f, 0.75f}, 11.f);
 }
 
@@ -463,10 +531,42 @@ void MapEditor::draw_palette_voxels(glm::vec2 cursor, bool lmb_pressed)
     const float panel_y0 = TOP_H + TAB_H;
     const float avail_h  = fb_h - TOP_H - TAB_H - BOT_H;
 
-    // "Erase (Air)" entry
+    // ── Filter input box ─────────────────────────────────────────────────────
+    static constexpr float FILTER_H = 22.f;
     {
-        const float iy = panel_y0 + 4.f - m_vox_scroll;
-        if (iy >= panel_y0 && iy < panel_y0 + avail_h - PAL_ITEM_H) {
+        bool focused = (cursor.x >= 0.f && cursor.x < PAL_W);
+        glm::vec4 box_col = focused ? glm::vec4{0.12f,0.18f,0.30f,1.f}
+                                    : glm::vec4{0.09f,0.11f,0.17f,0.85f};
+        glm::vec4 brd_col = focused ? glm::vec4{0.35f,0.55f,0.85f,0.85f}
+                                    : glm::vec4{0.20f,0.28f,0.45f,0.5f};
+        m_ui.rect({PAL_MARGIN, panel_y0 + 2.f},
+                  {PAL_W - PAL_MARGIN * 2.f, FILTER_H - 2.f}, box_col, 3.f);
+        // Border line (bottom only)
+        m_ui.line({PAL_MARGIN, panel_y0 + FILTER_H},
+                  {PAL_W - PAL_MARGIN, panel_y0 + FILTER_H}, brd_col, 1.f);
+
+        std::string display = m_vox_filter.empty() ? "filter..." : m_vox_filter + "|";
+        glm::vec4 txt_col = m_vox_filter.empty() ? glm::vec4{0.35f,0.45f,0.60f,0.65f}
+                                                  : glm::vec4{0.90f,0.95f,1.0f,1.f};
+        m_ui.text({PAL_MARGIN + 4.f, panel_y0 + 5.f}, display, txt_col, 11.f);
+
+        // Clear-filter hint
+        if (!m_vox_filter.empty()) {
+            m_ui.text({PAL_W - 28.f, panel_y0 + 5.f}, "BSP", {0.55f,0.65f,0.80f,0.7f}, 10.f);
+        }
+    }
+
+    // Area below filter box
+    const float list_y0  = panel_y0 + FILTER_H;
+    const float list_avail = avail_h - FILTER_H;
+
+    // Build case-insensitive filter (already lowercase in m_vox_filter)
+    bool filtering = !m_vox_filter.empty();
+
+    // "Erase (Air)" entry — only show when not filtering
+    if (!filtering) {
+        const float iy = list_y0 + 4.f - m_vox_scroll;
+        if (iy >= list_y0 && iy < list_y0 + list_avail - PAL_ITEM_H) {
             bool sel = (m_selected_voxel_id == 0);
             bool hov = cursor.x >= 0.f && cursor.x < PAL_W
                     && cursor.y >= iy  && cursor.y < iy + PAL_ITEM_H;
@@ -482,15 +582,30 @@ void MapEditor::draw_palette_voxels(glm::vec2 cursor, bool lmb_pressed)
         }
     }
 
-    const float item_y0 = panel_y0 + 4.f + PAL_ITEM_H + 2.f;
-    const int count = static_cast<int>(m_vox_palette.size());
-    for (int i = 0; i < count; ++i) {
-        const float iy = item_y0 + static_cast<float>(i) * (PAL_ITEM_H + 2.f) - m_vox_scroll;
-        if (iy + PAL_ITEM_H < panel_y0) continue;
-        if (iy > panel_y0 + avail_h)    break;
+    // Filtered type list
+    const float item_start = list_y0 + 4.f + (filtering ? 0.f : PAL_ITEM_H + 2.f);
+    int drawn_idx = 0;
+    int match_count = 0;
+    const int total = static_cast<int>(m_vox_palette.size());
 
+    for (int i = 0; i < total; ++i) {
         uint16_t     tid = m_vox_palette[i].first;
         const auto*  def = m_vox_palette[i].second;
+
+        // Apply filter
+        if (filtering) {
+            std::string lname = def->name;
+            std::transform(lname.begin(), lname.end(), lname.begin(), ::tolower);
+            if (lname.find(m_vox_filter) == std::string::npos) continue;
+        }
+        ++match_count;
+
+        const float iy = item_start + static_cast<float>(drawn_idx) * (PAL_ITEM_H + 2.f) - m_vox_scroll;
+        ++drawn_idx;
+
+        if (iy + PAL_ITEM_H < list_y0) continue;
+        if (iy > list_y0 + list_avail)  break;
+
         bool sel = (m_selected_voxel_id == tid);
         bool hov = cursor.x >= 0.f && cursor.x < PAL_W
                 && cursor.y >= iy  && cursor.y < iy + PAL_ITEM_H;
@@ -508,8 +623,15 @@ void MapEditor::draw_palette_voxels(glm::vec2 cursor, bool lmb_pressed)
         if (hov && lmb_pressed) m_selected_voxel_id = tid;
     }
 
-    float total_h = static_cast<float>(count + 1) * (PAL_ITEM_H + 2.f) + 4.f;
-    draw_scrollbar(m_ui, PAL_W - 7.f, panel_y0, avail_h, total_h, m_vox_scroll);
+    // No-results message
+    if (filtering && match_count == 0) {
+        m_ui.text({PAL_MARGIN + 4.f, list_y0 + 10.f}, "no match",
+                  {0.55f,0.35f,0.35f,0.85f}, 11.f);
+    }
+
+    int count_for_scroll = filtering ? match_count : (total + 1);
+    float total_h = static_cast<float>(count_for_scroll) * (PAL_ITEM_H + 2.f) + 4.f;
+    draw_scrollbar(m_ui, PAL_W - 7.f, list_y0, list_avail, total_h, m_vox_scroll);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -955,8 +1077,70 @@ bool MapEditor::draw_grid(glm::vec2 cursor,
         m_ui.text(sl + glm::vec2(2.f, -14.f), dim, {1.f, 1.f, 0.5f, 0.9f}, 11.f);
     }
 
-    // ── Paint / erase / rect apply ──────────────────────────────────────────
-    if (cursor_in_grid && m_tab == EditorTab::Voxels) {
+    // ── Persistent selection outline (dashed-style via two overlapping lines) ─
+    if (m_sel_active && !m_rect_active && m_tab == EditorTab::Voxels) {
+        glm::vec2 sl = world_to_screen(static_cast<float>(m_sel_min.x),
+                                       static_cast<float>(m_sel_min.y));
+        glm::vec2 sr = world_to_screen(static_cast<float>(m_sel_max.x + 1),
+                                       static_cast<float>(m_sel_max.y + 1));
+        glm::vec4 sel_col{0.40f, 0.75f, 1.0f, 0.75f};
+        // Outer bright line
+        m_ui.line({sl.x, sl.y}, {sr.x, sl.y}, sel_col, 1.5f);
+        m_ui.line({sr.x, sl.y}, {sr.x, sr.y}, sel_col, 1.5f);
+        m_ui.line({sr.x, sr.y}, {sl.x, sr.y}, sel_col, 1.5f);
+        m_ui.line({sl.x, sr.y}, {sl.x, sl.y}, sel_col, 1.5f);
+        // Inner dark line for contrast
+        glm::vec4 dark{0.04f, 0.10f, 0.20f, 0.55f};
+        m_ui.line({sl.x+1.5f, sl.y+1.5f}, {sr.x-1.5f, sl.y+1.5f}, dark, 1.f);
+        m_ui.line({sr.x-1.5f, sl.y+1.5f}, {sr.x-1.5f, sr.y-1.5f}, dark, 1.f);
+        m_ui.line({sr.x-1.5f, sr.y-1.5f}, {sl.x+1.5f, sr.y-1.5f}, dark, 1.f);
+        m_ui.line({sl.x+1.5f, sr.y-1.5f}, {sl.x+1.5f, sl.y+1.5f}, dark, 1.f);
+
+        // Selection size label
+        char sdim[32];
+        std::snprintf(sdim, sizeof(sdim), "%dx%d  ^C",
+                      m_sel_max.x - m_sel_min.x + 1,
+                      m_sel_max.y - m_sel_min.y + 1);
+        m_ui.text(sl + glm::vec2(2.f, -14.f), sdim, sel_col, 11.f);
+    }
+
+    // ── Paste preview ────────────────────────────────────────────────────────
+    if (m_paste_mode && m_has_clipboard && cursor_in_grid) {
+        // Draw clipboard cells as semi-transparent overlay
+        for (const auto& cc : m_clipboard) {
+            int wx = hcell.x + cc.dx;
+            int wz = hcell.y + cc.dz;
+            glm::vec2 sc = world_to_screen(static_cast<float>(wx), static_cast<float>(wz));
+            if (sc.x + cdsz < gx0 || sc.x > gx1) continue;
+            if (sc.y + cdsz < gy0 || sc.y > gy1) continue;
+            glm::vec4 col = voxel_color(cc.v.type_id);
+            col.a = 0.65f;
+            m_ui.rect(sc, {cdsz, cdsz}, col);
+        }
+        // Paste region border
+        glm::vec2 pl = world_to_screen(static_cast<float>(hcell.x),
+                                       static_cast<float>(hcell.y));
+        glm::vec2 pr = world_to_screen(static_cast<float>(hcell.x + m_clip_w),
+                                       static_cast<float>(hcell.y + m_clip_d));
+        glm::vec4 paste_col{0.7f, 1.0f, 0.5f, 0.9f};
+        const float lw = 1.5f;
+        m_ui.line({pl.x, pl.y}, {pr.x, pl.y}, paste_col, lw);
+        m_ui.line({pr.x, pl.y}, {pr.x, pr.y}, paste_col, lw);
+        m_ui.line({pr.x, pr.y}, {pl.x, pr.y}, paste_col, lw);
+        m_ui.line({pl.x, pr.y}, {pl.x, pl.y}, paste_col, lw);
+        // Confirm hint
+        m_ui.text(pl + glm::vec2(2.f, -14.f), "LMB paste  ESC cancel",
+                  paste_col, 11.f);
+
+        // LMB to confirm
+        if (lmb_pressed) {
+            if (do_paste(hcell)) world_modified = true;
+            m_paste_mode = false;
+        }
+    }
+
+    // ── Paint / erase / rect apply (skipped in paste mode) ──────────────────
+    if (!m_paste_mode && cursor_in_grid && m_tab == EditorTab::Voxels) {
         const VoxelTypeDef* def = (m_selected_voxel_id != 0) ? m_voxel_reg.get(m_selected_voxel_id) : nullptr;
         Voxel paint_v;
         paint_v.type_id     = m_selected_voxel_id;
@@ -1069,6 +1253,10 @@ bool MapEditor::draw_grid(glm::vec2 cursor,
                     m_status_timer = 1.5f;
                     push_undo(std::move(op));
                 }
+                // Always record selection so Ctrl+C can copy it
+                m_sel_active = true;
+                m_sel_min    = { rx0, rz0 };
+                m_sel_max    = { rx1, rz1 };
                 m_rect_active = false;
             }
             if (!lmb_held) m_rect_active = false;
@@ -1155,7 +1343,13 @@ MapEditorResult MapEditor::draw(
 
     // ── Close check ──────────────────────────────────────────────────────────
     if (escape_pressed) {
-        result.request_close = true;
+        if (m_paste_mode) {
+            m_paste_mode   = false;
+            m_status_msg   = "Paste cancelled";
+            m_status_timer = 1.f;
+        } else {
+            result.request_close = true;
+        }
         return result;
     }
 
@@ -1237,15 +1431,32 @@ MapEditorResult MapEditor::draw(
         bool ctrl_i  = ks_i[SDL_SCANCODE_LCTRL] || ks_i[SDL_SCANCODE_RCTRL];
         bool z_now   = ctrl_i && ks_i[SDL_SCANCODE_Z];
         bool y_now   = ctrl_i && ks_i[SDL_SCANCODE_Y];
-        bool b_now   = ks_i[SDL_SCANCODE_B];
-        bool f_now   = ks_i[SDL_SCANCODE_F];
-        bool r_now   = ks_i[SDL_SCANCODE_R];
+        bool c_now   = ctrl_i && ks_i[SDL_SCANCODE_C];
+        bool v_now   = ctrl_i && ks_i[SDL_SCANCODE_V];
+        bool b_now   = !ctrl_i && ks_i[SDL_SCANCODE_B];
+        bool f_now   = !ctrl_i && ks_i[SDL_SCANCODE_F];
+        bool r_now   = !ctrl_i && ks_i[SDL_SCANCODE_R];
 
         bool q_now = ks_i[SDL_SCANCODE_Q];
         bool e_now = ks_i[SDL_SCANCODE_E];
 
         if (z_now && !m_prev_z_key) { if (do_undo()) result.world_modified = true; }
         if (y_now && !m_prev_y_key) { if (do_redo()) result.world_modified = true; }
+        // Ctrl+C: copy selection
+        if (c_now && !m_prev_c_key && m_tab == EditorTab::Voxels) {
+            do_copy();
+        }
+        // Ctrl+V: enter paste mode
+        if (v_now && !m_prev_v_key && m_tab == EditorTab::Voxels) {
+            if (m_has_clipboard) {
+                m_paste_mode   = true;
+                m_status_msg   = "Paste mode — LMB to place, ESC to cancel";
+                m_status_timer = 3.f;
+            } else {
+                m_status_msg   = "[ERR] Clipboard empty (use Rect tool + Ctrl+C first)";
+                m_status_timer = 2.f;
+            }
+        }
         if (b_now && !m_prev_b_key) { m_tool = EditorTool::Brush; m_status_msg = "Tool: Brush";  m_status_timer = 1.f; }
         if (f_now && !m_prev_f_key) { m_tool = EditorTool::Fill;  m_status_msg = "Tool: Fill";   m_status_timer = 1.f; }
         if (r_now && !m_prev_r_key) { m_tool = EditorTool::Rect;  m_status_msg = "Tool: Rect";   m_status_timer = 1.f; }
@@ -1273,11 +1484,42 @@ MapEditorResult MapEditor::draw(
 
         m_prev_z_key = z_now;
         m_prev_y_key = y_now;
+        m_prev_c_key = c_now;
+        m_prev_v_key = v_now;
         m_prev_b_key = b_now;
         m_prev_f_key = f_now;
         m_prev_r_key = r_now;
         m_prev_q_key = q_now;
         m_prev_e_key = e_now;
+
+        // ── Voxel palette filter: letters/backspace when cursor is in palette ──
+        if (m_tab == EditorTab::Voxels && !m_paste_mode
+                && cursor.x >= 0.f && cursor.x < PAL_W && !ctrl_i) {
+            bool bs_now = ks_i[SDL_SCANCODE_BACKSPACE];
+            if (bs_now && !m_backspace_prev) {
+                if (!m_vox_filter.empty()) {
+                    m_vox_filter.pop_back();
+                    m_vox_scroll = 0.f;
+                }
+            }
+            m_backspace_prev = bs_now;
+
+            // SDL_SCANCODE_A = 4, contiguous through Z = 29
+            for (int i = 0; i < 26; ++i) {
+                bool key_now = ks_i[static_cast<SDL_Scancode>(SDL_SCANCODE_A + i)];
+                if (key_now && !m_letter_prev[i]) {
+                    m_vox_filter += static_cast<char>('a' + i);
+                    m_vox_scroll  = 0.f;
+                }
+                m_letter_prev[i] = key_now;
+            }
+        } else {
+            // Keep prev states current even when not filtering (prevent spurious edges)
+            bool bs_now = ks_i[SDL_SCANCODE_BACKSPACE];
+            m_backspace_prev = bs_now;
+            for (int i = 0; i < 26; ++i)
+                m_letter_prev[i] = ks_i[static_cast<SDL_Scancode>(SDL_SCANCODE_A + i)];
+        }
     }
 
     // ── Shift / Alt state ────────────────────────────────────────────────────
@@ -1292,7 +1534,7 @@ MapEditorResult MapEditor::draw(
     // Grid first (bottom of the z-stack for UI)
 
     // Fill-tool dispatch: on LMB press over the grid area, trigger flood fill.
-    if (m_tool == EditorTool::Fill && lmb_pressed && cursor.x > PAL_W) {
+    if (!m_paste_mode && m_tool == EditorTool::Fill && lmb_pressed && cursor.x > PAL_W) {
         glm::ivec2 fc = hovered_cell(cursor);
         if (fc.x != INT_MIN_SENTINEL) {
             if (do_fill(fc)) result.world_modified = true;
@@ -1320,18 +1562,30 @@ MapEditorResult MapEditor::draw(
     // ── Palette scroll (process before draw_palette so current frame sees it) ────
     if (cursor.x < PAL_W && cursor.y > TOP_H && cursor.y < fb_h - BOT_H
         && scroll_y != 0.f) {
-        const float avail_h = fb_h - TOP_H - TAB_H - BOT_H;
-        auto clamp_scroll = [&](float& sv, int count) {
+        const float avail_h      = fb_h - TOP_H - TAB_H - BOT_H;
+        const float vox_list_h   = avail_h - 22.f;   // subtract filter box height
+        auto clamp_scroll = [&](float& sv, int count, float list_avail) {
             float total_h    = static_cast<float>(count) * (PAL_ITEM_H + 2.f) + 4.f;
-            float max_scroll = std::max(0.f, total_h - avail_h);
+            float max_scroll = std::max(0.f, total_h - list_avail);
             sv -= scroll_y * (PAL_ITEM_H + 2.f) * 2.f;
             sv  = std::clamp(sv, 0.f, max_scroll);
         };
+        // Count visible voxel items considering filter
+        int vox_count = 0;
+        if (!m_vox_filter.empty()) {
+            for (const auto& [id, def] : m_vox_palette) {
+                std::string lname = def->name;
+                std::transform(lname.begin(), lname.end(), lname.begin(), ::tolower);
+                if (lname.find(m_vox_filter) != std::string::npos) ++vox_count;
+            }
+        } else {
+            vox_count = static_cast<int>(m_vox_palette.size()) + 1;
+        }
         switch (m_tab) {
-            case EditorTab::Voxels:  clamp_scroll(m_vox_scroll,   (int)m_vox_palette.size() + 1); break;
-            case EditorTab::Items:   clamp_scroll(m_item_scroll,  (int)m_item_palette.size());     break;
-            case EditorTab::Mobs:    clamp_scroll(m_mob_scroll,   (int)m_mob_palette.size());      break;
-            case EditorTab::Objects: clamp_scroll(m_model_scroll, (int)m_model_names.size());      break;
+            case EditorTab::Voxels:  clamp_scroll(m_vox_scroll,   vox_count,                    vox_list_h); break;
+            case EditorTab::Items:   clamp_scroll(m_item_scroll,  (int)m_item_palette.size(),   avail_h);    break;
+            case EditorTab::Mobs:    clamp_scroll(m_mob_scroll,   (int)m_mob_palette.size(),    avail_h);    break;
+            case EditorTab::Objects: clamp_scroll(m_model_scroll, (int)m_model_names.size(),    avail_h);    break;
         }
     }
 

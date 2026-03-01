@@ -13,26 +13,52 @@ Chunk::Chunk(glm::ivec3 chunk_pos)
 
 Voxel Chunk::get(int lx, int ly, int lz) const
 {
-    return m_palette[m_data[idx(lx, ly, lz)]];
+    Voxel v = m_palette[m_data[idx(lx, ly, lz)]];
+    v.light_level = m_light_data[idx(lx, ly, lz)];
+    return v;
 }
 
 void Chunk::set(int lx, int ly, int lz, Voxel v)
 {
-    // Find or insert palette entry
+    int cell = idx(lx, ly, lz);
+
+    // Store light level in the flat buffer — NOT in the palette.
+    // This prevents palette explosion (air-at-level-0 through air-at-level-15
+    // would otherwise each become a separate palette entry).
+    if (m_light_data[cell] != v.light_level) {
+        m_light_data[cell] = v.light_level;
+        m_light_dirty = true;
+    }
+
+    // Palette comparison ignores light_level.
+    Voxel pal_v = v;
+    pal_v.light_level = 0;
+
     uint16_t pal_idx = 0;
     for (uint16_t i = 0; i < static_cast<uint16_t>(m_palette.size()); ++i) {
-        if (std::memcmp(&m_palette[i], &v, sizeof(Voxel)) == 0) {
+        if (std::memcmp(&m_palette[i], &pal_v, sizeof(Voxel)) == 0) {
             pal_idx = i;
             goto found;
         }
     }
     // Not found — add
     pal_idx = static_cast<uint16_t>(m_palette.size());
-    m_palette.push_back(v);
+    m_palette.push_back(pal_v);
 found:
-    m_data[idx(lx, ly, lz)] = pal_idx;
-    m_dirty = true;
+    if (m_data[cell] != pal_idx) {
+        m_data[cell] = pal_idx;
+        m_dirty = true;
+    }
     if (v.type_id != 0) m_all_air = false;
+}
+
+void Chunk::set_light(int lx, int ly, int lz, uint8_t lvl)
+{
+    int cell = idx(lx, ly, lz);
+    if (m_light_data[cell] != lvl) {
+        m_light_data[cell] = lvl;
+        m_light_dirty = true;
+    }
 }
 
 // ── World ─────────────────────────────────────────────────────────────────────
@@ -105,7 +131,6 @@ void World::set_voxel(glm::ivec3 pos, Voxel v)
     // When a voxel sits on a chunk boundary, the adjacent chunk's boundary
     // faces may have been culled by this voxel.  Mark those neighbours dirty
     // so they are re-meshed and the now-exposed faces become visible.
-    const int dirs[3][3] = {{1,0,0},{0,1,0},{0,0,1}};
     const int local[3]   = {lp.x, lp.y, lp.z};
     for (int axis = 0; axis < 3; ++axis) {
         if (local[axis] == 0) {
@@ -121,6 +146,15 @@ void World::set_voxel(glm::ivec3 pos, Voxel v)
             if (nb) nb->mark_dirty();
         }
     }
+}
+
+void World::set_light_level(glm::ivec3 pos, uint8_t lvl)
+{
+    glm::ivec3 cp = to_chunk_pos(pos);
+    Chunk* chunk = get_chunk(cp);
+    if (!chunk) return;
+    glm::ivec3 lp = to_local_pos(pos);
+    chunk->set_light(lp.x, lp.y, lp.z, lvl);
 }
 
 VoxelFace World::get_face(glm::ivec3 pos, FaceDir dir) const

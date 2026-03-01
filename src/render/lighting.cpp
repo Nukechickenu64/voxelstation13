@@ -119,8 +119,7 @@ void LightingSystem::propagate_sky(glm::ivec2 column)
         Voxel v = m_world.get_voxel(pos);
         if (v.type_id == 0) {
             if (sky > 0 && v.light_level < sky) {
-                v.light_level = sky;
-                m_world.set_voxel(pos, v);
+                m_world.set_light_level(pos, sky);
                 m_light_map.set(pos, sky_col);
             }
         } else if (v.flags & VFLAG_OPAQUE) {
@@ -174,8 +173,9 @@ void LightingSystem::bfs_add(glm::ivec3 pos, uint8_t level, LightColor color, bo
             }
             continue;
         }
-        v.light_level = l;
-        m_world.set_voxel(p, v);
+        // Use set_light_level (fast path) — avoids palette scan and only marks
+        // m_light_dirty, not m_dirty, so it doesn’t cause unnecessary remeshes.
+        m_world.set_light_level(p, l);
         m_light_map.set(p, col);
         if (l <= 1) continue;
         for (auto& d : k_dirs) {
@@ -196,8 +196,8 @@ void LightingSystem::bfs_remove_colored(glm::ivec3 pos, std::queue<glm::ivec3>& 
         Voxel v = m_world.get_voxel(pos);
         uint8_t lvl = v.light_level;
         if (lvl == 0) return;
-        v.light_level = 0;
-        m_world.set_voxel(pos, v);
+        // Fast path: only clears the light level, no palette scan.
+        m_world.set_light_level(pos, 0);
         m_light_map.set(pos, {255, 255, 255});
         rmQ.push({pos, lvl});
     }
@@ -211,8 +211,7 @@ void LightingSystem::bfs_remove_colored(glm::ivec3 pos, std::queue<glm::ivec3>& 
             if (nv.light_level == 0) continue;
             if (nv.light_level < l) {
                 uint8_t old_lvl = nv.light_level;
-                nv.light_level  = 0;
-                m_world.set_voxel(np, nv);
+                m_world.set_light_level(np, 0);
                 m_light_map.set(np, {255, 255, 255});
                 rmQ.push({np, old_lvl});
             } else {

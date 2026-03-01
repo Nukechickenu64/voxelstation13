@@ -33,6 +33,7 @@
     "stack_max":1,
     "two_handed": true,
     "verbs": [
+      { "name": "Pry",     "range": 1.5, "handler": "verb_pry_floor" },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }
     ]
   },

@@ -75,6 +75,7 @@ set(SRC_RENDER
 set(SRC_SIM
     src/simulation/atmos.cpp
     src/simulation/enclosure.cpp
+    src/simulation/liquids.cpp
     src/simulation/power.cpp
     src/simulation/pipes.cpp
     src/simulation/physics.cpp
@@ -82,6 +83,7 @@ set(SRC_SIM
     src/simulation/model_objects.cpp
     src/simulation/status_effects.cpp
     src/simulation/attack_chain.cpp
+    src/simulation/npc_ai.cpp
     src/simulation/reagents.cpp
     src/simulation/vehicle.cpp
     src/simulation/vehicle_manager.cpp

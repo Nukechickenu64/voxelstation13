@@ -679,6 +679,15 @@ bool Renderer::load_tile_textures(VoxelRegistry& reg, const char* texture_dir)
         return idx;
     };
 
+    // ── Phase 1.5: Reserve bitmask connectivity atlas blocks ──────────────────
+    // Consecutive extra layers for VFLAG_BITMASK_FLAT types (wires, pipes).
+    // Must run before Phase 2 so that num_layers is correct.
+    for (auto& [id, def] : reg.all_mutable()) {
+        if (def.bitmask_count == 0 || def.bitmask_icon_tpl.empty()) continue;
+        def.bitmask_atlas_base = next_extra;
+        next_extra += def.bitmask_count;
+    }
+
     // ── Phase 2: Assign atlas_indices for every voxel type ────────────────────
     for (const auto& [id, def] : all) {
         std::array<uint16_t, static_cast<int>(FaceDir::COUNT)> idx{};
@@ -764,6 +773,20 @@ bool Renderer::load_tile_textures(VoxelRegistry& reg, const char* texture_dir)
     // Extra layers: face-specific textures that differ from the base
     for (const auto& [path, layer] : extra_path_to_layer)
         load_layer(layer, path);
+
+    // Bitmask connectivity layers (VFLAG_BITMASK_FLAT types: wires, pipes).
+    // Each type gets bitmask_count consecutive layers starting at bitmask_atlas_base.
+    // The layer index = base + orientation (0-15 connectivity bitmask: bits S/N/E/W).
+    for (const auto& [id, def] : all) {
+        if (def.bitmask_count == 0 || def.bitmask_atlas_base == 0) continue;
+        for (uint8_t i = 0; i < def.bitmask_count; ++i) {
+            std::string tpl = def.bitmask_icon_tpl;
+            auto pos = tpl.find("{n}");
+            if (pos != std::string::npos)
+                tpl.replace(pos, 3, std::to_string(static_cast<int>(i)));
+            load_layer(def.bitmask_atlas_base + i, icon_path(tpl));
+        }
+    }
 
     // ── Create GPU 2D array texture ───────────────────────────────────────────
     SDL_GPUTextureCreateInfo tci{};

@@ -14,21 +14,31 @@ class Chunk {
 public:
     Chunk(glm::ivec3 chunk_pos);
 
-    Voxel  get(int lx, int ly, int lz) const;
-    void   set(int lx, int ly, int lz, Voxel v);
+    Voxel   get(int lx, int ly, int lz) const;
+    void    set(int lx, int ly, int lz, Voxel v);
+    // Light-only update: fast path that bypasses the palette scan.
+    // Marks m_light_dirty but not m_dirty (geometry is unchanged).
+    void    set_light(int lx, int ly, int lz, uint8_t lvl);
+    uint8_t get_light(int lx, int ly, int lz) const { return m_light_data[idx(lx, ly, lz)]; }
+
     bool   is_empty() const { return m_all_air; }
-    bool   is_dirty() const { return m_dirty; }
-    void   clear_dirty()    { m_dirty = false; }
+    // is_dirty() returns true when EITHER geometry OR lighting changed.
+    bool   is_dirty()       const { return m_dirty || m_light_dirty; }
+    bool   is_geom_dirty()  const { return m_dirty; }
+    bool   is_light_dirty() const { return m_light_dirty; }
+    void   clear_dirty()    { m_dirty = false; m_light_dirty = false; }
     void   mark_dirty()     { m_dirty = true;  }
     glm::ivec3 chunk_pos() const { return m_chunk_pos; }
 
 private:
     glm::ivec3 m_chunk_pos;
-    // Palette-compressed storage: palette[palette_index] = voxel
+    // Palette-compressed geometry storage (light_level NOT stored here).
     std::vector<Voxel>    m_palette;
-    std::vector<uint16_t> m_data;   // CHUNK_VOL entries into palette
-    bool m_dirty   = true;
-    bool m_all_air = true;
+    std::vector<uint16_t> m_data;             // CHUNK_VOL palette indices
+    uint8_t               m_light_data[CHUNK_VOL]{}; // per-cell light level 0-15
+    bool m_dirty       = true;
+    bool m_light_dirty = false;
+    bool m_all_air     = true;
 
     static int idx(int lx, int ly, int lz) {
         return lx + CHUNK_SIZE * (ly + CHUNK_SIZE * lz);
@@ -44,6 +54,9 @@ public:
     // Voxel access (world coordinates)
     Voxel  get_voxel(glm::ivec3 pos) const;
     void   set_voxel(glm::ivec3 pos, Voxel v);
+    // Light-only update — bypasses the chunk palette scan.
+    // Used by LightingSystem BFS to avoid O(palette) work per propagation step.
+    void   set_light_level(glm::ivec3 pos, uint8_t lvl);
 
     // Face access — derived on call; only simulation faces are persistent
     VoxelFace  get_face(glm::ivec3 pos, FaceDir dir) const;

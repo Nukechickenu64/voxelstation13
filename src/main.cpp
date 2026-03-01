@@ -450,6 +450,14 @@ int main(int /*argc*/, char* /*argv*/[])
             }
         }
 
+        // ── Spawn test NPC mobs ───────────────────────────────────────────────────────
+        // Three AI mobs that wander the test room.  Right-click any to examine,
+        // grab, drag, or attempt CPR after killing them.
+        server.spawn_npc("human",  { 3.f, 1.f,  3.f},   0.f, "Security Officer");
+        server.spawn_npc("human",  {-4.f, 1.f, -2.f}, 180.f, "Scientist");
+        server.spawn_npc("mouse",  { 2.f, 1.f,  5.f},  90.f, "Space Rat");
+        server.spawn_npc("drone",  {-5.f, 1.f,  0.f}, 270.f, "Maintenance Drone");
+
         // ── Atmospherics bootstrap ──────────────────────────────────────────
         // Build the initial room graph.  Must happen AFTER all voxels are
         // placed so the BFS sees the completed geometry.
@@ -585,7 +593,8 @@ int main(int /*argc*/, char* /*argv*/[])
 
                 // ── Character creation sub-screen ──────────────────────────────
                 if (mr.char_create_clicked) {
-                    CharacterCreator creator(ui_renderer, renderer.window(), player_profile);
+                    CharacterCreator creator(ui_renderer, renderer.window(), player_profile,
+                                             &mob_species_reg);
                     bool in_creator = true;
                     while (in_creator) {
                         SDL_Event ce;
@@ -643,11 +652,81 @@ int main(int /*argc*/, char* /*argv*/[])
                                          player_profile.skin_color.b, 255 };
                     }
                 }
+
+                // Remove any previously-applied face/hair/eye layers
+                app->layers.erase(
+                    std::remove_if(app->layers.begin(), app->layers.end(),
+                        [](const HumanOverlay& ov) {
+                            return ov.kind == HumanOverlayKind::Clothing &&
+                                   (ov.sprite_dir == "human/human_face" ||
+                                    ov.sprite_dir == "human/human_eyes");
+                        }),
+                    app->layers.end());
+
+                // Eye overlays (keys: human/human_eyes/{prefix}{_s/_n/_e/_w})
+                for (const char* eye_pfx : { "eyes_l", "eyes_r" }) {
+                    HumanOverlay eye{};
+                    eye.kind       = HumanOverlayKind::Clothing;
+                    eye.sprite_dir = "human/human_eyes";
+                    eye.prefix     = eye_pfx;
+                    eye.tint       = { player_profile.eye_color.r,
+                                       player_profile.eye_color.g,
+                                       player_profile.eye_color.b, 255 };
+                    app->layers.push_back(eye);
+                }
+
+                // Hair overlay
+                if (!player_profile.hair_file.empty()) {
+                    HumanOverlay hair{};
+                    hair.kind       = HumanOverlayKind::Clothing;
+                    hair.sprite_dir = "human/human_face";
+                    hair.prefix     = player_profile.hair_file;
+                    hair.tint       = { player_profile.hair_color.r,
+                                        player_profile.hair_color.g,
+                                        player_profile.hair_color.b, 255 };
+                    app->layers.push_back(hair);
+                }
+
+                // Facial hair overlay (male only)
+                if (player_profile.is_male && !player_profile.facial_file.empty()) {
+                    HumanOverlay fh{};
+                    fh.kind       = HumanOverlayKind::Clothing;
+                    fh.sprite_dir = "human/human_face";
+                    fh.prefix     = player_profile.facial_file;
+                    fh.tint       = { player_profile.facial_color.r,
+                                      player_profile.facial_color.g,
+                                      player_profile.facial_color.b, 255 };
+                    app->layers.push_back(fh);
+                }
+
                 app->dirty = true;
             }
             // Update display name shown in examine / context menu
             auto* nc = server.entities().get_component<NameComponent>(player_ent);
             if (nc) nc->name = player_profile.name;
+
+            // Re-apply species stats (player was spawned as human by default;
+            // if a different species was chosen, overwrite with its stats now)
+            const MobSpeciesDef* sp_def = mob_species_reg.get(player_profile.species);
+            if (sp_def) {
+                auto* cc  = server.entities().get_component<CharacterControllerComponent>(player_ent);
+                auto* hpc = server.entities().get_component<HealthComponent>(player_ent);
+                if (cc) {
+                    cc->move_speed  = sp_def->move_speed;
+                    cc->sprint_mult = sp_def->sprint_mult;
+                    cc->jump_vel    = sp_def->jump_vel;
+                    cc->height      = std::min(sp_def->height - 0.1f, 0.9f);
+                    cc->radius      = sp_def->radius * 0.75f;
+                }
+                if (hpc) {
+                    hpc->health_max = sp_def->health_max;
+                    // Reset all damage buckets to full-health
+                    hpc->brute = hpc->burn = hpc->tox = hpc->oxy = 0.f;
+                }
+            }
+            // Update species tag
+            auto* tag = server.entities().get_component<MobPlayerTag>(player_ent);
+            if (tag) tag->species = player_profile.species;
         }
     }
 
@@ -1496,6 +1575,8 @@ int main(int /*argc*/, char* /*argv*/[])
                     auto* mob_hp = server.entities().get_component<HealthComponent>(rmb_mob);
                     auto* mob_se = server.entities().get_component<StatusEffectsComponent>(rmb_mob);
                     auto* mob_gc = server.entities().get_component<GrabbedComponent>(rmb_mob);
+                    auto* mob_co = server.entities().get_component<CorpseComponent>(rmb_mob);
+                    auto* mob_dg = server.entities().get_component<DragComponent>(rmb_mob);
 
                     std::string mob_name = mob_nc ? mob_nc->name : "Unknown";
                     std::string mob_desc = mob_nc ? mob_nc->desc : "";
@@ -1504,7 +1585,11 @@ int main(int /*argc*/, char* /*argv*/[])
                     bool  is_dead  = mob_hp && mob_hp->dead;
                     bool  is_stun  = mob_se && mob_se->is_stunned();
                     bool  is_kd    = mob_se && mob_se->is_knocked_down();
-                    bool already_grabbed = mob_gc && mob_gc->grabber == player;
+                    bool already_grabbed     = mob_gc && mob_gc->grabber == player;
+                    bool dragged_by_me       = mob_dg && mob_dg->dragger == player;
+                    float corpse_age         = mob_co ? mob_co->time_since_death : 0.f;
+                    bool  can_revive         = is_dead && (!mob_co || mob_co->can_be_revived);
+                    std::string cause_str    = mob_co ? mob_co->cause_of_death : "";
                     EntityID rmb_mob_id = rmb_mob;
 
                     std::vector<ContextEntry> entries;
@@ -1512,8 +1597,8 @@ int main(int /*argc*/, char* /*argv*/[])
                     // ── Examine ────────────────────────────────────────────────
                     entries.push_back({"Examine", true, false,
                         [&hud_state, mob_name, mob_desc,
-                         hp_cur, hp_max, is_dead, is_stun, is_kd]() {
-                            // Health status label (mirrors TG's examine_status_effects)
+                         hp_cur, hp_max, is_dead, is_stun, is_kd,
+                         corpse_age, cause_str, can_revive]() {
                             const char* hp_label =
                                 is_dead  ? "dead" :
                                 hp_cur <= hp_max * 0.25f ? "critically injured" :
@@ -1521,12 +1606,22 @@ int main(int /*argc*/, char* /*argv*/[])
                                 hp_cur <= hp_max * 0.75f ? "injured"            :
                                                            "healthy";
                             const char* stun_str = is_stun ? " [STUNNED]" : (is_kd ? " [DOWNED]" : "");
-                            char buf[220];
-                            std::snprintf(buf, sizeof(buf),
-                                "[Examine] %s — %s (%.0f/%.0f)%s%s",
-                                mob_name.c_str(), hp_label,
-                                hp_cur, hp_max, stun_str,
-                                mob_desc.empty() ? "" : (" | " + mob_desc).c_str());
+                            char buf[320];
+                            if (is_dead) {
+                                int age_min = static_cast<int>(corpse_age) / 60;
+                                int age_sec = static_cast<int>(corpse_age) % 60;
+                                std::snprintf(buf, sizeof(buf),
+                                    "[Examine] %s \xe2\x80\x94 dead for %dm%ds%s, cause: %s.",
+                                    mob_name.c_str(), age_min, age_sec,
+                                    can_revive ? " [REVIVABLE]" : " [BEYOND SAVING]",
+                                    cause_str.empty() ? "unknown" : cause_str.c_str());
+                            } else {
+                                std::snprintf(buf, sizeof(buf),
+                                    "[Examine] %s \xe2\x80\x94 %s (%.0f/%.0f)%s%s",
+                                    mob_name.c_str(), hp_label,
+                                    hp_cur, hp_max, stun_str,
+                                    mob_desc.empty() ? "" : (" | " + mob_desc).c_str());
+                            }
                             if (hud_state.radio_log.size() >= 30)
                                 hud_state.radio_log.pop_front();
                             hud_state.radio_log.push_back(buf);
@@ -1572,6 +1667,61 @@ int main(int /*argc*/, char* /*argv*/[])
                                     hud_state.radio_log.pop_front();
                                 hud_state.radio_log.push_back("[Grab] Released.");
                             }});
+                    }
+
+                    // ── Corpse interactions (Drag / CPR) ──────────────────────
+                    if (is_dead) {
+                        entries.push_back({"", false, true, nullptr}); // separator
+
+                        // Drag / Drop body
+                        if (!dragged_by_me) {
+                            entries.push_back({"Drag Body", true, false,
+                                [&server, rmb_mob_id, player, &hud_state]() {
+                                    server.entities().remove_component<DragComponent>(rmb_mob_id);
+                                    DragComponent dc{};
+                                    dc.dragger = player;
+                                    server.entities().add_component<DragComponent>(rmb_mob_id, dc);
+                                    if (hud_state.radio_log.size() >= 30)
+                                        hud_state.radio_log.pop_front();
+                                    hud_state.radio_log.push_back("[Drag] Dragging body.");
+                                }});
+                        } else {
+                            entries.push_back({"Drop Body", true, false,
+                                [&server, rmb_mob_id, &hud_state]() {
+                                    server.entities().remove_component<DragComponent>(rmb_mob_id);
+                                    if (hud_state.radio_log.size() >= 30)
+                                        hud_state.radio_log.pop_front();
+                                    hud_state.radio_log.push_back("[Drag] Body dropped.");
+                                }});
+                        }
+
+                        // CPR — only within 2 m and while still revivable
+                        if (can_revive && rmb_mob_dist <= 2.f) {
+                            entries.push_back({"Perform CPR", true, false,
+                                [&server, rmb_mob_id, &hud_state]() {
+                                    auto* hp_c = server.entities().get_component<HealthComponent>(rmb_mob_id);
+                                    if (!hp_c || !hp_c->dead) return;
+                                    bool success = (std::rand() % 10) < 3;  // 30% chance
+                                    if (success) {
+                                        hp_c->oxy   = std::max(0.f, hp_c->oxy   - 60.f);
+                                        hp_c->brute = std::max(0.f, hp_c->brute -  5.f);
+                                        if (hp_c->current() > 0.f) {
+                                            hp_c->dead = false;
+                                            server.entities().remove_component<CorpseComponent>(rmb_mob_id);
+                                            auto* cc_r = server.entities().get_component<CharacterControllerComponent>(rmb_mob_id);
+                                            if (cc_r) cc_r->mob_state = MobState::Softcrit;
+                                            signals().send_signal(rmb_mob_id, COMSIG_MOB_LIVING_REVIVE, SigDeath{});
+                                            if (hud_state.radio_log.size() >= 30)
+                                                hud_state.radio_log.pop_front();
+                                            hud_state.radio_log.push_back("[CPR] They're breathing again!");
+                                            return;
+                                        }
+                                    }
+                                    if (hud_state.radio_log.size() >= 30)
+                                        hud_state.radio_log.pop_front();
+                                    hud_state.radio_log.push_back("[CPR] No response.");
+                                }});
+                        }
                     }
 
                     if (!entries.empty()) {
@@ -1647,6 +1797,160 @@ int main(int /*argc*/, char* /*argv*/[])
                         fps_ctx_just_opened = true;
                         fps_ctx_entity      = ctx_ent;
                         SDL_Log("CTX: is_open=%d", (int)ctx_menu.is_open());
+                    }
+                } else if (fhit2.valid) {
+                    // ── Tool-on-voxel interactions ────────────────────────────
+                    auto*              hand_slot  = player_inv.active_hand();
+                    bool               hand_empty = !hand_slot || !hand_slot->item;
+                    const ItemDef*     held_def   = (!hand_empty && hand_slot->item->def)
+                                                        ? hand_slot->item->def : nullptr;
+                    Voxel              hv  = server.world().get_voxel(fhit2.voxel);
+                    const VoxelTypeDef* hvd = voxel_reg.get(hv.type_id);
+
+                    // Helper: does the held item have a given tag?
+                    auto held_has_tag = [&](const char* tag) -> bool {
+                        if (!held_def) return false;
+                        for (const auto& t : held_def->tags)
+                            if (t == tag) return true;
+                        return false;
+                    };
+
+                    // Helper: log a message to the HUD radio log
+                    auto hud_log = [&](const char* msg) {
+                        if (hud_state.radio_log.size() >= 30)
+                            hud_state.radio_log.pop_front();
+                        hud_state.radio_log.push_back(msg);
+                    };
+
+                    // Helper: apply a voxel change and update all systems
+                    auto apply_voxel = [&](glm::ivec3 pos, Voxel v) {
+                        // Read old voxel before overwriting so we can skip
+                        // unnecessary lighting BFS (the hot case: two non-emissive,
+                        // same-opacity tiles swapped — e.g. floor_tile → plating).
+                        Voxel old_v = server.world().get_voxel(pos);
+                        server.world().set_voxel(pos, v);
+                        server.atmos().on_voxel_changed(pos);
+
+                        // Only run the BFS when something light-relevant changed:
+                        //   • old or new voxel emits light, OR
+                        //   • opacity changed (affects how light propagates through here)
+                        bool was_emitter     = (old_v.flags & VFLAG_LIGHT_SRC) != 0;
+                        bool is_emitter      = (v.flags     & VFLAG_LIGHT_SRC) != 0;
+                        bool opacity_changed = (old_v.flags & VFLAG_OPAQUE)
+                                            != (v.flags     & VFLAG_OPAQUE);
+                        if (was_emitter || is_emitter || opacity_changed)
+                            lighting.update({pos});
+
+                        mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
+                    };
+
+                    bool is_plating = hvd && (hvd->id == "floor_plating"
+                                          || hvd->id == "plating_monk");
+
+                    // ── 1. Crowbar: pry any voxel that declares a pry_item ───
+                    if (held_def && held_def->id == "crowbar"
+                            && hvd && !hvd->pry_item.empty()) {
+                        glm::ivec3 pry_pos   = fhit2.voxel;
+                        std::string pry_item = hvd->pry_item;
+                        uint16_t plating_id = voxel_reg.id_of("floor_plating");
+                        Voxel pv;
+                        pv.type_id = plating_id;
+                        pv.flags   = VFLAG_SOLID | VFLAG_OPAQUE;
+                        apply_voxel(pry_pos, pv);
+                        const ItemDef* tile_def = item_reg.get(pry_item);
+                        if (tile_def) {
+                            ItemStack st;
+                            st.def   = tile_def;
+                            st.count = 1;
+                            world_items.spawn_scattered(
+                                pry_pos, FaceDir::PosY, std::move(st));
+                        }
+                        hud_log("[Crowbar] You pry up the floor tile.");
+                    }
+                    // ── 2. Tile item on plating → place floor voxel ──────────
+                    else if (is_plating && held_def
+                             && !held_def->places_voxel.empty()) {
+                        uint16_t new_vox_id = voxel_reg.id_of(held_def->places_voxel);
+                        if (new_vox_id != 0) {
+                            const VoxelTypeDef* nvd = voxel_reg.get(new_vox_id);
+                            Voxel fv;
+                            fv.type_id = new_vox_id;
+                            fv.flags   = nvd ? nvd->default_flags
+                                             : static_cast<uint16_t>(VFLAG_SOLID | VFLAG_OPAQUE);
+                            apply_voxel(fhit2.voxel, fv);
+                            hand_slot->item->count--;
+                            if (hand_slot->item->count <= 0)
+                                hand_slot->item = std::nullopt;
+                            hud_log("[Tile] You lay down the floor tile.");
+                        }
+                    }
+                    // ── 3. Cable coil on plating → lay wire ──────────────────
+                    else if (is_plating && held_has_tag("cable")) {
+                        uint16_t wire_id = voxel_reg.id_of("wire");
+                        if (wire_id != 0) {
+                            const VoxelTypeDef* wvd = voxel_reg.get(wire_id);
+                            Voxel wv;
+                            wv.type_id = wire_id;
+                            wv.flags   = wvd ? wvd->default_flags
+                                             : static_cast<uint16_t>(VFLAG_BITMASK_FLAT);
+                            apply_voxel(fhit2.voxel, wv);
+                            hand_slot->item->count--;
+                            if (hand_slot->item->count <= 0)
+                                hand_slot->item = std::nullopt;
+                            hud_log("[Wire] You lay down the cable.");
+                        }
+                    }
+                    // ── 4. Wirecutters on wire → remove, drop coil ───────────
+                    else if (hvd && hvd->id == "wire"
+                             && held_def && held_def->id == "wirecutters") {
+                        uint16_t plating_id = voxel_reg.id_of("floor_plating");
+                        Voxel pv;
+                        pv.type_id = plating_id;
+                        pv.flags   = VFLAG_SOLID | VFLAG_OPAQUE;
+                        apply_voxel(fhit2.voxel, pv);
+                        const ItemDef* coil_def = item_reg.get("cable_coil");
+                        if (coil_def) {
+                            ItemStack cs;
+                            cs.def   = coil_def;
+                            cs.count = 1;
+                            world_items.spawn_scattered(
+                                fhit2.voxel, FaceDir::PosY, std::move(cs));
+                        }
+                        hud_log("[Wirecutters] You cut the cable.");
+                    }
+                    // ── 5. Pipe section on plating → lay pipe ────────────────
+                    else if (is_plating && held_has_tag("pipe")) {
+                        uint16_t pipe_id = voxel_reg.id_of("pipe");
+                        if (pipe_id != 0) {
+                            const VoxelTypeDef* pvd = voxel_reg.get(pipe_id);
+                            Voxel pipev;
+                            pipev.type_id = pipe_id;
+                            pipev.flags   = pvd ? pvd->default_flags
+                                               : static_cast<uint16_t>(VFLAG_BITMASK_FLAT);
+                            apply_voxel(fhit2.voxel, pipev);
+                            hand_slot->item->count--;
+                            if (hand_slot->item->count <= 0)
+                                hand_slot->item = std::nullopt;
+                            hud_log("[Pipe] You lay down the pipe section.");
+                        }
+                    }
+                    // ── 6. Wrench on pipe → remove, drop section ─────────────
+                    else if (hvd && hvd->id == "pipe"
+                             && held_def && held_def->id == "wrench") {
+                        uint16_t plating_id = voxel_reg.id_of("floor_plating");
+                        Voxel pv;
+                        pv.type_id = plating_id;
+                        pv.flags   = VFLAG_SOLID | VFLAG_OPAQUE;
+                        apply_voxel(fhit2.voxel, pv);
+                        const ItemDef* pipe_def = item_reg.get("pipe_section");
+                        if (pipe_def) {
+                            ItemStack ps;
+                            ps.def   = pipe_def;
+                            ps.count = 1;
+                            world_items.spawn_scattered(
+                                fhit2.voxel, FaceDir::PosY, std::move(ps));
+                        }
+                        hud_log("[Wrench] You remove the pipe section.");
                     }
                 }
             }
@@ -1859,27 +2163,29 @@ int main(int /*argc*/, char* /*argv*/[])
                 };
 
                 // item_id → inhand sprite category/name
+                // category is the path segment between "inhands/" and "_lefthand"/"_righthand"
+                // e.g. "equipment/tools" → legacysets/extracted/mob/inhands/equipment/tools_lefthand
                 struct IEntry { const char* id; const char* category; const char* name; };
                 static const IEntry k_inhand_map[] = {
-                    { "wrench",       "tools",   "wrench"      },
-                    { "screwdriver",  "tools",   "screwdriver" },
-                    { "crowbar",      "tools",   "crowbar"     },
-                    { "wirecutters",  "tools",   "cutters"     },
-                    { "welder",       "tools",   "welder"      },
-                    { "multitool",    "tools",   "multitool"   },
-                    { "drill",        "tools",   "drill"       },
-                    { "rcd",          "tools",   "rcd"         },
-                    { "pickaxe",      "mining",  "pickaxe"     },
-                    { "shovel",       "mining",  "shovel"      },
-                    { "flashlight",   "devices", "flashlight"  },
-                    { "radio",        "devices", "radio"       },
-                    { "baseball_bat", "melee",   "baseball_bat"},
-                    { "katana",       "swords",  "katana"      },
-                    { "bow",          "bows",    "bow"         },
-                    { "beaker",       "items",   "beaker"      },
-                    { "medipen",      "medical", "medipen"     },
-                    { "syringe",      "medical", "syringe_0"   },
-                    { "scalpel",      "medical", "scalpel"     },
+                    { "wrench",       "equipment/tools",   "wrench"      },
+                    { "screwdriver",  "equipment/tools",   "screwdriver" },
+                    { "crowbar",      "equipment/tools",   "crowbar"     },
+                    { "wirecutters",  "equipment/tools",   "cutters"     },
+                    { "welder",       "equipment/tools",   "welder"      },
+                    { "multitool",    "equipment/tools",   "multitool"   },
+                    { "drill",        "equipment/tools",   "drill"       },
+                    { "rcd",          "equipment/tools",   "rcd"         },
+                    { "pickaxe",      "equipment/mining",  "pickaxe"     },
+                    { "shovel",       "equipment/mining",  "shovel"      },
+                    { "flashlight",   "items/devices",     "flashlight"  },
+                    { "radio",        "items/devices",     "radio"       },
+                    { "baseball_bat", "weapons/melee",     "baseball_bat"},
+                    { "katana",       "weapons/swords",    "katana"      },
+                    { "bow",          "weapons/bows",      "bow"         },
+                    { "beaker",       "items",             "beaker"      },
+                    { "medipen",      "equipment/medical", "medipen"     },
+                    { "syringe",      "equipment/medical", "syringe_0"   },
+                    { "scalpel",      "equipment/medical", "scalpel"     },
                 };
 
                 static const char* k_vis_eq_slots[] = {
@@ -1910,6 +2216,7 @@ int main(int /*argc*/, char* /*argv*/[])
                         fp += "|facial=" + player_profile.facial_file;
                         fp += "|fcol=" + std::to_string(player_profile.facial_col_idx);
                         fp += "|skin=" + std::to_string(player_profile.skin_idx);
+                        fp += "|eye="  + std::to_string(player_profile.eye_col_idx);
                         fp += "|gend="; fp += (player_profile.is_male ? 'm' : 'f');
                     }
                     if (fp == last_fp) return;
@@ -1960,6 +2267,17 @@ int main(int /*argc*/, char* /*argv*/[])
                     // Hair and facial hair from the character profile (local player only).
                     // These are re-added every rebuild so they survive clothing changes.
                     if (&inv == &player_inv) {
+                        // Eye overlays (left + right, tinted with eye colour)
+                        for (const char* eyefix : { "eyes_l", "eyes_r" }) {
+                            HumanOverlay ov;
+                            ov.kind       = HumanOverlayKind::Clothing;
+                            ov.sprite_dir = "human/human_eyes";
+                            ov.prefix     = eyefix;
+                            ov.tint       = { player_profile.eye_color.r,
+                                              player_profile.eye_color.g,
+                                              player_profile.eye_color.b, 255 };
+                            new_layers.push_back(ov);
+                        }
                         if (!player_profile.hair_file.empty()) {
                             HumanOverlay ov;
                             ov.kind       = HumanOverlayKind::Clothing;

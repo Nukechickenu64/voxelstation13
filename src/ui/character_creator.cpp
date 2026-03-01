@@ -1,4 +1,5 @@
 #include "ui/character_creator.h"
+#include "data/mob_species_registry.h"
 #include <cmath>
 #include <cstring>
 #include <algorithm>
@@ -86,6 +87,24 @@ static const glm::u8vec4 k_hair_colors[] = {
 static constexpr int k_hair_color_count =
     static_cast<int>(sizeof(k_hair_colors) / sizeof(k_hair_colors[0]));
 
+// Eye colour presets (12 options matching TG SS13)
+static const glm::u8vec4 k_eye_colors[] = {
+    { 89,  60,  30, 255},  // brown
+    { 55,  35,  15, 255},  // dark brown
+    { 30, 100, 190, 255},  // blue
+    { 70, 130, 170, 255},  // steel blue
+    { 45, 130,  75, 255},  // green
+    {100, 150,  60, 255},  // hazel
+    {150, 130,  90, 255},  // amber
+    {120, 120, 120, 255},  // grey
+    { 60,  30, 100, 255},  // violet
+    {180,  30,  30, 255},  // red
+    {  8,   8,   8, 255},  // black
+    {230, 230, 210, 255},  // pale
+};
+static constexpr int k_eye_color_count =
+    static_cast<int>(sizeof(k_eye_colors) / sizeof(k_eye_colors[0]));
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Colour palette
 // ─────────────────────────────────────────────────────────────────────────────
@@ -129,9 +148,28 @@ static void draw_panel_box(UIRenderer& ui, glm::vec2 pos, glm::vec2 size,
 
 // ─────────────────────────────────────────────────────────────────────────────
 CharacterCreator::CharacterCreator(UIRenderer& ui, SDL_Window* window,
-                                   const CharacterProfile& initial)
-    : m_ui(ui), m_window(window), m_profile(initial)
+                                   const CharacterProfile& initial,
+                                   const MobSpeciesRegistry* reg)
+    : m_ui(ui), m_window(window), m_profile(initial), m_species_reg(reg)
 {
+    // Build sorted species list from registry — "human" always first
+    if (m_species_reg) {
+        for (const auto& [id, def] : m_species_reg->all())
+            m_species_ids.push_back(id);
+        std::sort(m_species_ids.begin(), m_species_ids.end(),
+            [](const std::string& a, const std::string& b) {
+                if (a == "human") return true;
+                if (b == "human") return false;
+                return a < b;
+            });
+        // Find initial species index
+        auto it = std::find(m_species_ids.begin(), m_species_ids.end(), m_profile.species);
+        m_profile.species_idx = (it != m_species_ids.end())
+            ? static_cast<int>(it - m_species_ids.begin()) : 0;
+    } else {
+        m_species_ids = { "human" };
+        m_profile.species_idx = 0;
+    }
     // Resolve colour arrays and file names from index fields
     m_profile.skin_color   = k_skin_colors[ m_profile.skin_idx   % k_skin_count];
     m_profile.hair_color   = k_hair_colors[ m_profile.hair_col_idx   % k_hair_color_count];
@@ -141,6 +179,7 @@ CharacterCreator::CharacterCreator(UIRenderer& ui, SDL_Window* window,
                              ? k_hair_styles[m_profile.hair_idx].file : "";
     m_profile.facial_file = (m_profile.facial_idx > 0 && m_profile.facial_idx < k_facial_count)
                              ? k_facial_styles[m_profile.facial_idx].file : "";
+    m_profile.eye_color = k_eye_colors[m_profile.eye_col_idx % k_eye_color_count];
     preload_sprites();
 }
 
@@ -186,6 +225,10 @@ void CharacterCreator::preload_sprites()
     for (int i = 1; i < k_facial_count; ++i) {
         get_sprite(std::string(face_base) + k_facial_styles[i].file + "_s.png");
     }
+    // Eye sprites
+    const char* eyes_base = "legacysets/extracted/mob/human/human_eyes/";
+    get_sprite(std::string(eyes_base) + "eyes_l_s.png");
+    get_sprite(std::string(eyes_base) + "eyes_r_s.png");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,6 +309,8 @@ void CharacterCreator::randomise()
                              ? k_hair_styles[m_profile.hair_idx].file : "";
     m_profile.facial_file = (m_profile.facial_idx > 0 && m_profile.facial_idx < k_facial_count)
                              ? k_facial_styles[m_profile.facial_idx].file : "";
+    m_profile.eye_col_idx = std::rand() % k_eye_color_count;
+    m_profile.eye_color   = k_eye_colors[m_profile.eye_col_idx];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -483,6 +528,23 @@ void CharacterCreator::draw_preview(glm::vec2 pos, float scale)
     draw_part("human_l_hand");
     draw_part(male ? "human_head_m" : "human_head_f");
 
+    // Eyes (tinted with eye colour)
+    {
+        const char* eyes_base = "legacysets/extracted/mob/human/human_eyes/";
+        glm::vec4 eye_tint = {
+            m_profile.eye_color.r / 255.f,
+            m_profile.eye_color.g / 255.f,
+            m_profile.eye_color.b / 255.f,
+            1.f
+        };
+        for (const char* ef : { "eyes_l", "eyes_r" }) {
+            std::string epath = std::string(eyes_base) + ef + "_s.png";
+            auto it = m_sprites.find(epath);
+            if (it != m_sprites.end() && it->second)
+                m_ui.image_tinted(pos, {SPR, SPR}, it->second, eye_tint);
+        }
+    }
+
     // Facial hair (male only, on top of head)
     if (male && m_profile.facial_idx > 0 &&
         m_profile.facial_idx < k_facial_count)
@@ -525,8 +587,9 @@ CharacterCreator::Result CharacterCreator::draw(glm::vec2 cursor, bool lmb)
         m_ui.rect({0.f, y}, {fw, 1.f}, {0.f, 0.f, 0.f, 0.06f});
 
     // ── Main panel ──────────────────────────────────────────────────────────
+    const bool is_human = (m_profile.species == "human" || m_profile.species.empty());
     constexpr float PW = 840.f;
-    constexpr float PH = 560.f;
+    constexpr float PH = 610.f;
     float px = (fw - PW) * 0.5f;
     float py = (fh - PH) * 0.5f;
 
@@ -571,8 +634,20 @@ CharacterCreator::Result CharacterCreator::draw(glm::vec2 cursor, bool lmb)
             m_ui.rect({bx + i * 32.f, by}, {1.f, 128.f}, {1.f, 1.f, 1.f, 0.06f});
             m_ui.rect({bx, by + i * 32.f}, {128.f, 1.f}, {1.f, 1.f, 1.f, 0.06f});
         }
-        // Draw the composited sprite layers at 4× scale
-        draw_preview({bx, by}, 4.f);
+        // Draw the composited sprite layers at 4× scale (human only)
+        if (is_human) {
+            draw_preview({bx, by}, 4.f);
+        } else {
+            // Non-human species: show a placeholder
+            const char* sp = m_profile.species.c_str();
+            float sw = static_cast<float>(std::strlen(sp)) * 7.f;
+            m_ui.text({bx + (128.f - sw) * 0.5f, by + 48.f}, sp,
+                      CC_LABEL, 13.f);
+            m_ui.text({bx + (128.f - 7.f * 7.f) * 0.5f, by + 68.f},
+                      "preview", {0.35f, 0.40f, 0.55f, 0.80f}, 12.f);
+            m_ui.text({bx + (128.f - 7.f * 13.f) * 0.5f, by + 82.f},
+                      "unavailable", {0.30f, 0.35f, 0.50f, 0.65f}, 12.f);
+        }
     }
 
     // Show character name below preview
@@ -583,12 +658,16 @@ CharacterCreator::Result CharacterCreator::draw(glm::vec2 cursor, bool lmb)
                   m_profile.name, CC_VALUE, 14.f);
     }
 
-    // Show species / gender info
+    // Show species / gender info  
     {
-        const char* info = m_profile.is_male ? "Human (Male)" : "Human (Female)";
-        float tw = static_cast<float>(std::strlen(info)) * 6.5f;
+        // Build display string from species name + gender
+        std::string sp_name = m_profile.species;
+        if (!sp_name.empty()) sp_name[0] = static_cast<char>(::toupper(sp_name[0]));
+        std::string info = sp_name;
+        if (is_human) info += m_profile.is_male ? " (Male)" : " (Female)";
+        float tw = static_cast<float>(info.size()) * 6.5f;
         m_ui.text({lx + (LEFT_W - tw) * 0.5f, ly + 198.f},
-                  info, CC_LABEL, 12.f);
+                  info.c_str(), CC_LABEL, 12.f);
     }
 
     // Divider between left/right columns
@@ -624,9 +703,29 @@ CharacterCreator::Result CharacterCreator::draw(glm::vec2 cursor, bool lmb)
         if (want_female) m_profile.is_male = false;
     }
 
-    // ── SKIN TONE ────────────────────────────────────────────────────────────
+    // ── SPECIES ──────────────────────────────────────────────────────────────
     {
-        float sy = ry + 114.f;
+        float spcy = ry + 108.f;
+        m_ui.text({rx, spcy}, "Species", CC_LABEL, 13.f);
+        // Build display name for current species
+        std::string sp_disp = m_profile.species;
+        if (!sp_disp.empty()) sp_disp[0] = static_cast<char>(::toupper(sp_disp[0]));
+        // Look up pretty name from registry if available
+        if (m_species_reg) {
+            const auto* def = m_species_reg->get(m_profile.species);
+            if (def && !def->name.empty()) sp_disp = def->name;
+        }
+        int delta = draw_cycler({rx, spcy + 18.f}, right_w, 26.f, sp_disp.c_str(), cursor, lmb);
+        if (delta != 0 && !m_species_ids.empty()) {
+            int n = static_cast<int>(m_species_ids.size());
+            m_profile.species_idx = (m_profile.species_idx + delta + n) % n;
+            m_profile.species     = m_species_ids[m_profile.species_idx];
+        }
+    }
+
+    // ── SKIN TONE (human only) ────────────────────────────────────────────────
+    if (is_human) {
+        float sy = ry + 158.f;
         m_ui.text({rx, sy}, "Skin Tone", CC_LABEL, 13.f);
         int clicked = draw_color_row({rx, sy + 18.f}, k_skin_colors, k_skin_count,
                                       m_profile.skin_idx, cursor, lmb);
@@ -636,9 +735,21 @@ CharacterCreator::Result CharacterCreator::draw(glm::vec2 cursor, bool lmb)
         }
     }
 
-    // ── HAIR STYLE ───────────────────────────────────────────────────────────
-    {
-        float hy = ry + 158.f;
+    // ── EYE COLOR (human only) ────────────────────────────────────────────────
+    if (is_human) {
+        float ey = ry + 202.f;
+        m_ui.text({rx, ey}, "Eye Color", CC_LABEL, 13.f);
+        int clicked = draw_color_row({rx, ey + 18.f}, k_eye_colors, k_eye_color_count,
+                                      m_profile.eye_col_idx, cursor, lmb);
+        if (clicked >= 0) {
+            m_profile.eye_col_idx = clicked;
+            m_profile.eye_color   = k_eye_colors[clicked];
+        }
+    }
+
+    // ── HAIR STYLE (human only) ──────────────────────────────────────────────
+    if (is_human) {
+        float hy = ry + 246.f;
         m_ui.text({rx, hy}, "Hair Style", CC_LABEL, 13.f);
         const char* label = k_hair_styles[m_profile.hair_idx].label;
         int delta = draw_cycler({rx, hy + 18.f}, right_w, 26.f, label, cursor, lmb);
@@ -649,9 +760,9 @@ CharacterCreator::Result CharacterCreator::draw(glm::vec2 cursor, bool lmb)
         }
     }
 
-    // ── HAIR COLOUR ──────────────────────────────────────────────────────────
-    {
-        float hcy = ry + 202.f;
+    // ── HAIR COLOUR (human only) ─────────────────────────────────────────────
+    if (is_human) {
+        float hcy = ry + 290.f;
         m_ui.text({rx, hcy}, "Hair Color", CC_LABEL, 13.f);
         int clicked = draw_color_row({rx, hcy + 18.f}, k_hair_colors, k_hair_color_count,
                                       m_profile.hair_col_idx, cursor, lmb);
@@ -661,9 +772,9 @@ CharacterCreator::Result CharacterCreator::draw(glm::vec2 cursor, bool lmb)
         }
     }
 
-    // ── FACIAL HAIR (male only) ───────────────────────────────────────────────
-    float facial_bottom_y = ry + 246.f;
-    if (m_profile.is_male) {
+    // ── FACIAL HAIR (human male only) ─────────────────────────────────────────
+    float facial_bottom_y = ry + 334.f;
+    if (is_human && m_profile.is_male) {
         m_ui.text({rx, facial_bottom_y}, "Facial Hair", CC_LABEL, 13.f);
         const char* label = k_facial_styles[m_profile.facial_idx].label;
         int delta = draw_cycler({rx, facial_bottom_y + 18.f}, right_w, 26.f,

@@ -67,7 +67,8 @@ private:
     SDL_GPUDevice*           m_gpu           = nullptr;
     SDL_GPUGraphicsPipeline* m_pipeline      = nullptr;  // coloured quads / images
     SDL_GPUGraphicsPipeline* m_text_pipeline = nullptr;  // MTSDF text
-    SDL_GPUSampler*          m_sampler       = nullptr;
+    SDL_GPUSampler*          m_sampler        = nullptr;  // LINEAR  – MTSDF font atlas
+    SDL_GPUSampler*          m_sprite_sampler = nullptr;  // NEAREST – crisp pixel-art sprites
     SDL_GPUTexture*          m_white_tex     = nullptr;  // 1×1 opaque white
     SDL_GPUTexture*          m_font_tex      = nullptr;  // roboto MTSDF atlas
 

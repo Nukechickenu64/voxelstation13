@@ -154,3 +154,58 @@ struct NameComponent {
 struct MobTypeTag {
     std::string type_path = "/mob/living/carbon/human";
 };
+
+// ── CorpseComponent ───────────────────────────────────────────────────────────
+// Automatically added when a mob's HealthComponent.dead becomes true.
+// Tracks time-since-death for examine text, revivability, and cause of death.
+// Mirrors TG's /mob/living/proc/death / revival logic.
+struct CorpseComponent {
+    float       time_since_death = 0.f;    // seconds since death; incremented each tick
+    bool        can_be_revived   = true;   // false after decay_time seconds
+    float       decay_time       = 300.f;  // 5 minutes before revival impossible
+    std::string cause_of_death   = "unknown causes";
+};
+
+// ── DragComponent ─────────────────────────────────────────────────────────────
+// Marks an entity that is being physically dragged (pulled) by another entity.
+// Mirrors TG's pull/drag mechanic — used primarily for corpse dragging.
+// The server tick moves the dragged entity to follow directly behind the dragger.
+struct DragComponent {
+    EntityID dragger = NULL_ENTITY;
+};
+
+// ── NpcAiState ────────────────────────────────────────────────────────────────
+enum class NpcAiState : uint8_t {
+    Idle   = 0,   // stationary; idle_timer counts down then→Wander
+    Wander = 1,   // moving toward wander_target
+    Flee   = 2,   // fleeing away from a threat entity
+    Chase  = 3,   // pursuing a target entity (hostile or curious)
+};
+
+// ── NpcAiComponent ────────────────────────────────────────────────────────────
+// Autonomous wander/flee/chase behaviour for non-player mob entities.
+// Ticked by tick_npc_ai() in npc_ai.cpp, called from Server::tick().
+struct NpcAiComponent {
+    NpcAiState state         = NpcAiState::Idle;
+    glm::vec3  wander_target {};              // current wander destination
+    float      idle_timer    = 2.f;           // seconds before next wander impulse
+    float      wander_timer  = 0.f;           // deadline for reaching wander_target
+    float      wander_radius = 4.f;           // max wander distance from spawn_pos
+    glm::vec3  spawn_pos     {};              // world position at time of creation
+    bool       wanders       = true;          // false = pins NPC at spawn_pos
+
+    // ── Flee / Chase config ───────────────────────────────────────────────────
+    // flee_dist > 0  → mob will flee from any MobPlayerTag entity within this
+    //                  radius.  Overrides wander/idle when triggered.
+    // aggro_dist > 0 → mob will chase MobPlayerTag entities within this radius.
+    //                  Flee takes priority over Chase.
+    // flee_speed_mult → speed factor applied while in Flee state (>1 = faster).
+    // threat_eid     → entity currently being fled from / chased.
+    // flee_timer     → minimum seconds to keep fleeing even after threat leaves
+    //                  range, so the mob doesn't rubber-band instantly.
+    float      flee_dist       = 0.f;         // sense radius for fleeing (0=disabled)
+    float      aggro_dist      = 0.f;         // sense radius for chasing (0=disabled)
+    float      flee_speed_mult = 1.5f;        // speed multiplier while fleeing
+    float      flee_timer      = 0.f;         // remaining forced-flee seconds
+    EntityID   threat_eid      = NULL_ENTITY; // current threat / chase target
+};

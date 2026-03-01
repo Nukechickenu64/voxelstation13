@@ -12,6 +12,9 @@ from PIL import Image
 LEGACY_BASE = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "legacysets", "extracted", "obj")
 )
+LEGACY_TURF_BASE = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "legacysets", "extracted", "turf")
+)
 
 def from_legacy(rel_path: str):
     """Load a legacy sprite from legacysets/extracted/obj/, resize to 32x32,
@@ -24,6 +27,44 @@ def from_legacy(rel_path: str):
         raw = im.tobytes()
     data = [tuple(raw[i:i+4]) for i in range(0, len(raw), 4)]
     return [data[y * 32:(y + 1) * 32] for y in range(32)]
+
+def from_legacy_turf(rel_path: str):
+    """Load a legacy sprite from legacysets/extracted/turf/, resize to 32x32,
+    and return an RGBA pixel grid."""
+    full = os.path.join(LEGACY_TURF_BASE, rel_path.replace("/", os.sep))
+    with Image.open(full) as im:
+        im = im.convert("RGBA")
+        if im.size != (32, 32):
+            im = im.resize((32, 32), Image.LANCZOS)
+        raw = im.tobytes()
+    data = [tuple(raw[i:i+4]) for i in range(0, len(raw), 4)]
+    return [data[y * 32:(y + 1) * 32] for y in range(32)]
+
+def _rgba_to_img(pixels):
+    im = Image.new("RGBA", (32, 32))
+    flat = [c for row in pixels for px in row for c in px]
+    im.frombytes(bytes(flat))
+    return im
+
+def _img_to_rgba_grid(im):
+    raw = im.tobytes()
+    data = [tuple(raw[i:i+4]) for i in range(0, len(raw), 4)]
+    return [data[y * 32:(y + 1) * 32] for y in range(32)]
+
+def compose_bitmask(base_rgba, overlays):
+    """Compose a 16-variant bitmask sprite set.
+    overlays is a dict keyed by bit value {1,2,4,8} with RGBA grids.
+    """
+    base_im = _rgba_to_img(base_rgba)
+    overlay_imgs = {k: _rgba_to_img(v) for k, v in overlays.items()}
+    out = []
+    for mask in range(16):
+        im = base_im.copy()
+        for bit in (1, 2, 4, 8):
+            if mask & bit:
+                im.alpha_composite(overlay_imgs[bit])
+        out.append(_img_to_rgba_grid(im))
+    return out
 
 # ── Tiny PNG writer ────────────────────────────────────────────────────────────
 
@@ -63,6 +104,9 @@ def write_png_rgba(path: str, pixels: list[list[tuple[int,int,int,int]]]):
 
 def solid(w, h, r, g, b):
     return [[(r, g, b)] * w for _ in range(h)]
+
+def transparent_rgba(w, h):
+    return [[(0, 0, 0, 0)] * w for _ in range(h)]
 
 def grid(w, h, r, g, b, gr=20, gr2=25, step=8):
     """Solid colour with a darker grid pattern."""
@@ -479,13 +523,34 @@ def px_glass_sheet():
 
 W, H = 32, 32
 
+wire_base = from_legacy("pipes_n_cables/layer_cable/l1-noconnection.png")
+wire_overlays = {
+    1: from_legacy("pipes_n_cables/layer_cable/l1-1.png"),
+    2: from_legacy("pipes_n_cables/layer_cable/l1-2.png"),
+    4: from_legacy("pipes_n_cables/layer_cable/l1-4.png"),
+    8: from_legacy("pipes_n_cables/layer_cable/l1-8.png"),
+}
+wire_variants = compose_bitmask(wire_base, wire_overlays)
+
+pipe_base = transparent_rgba(W, H)
+pipe_overlays = {
+    1: from_legacy("pipes_n_cables/pipe_underlays/intact_1_1.png"),
+    2: from_legacy("pipes_n_cables/pipe_underlays/intact_2_1.png"),
+    4: from_legacy("pipes_n_cables/pipe_underlays/intact_4_1.png"),
+    8: from_legacy("pipes_n_cables/pipe_underlays/intact_8_1.png"),
+}
+pipe_variants = compose_bitmask(pipe_base, pipe_overlays)
+
 TEXTURES = {
     # Voxel tiles
     "textures/tiles/floor_steel.png":  diamond_plate(W, H),
+    "textures/tiles/floor_monk_steel.png": from_legacy_turf("floors/floor_variations/iron_above.png"),
+    "textures/tiles/floor_monk_maint.png": from_legacy_turf("floors/floor_variations/maint_above.png"),
     "textures/tiles/wall.png":         grid(W, H, 70, 70, 80, 40, 45),
     "textures/tiles/rwall.png":        rwall_tex(W, H),
     "textures/tiles/window.png":       window_tex(W, H),
     "textures/tiles/plating.png":      cross_hatch(W, H, 90, 80, 70, 50, 45, 40),
+    "textures/tiles/plating_monk.png": from_legacy_turf("floors/floor_variations/iron_below.png"),
     "textures/tiles/catwalk.png":      catwalk_tex(W, H),
     "textures/tiles/light_tube.png":   light_tube_tex(W, H),
     "textures/tiles/fallback.png":     fallback_magenta(W, H),
@@ -583,14 +648,31 @@ TEXTURES = {
     "textures/ui/cursor.png":          solid(16, 24, 200, 200, 200),
 }
 
+for i, tex in enumerate(wire_variants):
+    TEXTURES[f"textures/tiles/wire_{i}.png"] = tex
+
+for i, tex in enumerate(pipe_variants):
+    TEXTURES[f"textures/tiles/pipe_{i}.png"] = tex
+
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force", action="store_true", help="Overwrite existing textures")
+    args = parser.parse_args()
+
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     print(f"Generating textures under: {root}")
+    skipped = 0
+    written = 0
     for rel, pixels in TEXTURES.items():
         path = os.path.join(root, rel)
+        if not args.force and os.path.exists(path):
+            skipped += 1
+            continue
         # Detect RGBA (4-tuple) vs RGB (3-tuple) by inspecting first pixel
         if pixels and pixels[0] and len(pixels[0][0]) == 4:
             write_png_rgba(path, pixels)
         else:
             write_png(path, pixels)
-    print(f"\nDone — {len(TEXTURES)} textures written.")
+        written += 1
+    print(f"\nDone — {written} textures written, {skipped} skipped (already exist). Pass --force to overwrite.")

@@ -126,6 +126,13 @@ void PhysicsSystem::tick(double dt)
 
         // ── Character controller ──────────────────────────────────────────
         if (cc) {
+            // Prone mobs (Hardcrit / Softcrit) use a reduced collider height so
+            // they slide along the ground and upright entities can step over them.
+            const float cc_height = (cc->mob_state == MobState::Hardcrit ||
+                                     cc->mob_state == MobState::Softcrit)
+                                    ? std::min(cc->height, 0.3f)
+                                    : cc->height;
+
             // 1. Friction (horizontal only)
             float k = cc->on_ground ? GROUND_FRICTION_K : AIR_FRICTION_K;
             float f = std::exp(-k * fdt);
@@ -149,7 +156,7 @@ void PhysicsSystem::tick(double dt)
 
             // 3. Move + collide
             glm::vec3 delta = vel->linear * fdt;
-            glm::vec3 new_pos = resolve_collisions(tr.pos, delta, cc->radius, cc->height);
+            glm::vec3 new_pos = resolve_collisions(tr.pos, delta, cc->radius, cc_height);
 
             if (std::abs(new_pos.x - (tr.pos.x + delta.x)) > 0.0001f) vel->linear.x = 0.f;
             if (std::abs(new_pos.z - (tr.pos.z + delta.z)) > 0.0001f) vel->linear.z = 0.f;
@@ -162,8 +169,8 @@ void PhysicsSystem::tick(double dt)
             // horizontal movement and fire the bump callback.
             if (m_bump_cb) {
                 EntityID blocker = NULL_ENTITY;
-                glm::vec3 nmin = new_pos + glm::vec3(-cc->radius, 0.f, -cc->radius);
-                glm::vec3 nmax = new_pos + glm::vec3( cc->radius, cc->height, cc->radius);
+                glm::vec3 nmin = new_pos + glm::vec3(-cc->radius, 0.f,       -cc->radius);
+                glm::vec3 nmax = new_pos + glm::vec3( cc->radius, cc_height,  cc->radius);
                 if (check_entity_density(id, nmin, nmax, blocker)) {
                     new_pos.x     = tr.pos.x;
                     new_pos.z     = tr.pos.z;
@@ -348,10 +355,24 @@ bool PhysicsSystem::check_entity_density(EntityID mover,
         if (found || id == mover || !dc.dense) return;
         auto* tr = m_entities.get_component<TransformComponent>(id);
         if (!tr) return;
-        // Point-in-AABB check (mob centre)
-        if (tr->pos.x >= mn.x && tr->pos.x <= mx.x &&
-            tr->pos.y >= mn.y && tr->pos.y <= mx.y &&
-            tr->pos.z >= mn.z && tr->pos.z <= mx.z) {
+
+        // AABB-vs-AABB check — use the blocker's CharacterControllerComponent
+        // extents when available; fall back to a small fixed capsule otherwise.
+        float b_rad = 0.3f, b_ht = 0.9f;
+        if (auto* bcc = m_entities.get_component<CharacterControllerComponent>(id)) {
+            b_rad = bcc->radius;
+            // Prone mobs shrink their collider — use the same effective height
+            // as the physics tick so you can step over a knocked-down body.
+            b_ht = (bcc->mob_state == MobState::Hardcrit ||
+                    bcc->mob_state == MobState::Softcrit)
+                   ? std::min(bcc->height, 0.3f)
+                   : bcc->height;
+        }
+        const glm::vec3 bmin = tr->pos + glm::vec3(-b_rad, 0.f,   -b_rad);
+        const glm::vec3 bmax = tr->pos + glm::vec3( b_rad,  b_ht,  b_rad);
+        if (bmax.x >= mn.x && bmin.x <= mx.x &&
+            bmax.y >= mn.y && bmin.y <= mx.y &&
+            bmax.z >= mn.z && bmin.z <= mx.z) {
             out_blocker = id;
             found = true;
         }

@@ -58,6 +58,7 @@ bool ItemRegistry::load_from_json(const nlohmann::json& j, const std::string& sr
         def.container_volume = j.value("container_volume", 0.f);
         def.equip_slot       = j.value("equip_slot", "");
         def.two_handed       = j.value("two_handed", false);
+        def.places_voxel     = j.value("places_voxel", "");
 
         // ── Type-path prototype system ───────────────────────────────────────
         // Load an explicit type_path if provided, else derive from tags or id.

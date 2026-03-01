@@ -45,6 +45,7 @@ enum VoxelFlag : uint16_t {
     VFLAG_FLAT_TOP     = 1 << 6,  // thin plane at Y=1 of cell (solid floor)
     VFLAG_VERT_PLANE_Z = 1 << 7,  // double-sided vertical plane facing Z, centred in cell
     VFLAG_GAS_PASSABLE = 1 << 8,  // gas flows through this voxel even when solid (e.g. open door)
+    VFLAG_BITMASK_FLAT = 1 << 9,  // flat plane using bitmask connectivity sprites (wires, pipes)
 };
 
 // ── Face coordinate ───────────────────────────────────────────────────────────

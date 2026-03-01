@@ -1,14 +1,17 @@
 #include "network/server.h"
+#include "simulation/liquids.h"
 #include "data/mob_species_registry.h"
 #include "simulation/mob_system.h"
 #include "simulation/status_effects.h"
 #include "simulation/attack_chain.h"
 #include "simulation/reagents.h"
+#include "simulation/npc_ai.h"
 #include "core/signals.h"
 #include "core/master_controller.h"
 #include <SDL3/SDL.h>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <vector>
 
 Server::Server()  = default;
@@ -19,6 +22,7 @@ bool Server::start(uint16_t port)
     m_world    = std::make_unique<World>();
     m_entities = std::make_unique<EntityManager>();
     m_atmos    = std::make_unique<AtmosSimulator>(*m_world, m_entities.get());
+    m_liquids  = std::make_unique<LiquidSimulator>(*m_world, m_entities.get());
     m_power    = std::make_unique<PowerGrid>(*m_world);
     m_pipes    = std::make_unique<PipeNetwork>(*m_world);
     m_physics  = std::make_unique<PhysicsSystem>(*m_world, *m_entities);
@@ -52,10 +56,22 @@ void Server::tick(double dt)
     process_incoming();
     apply_pending_inputs(dt);
 
+    // ── NPC AI tick ───────────────────────────────────────────────────────────
+    // Update wander/idle state for all NpcAiComponent entities and write
+    // cc->wish_move before the status-effect pass constrains it.
+    tick_npc_ai(*m_entities, *m_world, dt);
+
     // ── Pre-physics status-effect movement constraints ─────────────────────────
     // Must run AFTER apply_pending_inputs (which fills cc->wish_move) and
     // BEFORE m_physics->tick() so the physics step sees the constrained wish_move.
     //
+    // Step 1: Reset mob_state to Normal at the start of every frame so that
+    //         effects which expired last tick don't keep their stale state.
+    m_entities->each<CharacterControllerComponent>([](EntityID, CharacterControllerComponent& cc_r) {
+        cc_r.mob_state = MobState::Normal;
+    });
+
+    // Step 2: Apply status-effect constraints.
     //   Stun / Paralysis  → zero wish_move, set Hardcrit
     //   Knockdown         → scale wish_move by 0.3 (crawl), set Softcrit
     //   Slowdown          → scale wish_move by speed_multiplier()
@@ -67,14 +83,24 @@ void Server::tick(double dt)
             cc->wish_move = glm::vec3(0.f);
             cc->mob_state = MobState::Hardcrit;
         } else if (s == MobState::Softcrit) {
-            if (static_cast<int>(MobState::Softcrit) > static_cast<int>(cc->mob_state))
-                cc->mob_state = MobState::Softcrit;
+            cc->mob_state = MobState::Softcrit;
             cc->wish_move *= 0.3f;   // crawl speed
         } else {
             float spd = se.speed_multiplier();
             if (spd < 0.999f)
                 cc->wish_move *= spd;
         }
+    });
+
+    // Step 3: Dead mobs are fully incapacitated regardless of status effects.
+    //         This catches player entities killed by atmos/damage whose wish_move
+    //         was just filled in by apply_pending_inputs().
+    m_entities->each<HealthComponent>([&](EntityID eid, HealthComponent& hp) {
+        if (!hp.dead) return;
+        auto* cc = m_entities->get_component<CharacterControllerComponent>(eid);
+        if (!cc) return;
+        cc->mob_state = MobState::Hardcrit;
+        cc->wish_move = glm::vec3(0.f);
     });
 
     m_physics->tick(dt);
@@ -88,6 +114,7 @@ void Server::tick(double dt)
     }
     m_power->tick(dt);
     m_pipes->tick(dt);
+    m_liquids->tick(dt);
 
     // ── Atmospheric mob damage ──────────────────────────────────────────────
     // For each player entity apply SS13-style oxygen deprivation, toxin, and
@@ -162,6 +189,69 @@ void Server::tick(double dt)
                 cc->mob_state = status_state;
         }
     });
+
+    // ── Grab choke: Neck/Kill → oxy damage on grabbed entity ─────────────────
+    // Mirrors TG's /mob/living/proc/handle_grab_strangulation.
+    // Neck state: 3 oxy/s.  Kill state: 6 oxy/s.  Fires death signal on KO.
+    static constexpr float NECK_OXY_RATE = 3.f;
+    static constexpr float KILL_OXY_RATE = 6.f;
+    m_entities->each<GrabbedComponent>([&](EntityID eid, GrabbedComponent& gc) {
+        if (gc.state < GrabState::Neck) return;
+        auto* hp_g = m_entities->get_component<HealthComponent>(eid);
+        if (!hp_g || hp_g->dead) return;
+        float rate = (gc.state == GrabState::Kill) ? KILL_OXY_RATE : NECK_OXY_RATE;
+        hp_g->apply("oxy", static_cast<float>(rate * dt));
+        if (hp_g->dead) {
+            signals().send_signal(eid, COMSIG_MOB_LIVING_DEATH, SigDeath{ gc.grabber });
+            if (!m_entities->get_component<CorpseComponent>(eid)) {
+                CorpseComponent corpse{};
+                corpse.cause_of_death = "strangulation";
+                m_entities->add_component<CorpseComponent>(eid, corpse);
+            }
+        }
+    });
+
+    // ── Corpse decay tick ─────────────────────────────────────────────────────
+    // Advance time_since_death; mark revival impossible after decay_time.
+    m_entities->each<CorpseComponent>([&](EntityID /*eid*/, CorpseComponent& corpse) {
+        corpse.time_since_death += static_cast<float>(dt);
+        if (corpse.can_be_revived && corpse.time_since_death >= corpse.decay_time)
+            corpse.can_be_revived = false;
+    });
+
+    // Ensure every dead mob without a CorpseComponent gets one
+    // (handles deaths from atmos, debug kill, etc.).
+    m_entities->each<HealthComponent>([&](EntityID eid, HealthComponent& hp_c) {
+        if (hp_c.dead && !m_entities->get_component<CorpseComponent>(eid)) {
+            CorpseComponent corpse{};
+            corpse.cause_of_death = "environmental hazards";
+            m_entities->add_component<CorpseComponent>(eid, corpse);
+        }
+    });
+
+    // ── Drag (body pulling) tick ──────────────────────────────────────────────
+    // Move dragged entities to follow 1.2 m directly behind the dragger.
+    // Detaches if the dragger entity no longer exists.
+    {
+        std::vector<EntityID> detach_list;
+        m_entities->each<DragComponent>([&](EntityID eid, DragComponent& drag) {
+            auto* dragger_tr = m_entities->get_component<TransformComponent>(drag.dragger);
+            auto* eid_tr     = m_entities->get_component<TransformComponent>(eid);
+            if (!dragger_tr || !eid_tr) {
+                detach_list.push_back(eid);
+                return;
+            }
+            // Position corpse 1.2 m directly behind dragger
+            float ry = glm::radians(dragger_tr->yaw);
+            glm::vec3 behind = dragger_tr->pos
+                + glm::vec3(-std::sin(ry), 0.f, std::cos(ry)) * 1.2f;
+            eid_tr->pos.x = behind.x;
+            eid_tr->pos.z = behind.z;
+            eid_tr->pos.y = dragger_tr->pos.y;  // same floor level
+        });
+        for (EntityID id : detach_list)
+            m_entities->remove_component<DragComponent>(id);
+    }
 
     // ── Reagent metabolisation ────────────────────────────────────────────────
     // TG runs this at SSreagents rate (1/5 s); we run each server tick.
@@ -274,6 +364,91 @@ void Server::remove_player(EntityID id)
     master_controller().purge(id);
     signals().purge_entity(id);
     m_entities->destroy(id);
+}
+
+EntityID Server::spawn_npc(const std::string& species, glm::vec3 pos, float yaw,
+                            const std::string& name)
+{
+    EntityID id = m_entities->create();
+
+    // Transform
+    TransformComponent tr{};
+    tr.pos = pos;
+    tr.yaw = yaw;
+    m_entities->add_component<TransformComponent>(id, tr);
+    m_entities->add_component<VelocityComponent>(id);
+
+    // Species stats
+    CharacterControllerComponent cc{};
+    HealthComponent hp{};
+    if (m_species_reg) {
+        const MobSpeciesDef* def = m_species_reg->get(species);
+        if (def) {
+            cc.move_speed  = def->move_speed;
+            cc.sprint_mult = def->sprint_mult;
+            cc.jump_vel    = def->jump_vel;
+            cc.height      = std::min(def->height - 0.1f, 0.9f);
+            cc.radius      = def->radius * 0.75f;
+            hp.health_max  = def->health_max;
+        }
+    }
+    m_entities->add_component<CharacterControllerComponent>(id, cc);
+    m_entities->add_component<HealthComponent>(id, hp);
+
+    // Standard mob components
+    m_entities->add_component<DensityComponent>(id, DensityComponent{ true });
+    m_entities->add_component<StatusEffectsComponent>(id);
+    m_entities->add_component<MobTypeTag>(id, MobTypeTag{ "/mob/living/carbon/" + species });
+
+    // Display name
+    std::string display = name.empty() ? species : name;
+    if (!display.empty()) display[0] = static_cast<char>(::toupper(display[0]));
+    m_entities->add_component<NameComponent>(id,
+        NameComponent{ display, "A " + species + "." });
+
+    // Sprite component
+    MobComponent mob{};
+    mob.species = species;
+    mob.variant = "default";
+    m_entities->add_component<MobComponent>(id, mob);
+
+    // Human-look appearance for humanoid species
+    if (species == "human") {
+        HumanAppearance app{};
+        HumanOverlay base{};
+        base.sprite_dir = "bodyparts_greyscale";
+        base.prefix     = "human";
+        base.gender     = "_m";
+        base.tint       = { 220, 185, 150, 255 };
+        app.layers.push_back(base);
+        app.dirty = true;
+        m_entities->add_component<HumanAppearance>(id, app);
+    }
+
+    // NPC AI — stagger initial idle so mobs don't all move at once.
+    // Tune behaviour per species:
+    //   mouse  — tiny wander radius, flees from player approach (flee_dist 5 m)
+    //   drone  — stationary janitor; does not wander
+    //   human  — default wander, no flee/aggro
+    NpcAiComponent ai{};
+    ai.spawn_pos  = pos;
+    ai.idle_timer = 1.f + (static_cast<float>(std::rand() % 30) / 10.f); // 1–4 s
+
+    if (species == "mouse") {
+        ai.wander_radius  = 2.5f;       // stays close to spawn
+        ai.flee_dist      = 5.0f;       // flee from player within 5 m
+        ai.flee_speed_mult= 2.2f;       // sprint away at 2.2× move speed
+    } else if (species == "drone") {
+        ai.wanders        = false;      // maintenance drones hold position
+        ai.wander_radius  = 0.f;
+    } else {
+        ai.wander_radius  = 5.f;        // default for humanoids
+    }
+    m_entities->add_component<NpcAiComponent>(id, ai);
+
+    SDL_Log("Server: spawned NPC '%s' (species: %s) at (%.1f,%.1f,%.1f)",
+            display.c_str(), species.c_str(), pos.x, pos.y, pos.z);
+    return id;
 }
 
 void Server::process_incoming()

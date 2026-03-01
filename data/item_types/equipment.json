@@ -259,8 +259,120 @@
     "volume":       0.5,
     "stack_max":    30,
     "verbs": [
-      { "name": "Cut",     "range": 1.2, "handler": "verb_cut_cable" },
-      { "name": "Examine", "range": 99,  "handler": "verb_examine"   }
+      { "name": "Lay Wire", "range": 1.5, "handler": "verb_lay_wire"  },
+      { "name": "Cut",      "range": 1.2, "handler": "verb_cut_cable" },
+      { "name": "Examine",  "range": 99,  "handler": "verb_examine"   }
+    ]
+  },
+  {
+    "id":           "steel_tile",
+    "name":         "Steel Floor Tile",
+    "icon":         "items/steel_tile",
+    "tags":         ["small", "material", "tile"],
+    "weight":       0.5,
+    "volume":       1.5,
+    "stack_max":    30,
+    "places_voxel": "floor",
+    "verbs": [
+      { "name": "Place",   "range": 1.5, "handler": "verb_place_tile" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":           "white_tile",
+    "name":         "White Floor Tile",
+    "icon":         "items/white_tile",
+    "tags":         ["small", "material", "tile"],
+    "weight":       0.5,
+    "volume":       1.5,
+    "stack_max":    30,
+    "places_voxel": "floor_white",
+    "verbs": [
+      { "name": "Place",   "range": 1.5, "handler": "verb_place_tile" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":           "grey_tile",
+    "name":         "Grey Floor Tile",
+    "icon":         "items/grey_tile",
+    "tags":         ["small", "material", "tile"],
+    "weight":       0.5,
+    "volume":       1.5,
+    "stack_max":    30,
+    "places_voxel": "floor_grey",
+    "verbs": [
+      { "name": "Place",   "range": 1.5, "handler": "verb_place_tile" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":           "wood_tile",
+    "name":         "Wooden Floor Tile",
+    "icon":         "items/wood_tile",
+    "tags":         ["small", "material", "tile"],
+    "weight":       0.5,
+    "volume":       1.5,
+    "stack_max":    30,
+    "places_voxel": "floor_wood",
+    "verbs": [
+      { "name": "Place",   "range": 1.5, "handler": "verb_place_tile" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":           "carpet_tile",
+    "name":         "Carpet Tile",
+    "icon":         "items/carpet_tile",
+    "tags":         ["small", "material", "tile"],
+    "weight":       0.4,
+    "volume":       1.5,
+    "stack_max":    30,
+    "places_voxel": "floor_carpet",
+    "verbs": [
+      { "name": "Place",   "range": 1.5, "handler": "verb_place_tile" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":           "freezer_tile",
+    "name":         "Freezer Floor Tile",
+    "icon":         "items/freezer_tile",
+    "tags":         ["small", "material", "tile"],
+    "weight":       0.5,
+    "volume":       1.5,
+    "stack_max":    30,
+    "places_voxel": "floor_freezer",
+    "verbs": [
+      { "name": "Place",   "range": 1.5, "handler": "verb_place_tile" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":           "green_tile",
+    "name":         "Green Floor Tile",
+    "icon":         "items/green_tile",
+    "tags":         ["small", "material", "tile"],
+    "weight":       0.5,
+    "volume":       1.5,
+    "stack_max":    30,
+    "places_voxel": "floor_green",
+    "verbs": [
+      { "name": "Place",   "range": 1.5, "handler": "verb_place_tile" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":           "pipe_section",
+    "name":         "Pipe Section",
+    "icon":         "items/pipe_section",
+    "tags":         ["small", "pipe"],
+    "weight":       0.8,
+    "volume":       2.0,
+    "stack_max":    30,
+    "verbs": [
+      { "name": "Lay Pipe", "range": 1.5, "handler": "verb_lay_pipe" },
+      { "name": "Examine",  "range": 99,  "handler": "verb_examine"  }
     ]
   },
   {

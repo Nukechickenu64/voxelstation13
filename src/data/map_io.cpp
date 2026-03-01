@@ -3,11 +3,13 @@
 #include "simulation/world_items.h"
 #include "simulation/mob_system.h"
 #include "simulation/physics.h"
+#include "simulation/status_effects.h"
 #include "simulation/model_objects.h"
 #include "inventory/item_registry.h"
 #include "data/mob_species_registry.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
+#include <cstdlib>
 #include <SDL3/SDL.h>
 
 using json = nlohmann::json;
@@ -307,23 +309,60 @@ bool map_load_full(World&                    world,
     if (root.contains("mobs") && root["mobs"].is_array()) {
         for (const auto& e : root["mobs"]) {
             std::string species = e.value("species", "human");
-            std::string variant = e.value("variant", "female");
+            std::string variant = e.value("variant", "default");
+            bool        is_npc  = e.value("is_npc",  true);  // map-placed mobs default to NPC
+            std::string disp_name = e.value("name",  "");
             const MobSpeciesDef* sdef = mob_reg.get(species);
 
             EntityID id = entities.create();
+
+            // Transform
             TransformComponent tr{};
             tr.pos = { e.value("x", 0.f), e.value("y", 1.f), e.value("z", 0.f) };
             tr.yaw = e.value("yaw", 0.f);
             entities.add_component<TransformComponent>(id, tr);
+            entities.add_component<VelocityComponent>(id);
+
+            // Species stats
+            CharacterControllerComponent cc{};
+            HealthComponent hp{};
+            if (sdef) {
+                cc.move_speed  = sdef->move_speed;
+                cc.sprint_mult = sdef->sprint_mult;
+                cc.jump_vel    = sdef->jump_vel;
+                cc.height      = std::min(sdef->height - 0.1f, 0.9f);
+                cc.radius      = sdef->radius * 0.75f;
+                hp.health_max  = sdef->health_max;
+            }
+            entities.add_component<CharacterControllerComponent>(id, cc);
+            entities.add_component<HealthComponent>(id, hp);
+
+            // Standard mob tags
+            entities.add_component<DensityComponent>(id, DensityComponent{ true });
+            entities.add_component<StatusEffectsComponent>(id);
+            entities.add_component<MobTypeTag>(id, MobTypeTag{ "/mob/living/carbon/" + species });
+
+            if (disp_name.empty()) {
+                disp_name = sdef ? sdef->name : species;
+            }
+            if (!disp_name.empty()) disp_name[0] = static_cast<char>(::toupper(disp_name[0]));
+            entities.add_component<NameComponent>(id,
+                NameComponent{ disp_name, "A " + species + "." });
 
             MobComponent mob{};
             mob.species = species;
             mob.variant = variant;
             entities.add_component<MobComponent>(id, mob);
 
-            HealthComponent hp{};
-            hp.health_max = sdef ? sdef->health_max : 100.f;
-            entities.add_component<HealthComponent>(id, hp);
+            // NPC AI wander component
+            if (is_npc) {
+                NpcAiComponent ai{};
+                ai.spawn_pos   = tr.pos;
+                ai.idle_timer  = 1.f + (static_cast<float>(std::rand() % 30) / 10.f);
+                ai.wander_radius = 5.f;
+                entities.add_component<NpcAiComponent>(id, ai);
+            }
+
             ++loaded_m;
         }
     }

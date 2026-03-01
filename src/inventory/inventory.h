@@ -40,6 +40,8 @@ struct ItemDef {
     std::string              equip_slot;
     // Requires both hand slots to be free when equipping to a hand
     bool                     two_handed       = false;
+    // Voxel type ID to place when this tile item is used on plating ("" = none)
+    std::string              places_voxel;
     std::vector<ItemVerb>    verbs;
 };
 

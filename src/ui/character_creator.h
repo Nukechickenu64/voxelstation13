@@ -2,8 +2,11 @@
 #include "render/ui_renderer.h"
 #include <glm/glm.hpp>
 #include <string>
+#include <vector>
 #include <unordered_map>
 #include <SDL3/SDL.h>
+
+class MobSpeciesRegistry;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  CharacterProfile — persistent character appearance (TG SS13 prefs analogue)
@@ -21,6 +24,10 @@ struct CharacterProfile {
     int         skin_idx         = 2;                    // index into k_skin_colors
     int         hair_col_idx     = 1;                    // index into k_hair_colors
     int         facial_col_idx   = 1;
+    glm::u8vec4 eye_color        = {30, 100, 190, 255};  // blue
+    int         eye_col_idx      = 2;                    // index into k_eye_colors
+    std::string species          = "human";              // selected species id
+    int         species_idx      = 0;                    // index into sorted species list
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -39,7 +46,8 @@ struct CharacterProfile {
 class CharacterCreator {
 public:
     explicit CharacterCreator(UIRenderer& ui, SDL_Window* window,
-                              const CharacterProfile& initial = {});
+                              const CharacterProfile& initial = {},
+                              const MobSpeciesRegistry* reg = nullptr);
 
     struct Result {
         bool accepted = false;
@@ -95,4 +103,8 @@ private:
 
     // Cached sprite textures (nullptr = not found / failed to load)
     std::unordered_map<std::string, SDL_GPUTexture*> m_sprites;
+
+    // Species list (sorted: human first, then alphabetical)
+    const MobSpeciesRegistry*  m_species_reg  = nullptr;
+    std::vector<std::string>   m_species_ids;  // populated from registry
 };

@@ -266,12 +266,16 @@ def main() -> None:
         rel = dmi_path.relative_to(src_root)
         # Output goes to: legacysets/extracted/<rel_parent>/<dmi_stem>/
         out_dir = dst_root / rel.parent / rel.stem
-        # Skip if already extracted (resume after crash)
-        if out_dir.exists() and any(out_dir.iterdir()):
-            total_written += sum(1 for _ in out_dir.rglob("*") if _.is_file())
+        # Skip only if a marker file confirms this exact DMI was already extracted.
+        # (A same-named subdirectory populated by child DMIs must not be skipped.)
+        marker = out_dir / ".dmi_done"
+        if marker.exists():
+            total_written += sum(1 for _ in out_dir.rglob("*") if _.is_file() and _.name != ".dmi_done")
             continue
         print(f"[{i}/{total_dmis}] {rel} -> {out_dir.relative_to(workspace)}", flush=True)
         n = extract_dmi(dmi_path, out_dir)
+        # Write marker so subsequent runs know this DMI is done.
+        marker.write_text(dmi_path.name)
         print(f"  wrote {n} file(s)", flush=True)
         total_written += n
 

@@ -38,8 +38,24 @@ bool UIRenderer::init(SDL_Window* window, int fb_width, int fb_height)
     sci.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
     m_sampler = SDL_CreateGPUSampler(m_gpu, &sci);
     if (!m_sampler) {
-        SDL_Log("UIRenderer: SDL_CreateGPUSampler failed: %s", SDL_GetError());
+        SDL_Log("UIRenderer: SDL_CreateGPUSampler (linear) failed: %s", SDL_GetError());
         return false;
+    }
+
+    // Nearest-neighbour sampler for pixel-art sprites (crisp, no colour fringing)
+    {
+        SDL_GPUSamplerCreateInfo nsci{};
+        nsci.min_filter     = SDL_GPU_FILTER_NEAREST;
+        nsci.mag_filter     = SDL_GPU_FILTER_NEAREST;
+        nsci.mipmap_mode    = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+        nsci.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        nsci.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        nsci.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        m_sprite_sampler = SDL_CreateGPUSampler(m_gpu, &nsci);
+        if (!m_sprite_sampler) {
+            SDL_Log("UIRenderer: SDL_CreateGPUSampler (nearest) failed: %s", SDL_GetError());
+            return false;
+        }
     }
 
     // â”€â”€ Pre-allocated GPU vertex / index buffers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -299,6 +315,7 @@ void UIRenderer::shutdown()
 
     if (m_white_tex)       { SDL_ReleaseGPUTexture(m_gpu, m_white_tex);              m_white_tex      = nullptr; }
     if (m_sampler)         { SDL_ReleaseGPUSampler(m_gpu, m_sampler);                m_sampler        = nullptr; }
+    if (m_sprite_sampler)  { SDL_ReleaseGPUSampler(m_gpu, m_sprite_sampler);         m_sprite_sampler = nullptr; }
     if (m_pipeline)        { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_pipeline);      m_pipeline       = nullptr; }
     if (m_text_pipeline)   { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_text_pipeline); m_text_pipeline  = nullptr; }
     if (m_vbuf)            { SDL_ReleaseGPUBuffer(m_gpu, m_vbuf);                    m_vbuf           = nullptr; }
@@ -385,7 +402,8 @@ void UIRenderer::end(SDL_GPUCommandBuffer* cmd_buf,
             SDL_PushGPUVertexUniformData(cmd_buf, 0, xform, sizeof(xform));
             cur_pl = want;
         }
-        SDL_GPUTextureSamplerBinding tsb{ batch.tex, m_sampler };
+        SDL_GPUSampler* samp = batch.is_text ? m_sampler : m_sprite_sampler;
+        SDL_GPUTextureSamplerBinding tsb{ batch.tex, samp };
         SDL_BindGPUFragmentSamplers(rp, 0, &tsb, 1);
         SDL_DrawGPUIndexedPrimitives(rp, batch.count, 1, batch.first, 0, 0);
     }
