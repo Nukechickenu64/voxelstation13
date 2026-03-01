@@ -142,7 +142,8 @@ bool Renderer::create_pipeline()
     fi.entrypoint         = "main";
     fi.format             = SDL_GPU_SHADERFORMAT_SPIRV;
     fi.stage              = SDL_GPU_SHADERSTAGE_FRAGMENT;
-    fi.num_samplers       = 1;   // slot 0 = tile texture array (set=0, binding=0)
+    fi.num_samplers       = 1;   // slot 0 = tile texture array
+    fi.num_uniform_buffers = 1;  // slot 0 = LightingUBO (SDL_PushGPUFragmentUniformData)
 
     m_frag_shader = SDL_CreateGPUShader(m_gpu, &fi);
     if (!m_frag_shader) {
@@ -150,18 +151,20 @@ bool Renderer::create_pipeline()
         return false;
     }
 
-    // ── Vertex layout: pos(3f) + normal(3f) + uv(2f) + texIndex(1f), stride 36 ─────
+    // ── Vertex layout: pos(3f)+normal(3f)+uv(2f)+texIdx(1f)+light(1f)+ao(1f), stride 44 ──
     SDL_GPUVertexBufferDescription vbuf_desc{};
     vbuf_desc.slot              = 0;
-    vbuf_desc.pitch             = 36;   // 9 floats × 4 bytes
+    vbuf_desc.pitch             = 52;   // 13 floats × 4 bytes
     vbuf_desc.input_rate        = SDL_GPU_VERTEXINPUTRATE_VERTEX;
     vbuf_desc.instance_step_rate = 0;
 
-    SDL_GPUVertexAttribute vattrs[4]{};
+    SDL_GPUVertexAttribute vattrs[6]{};
     vattrs[0] = { 0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,  0 }; // location 0 = pos
     vattrs[1] = { 1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, 12 }; // location 1 = normal
     vattrs[2] = { 2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, 24 }; // location 2 = uv
     vattrs[3] = { 3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT,  32 }; // location 3 = texIndex
+    vattrs[4] = { 4, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, 36 }; // location 4 = lightRGB
+    vattrs[5] = { 5, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT,  48 }; // location 5 = ao
 
     // ── Colour target format (matches the swapchain) + alpha blending ────────
     SDL_GPUColorTargetDescription ctd{};
@@ -186,7 +189,7 @@ bool Renderer::create_pipeline()
     pci.vertex_input_state.vertex_buffer_descriptions = &vbuf_desc;
     pci.vertex_input_state.num_vertex_buffers         = 1;
     pci.vertex_input_state.vertex_attributes          = vattrs;
-    pci.vertex_input_state.num_vertex_attributes      = 4;
+    pci.vertex_input_state.num_vertex_attributes      = 6;
 
     pci.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
 
@@ -386,6 +389,16 @@ void Renderer::draw_world(const World& /*world*/,
     draw_space_background();
 
     SDL_BindGPUGraphicsPipeline(m_render_pass, m_world_pipeline);
+
+    // Push lighting UBO to fragment shader (slot 0 = set=3, binding=0)
+    // struct matches GLSL: layout(set=3,binding=0) uniform LightUBO { vec4 opts; }
+    // opts: x=fullbright, y=ao_mix, z=ambient_floor, w=unused
+    struct LightingUBO { float fullbright, ao_mix, ambient, pad; };
+    LightingUBO light_ubo{};
+    light_ubo.fullbright = m_fullbright ? 1.0f : 0.0f;
+    light_ubo.ao_mix     = m_ao_mix;
+    light_ubo.ambient    = m_ambient;
+    SDL_PushGPUFragmentUniformData(m_cmd_buf, 0, &light_ubo, sizeof(light_ubo));
 
     // Bind tile texture array to fragment sampler slot 0
     if (m_tile_array && m_tile_sampler) {

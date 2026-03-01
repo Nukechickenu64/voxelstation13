@@ -417,5 +417,18 @@
       { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
       { "name": "Examine", "range": 99,  "handler": "verb_examine" }
     ]
+  },
+  {
+    "id":       "flashlight",
+    "name":     "Flashlight",
+    "icon":     "items/flashlight",
+    "tags":     ["tool", "light", "small"],
+    "weight":   0.3,
+    "volume":   1.0,
+    "stack_max":1,
+    "verbs": [
+      { "name": "Toggle",  "range": 1.5, "handler": "verb_toggle_flashlight" },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
   }
 ]

@@ -104,7 +104,8 @@ int main(int /*argc*/, char* /*argv*/[])
 
     // ── 7. Lighting ───────────────────────────────────────────────────────────
     LightingSystem lighting(server.world());
-    lighting.rebuild();
+    lighting.set_registry(&voxel_reg);  // must be set before rebuild()
+    mesher.set_lighting(&lighting);     // enables colored smooth lighting
 
     // ── 8. Audio ─────────────────────────────────────────────────────────────
     AudioManager audio;
@@ -129,6 +130,8 @@ int main(int /*argc*/, char* /*argv*/[])
     PlayerStatsOverlay player_stats_overlay(ui_renderer);
     bool               player_stats_visible = false;
     AdminMenu      admin_menu(ui_renderer);
+    bool           fullbright_enabled   = false;   // toggled via F1 admin menu
+    bool           ao_enabled           = true;    // AO on by default
     double         sim_time              = 0.0;  // monotonic seconds, for overlay animations
 
     // ── 11. Player inventory ──────────────────────────────────────────────────
@@ -302,6 +305,37 @@ int main(int /*argc*/, char* /*argv*/[])
         for (Chunk* c : server.world().dirty_chunks())
             mesher.enqueue(c->chunk_pos(), server.world());
 
+        // ── Lighting: place light tubes, then run full light propagation ─────
+        // Light tubes sit just below the ceiling (y=WALL_TOP-1 = 3), flush with
+        // the ceiling interior face, in a cross pattern inside the main room.
+        {
+            uint16_t lt_id = voxel_reg.id_of("light_tube");
+            if (lt_id != 0) {
+                const VoxelTypeDef* lt_def = voxel_reg.get(lt_id);
+                Voxel lt_voxel;
+                lt_voxel.type_id = lt_id;
+                lt_voxel.flags   = lt_def ? lt_def->default_flags : static_cast<uint16_t>(VFLAG_LIGHT_SRC);
+
+                // Five lights in a cross pattern on the ceiling interior face.
+                static const glm::ivec3 lt_pos[] = {
+                    { 0, WALL_TOP - 1,  0},   // centre
+                    {-4, WALL_TOP - 1, -4},   // NW corner
+                    { 4, WALL_TOP - 1, -4},   // NE corner
+                    {-4, WALL_TOP - 1,  4},   // SW corner
+                    { 4, WALL_TOP - 1,  4},   // SE corner
+                };
+                for (const auto& lp : lt_pos)
+                    server.world().set_voxel(lp, lt_voxel);
+            }
+        }
+
+        // Full lighting rebuild now that emissive voxels are in place.
+        lighting.rebuild();
+
+        // Re-enqueue chunks whose light_level values changed.
+        for (Chunk* c : server.world().dirty_chunks())
+            mesher.enqueue(c->chunk_pos(), server.world());
+
         // Spawn a couple of test items on the floor for M1 testing
         auto spawn_test_item = [&](const char* item_id, int x, int z) {
             const ItemDef* def = item_reg.get(item_id);
@@ -331,6 +365,16 @@ int main(int /*argc*/, char* /*argv*/[])
             app.layers.push_back(base);
             app.dirty = true;
             server.entities().add_component<HumanAppearance>(dummy, app);
+            // Give the dummy a wrench in-hand so inhand overlays are exercised.
+            {
+                InventoryComponent ic{};
+                const ItemDef* wd = item_reg.get("wrench");
+                if (wd) {
+                    ItemStack ws; ws.def = wd; ws.count = 1;
+                    ic.inv.put("l_hand", std::move(ws));
+                }
+                server.entities().add_component<InventoryComponent>(dummy, std::move(ic));
+            }
         }
 
         // ── Atmospherics bootstrap ──────────────────────────────────────────
@@ -1086,6 +1130,10 @@ int main(int /*argc*/, char* /*argv*/[])
                         for (Chunk* c : server.world().dirty_chunks())
                             mesher.enqueue(c->chunk_pos(), server.world());
                         server.atmos().on_voxel_changed(bhit.voxel);
+                        // Propagate lighting change from removed voxel.
+                        lighting.update({bhit.voxel});
+                        for (Chunk* c : server.world().dirty_chunks())
+                            mesher.enqueue(c->chunk_pos(), server.world());
                         SDL_Log("Build: destroyed voxel at (%d,%d,%d)",
                                 bhit.voxel.x, bhit.voxel.y, bhit.voxel.z);
                     }
@@ -1100,6 +1148,10 @@ int main(int /*argc*/, char* /*argv*/[])
                             for (Chunk* c : server.world().dirty_chunks())
                                 mesher.enqueue(c->chunk_pos(), server.world());
                             server.atmos().on_voxel_changed(place_pos);
+                            // Propagate lighting change from placed voxel.
+                            lighting.update({place_pos});
+                            for (Chunk* c : server.world().dirty_chunks())
+                                mesher.enqueue(c->chunk_pos(), server.world());
                             SDL_Log("Build: placed voxel at (%d,%d,%d)",
                                     place_pos.x, place_pos.y, place_pos.z);
                         }
@@ -1190,134 +1242,150 @@ int main(int /*argc*/, char* /*argv*/[])
             renderer.queue_world_items(server.entities(), hovered_item_entity,
                                        cam_pos, cam_yaw, cam_pitch);
 
-            // ── Rebuild player clothing + inhand overlays when equipment changes ─
+            // ── Rebuild clothing + inhand overlays for all human mobs ─────────
             {
+                // item_id → worn clothing overlay dir/name
+                struct CEntry { const char* id; const char* dir; const char* name; };
+                static const CEntry k_clothing_map[] = {
+                    // Suits
+                    { "hardsuit",        "clothing/suits/spacesuit", "space"           },
+                    { "body_armor",      "clothing/suits/armor",     "armor"           },
+                    { "security_armor",  "clothing/suits/armor",     "armor_sec"       },
+                    // Head
+                    { "hardsuit_helmet", "clothing/head/spacehelm",  "space"           },
+                    { "mining_helmet",   "clothing/head/utility",    "hardhat0_orange"  },
+                    { "welding_helmet",  "clothing/head/utility",    "welding"         },
+                    { "hard_hat",        "clothing/head/utility",    "hardhat0_yellow"  },
+                    // Eyes
+                    { "welding_goggles", "clothing/eyes",            "welding-g"       },
+                    { "sunglasses",      "clothing/eyes",            "bigsunglasses"   },
+                    // Mask
+                    { "gas_mask",        "clothing/mask",            "gas_mask"        },
+                    // Back
+                    { "jetpack",         "clothing/back",            "jetpack"         },
+                    // Belt
+                    { "toolbelt",        "clothing/belt",            "ebelt"           },
+                    // Gloves
+                    { "rubber_gloves",   "clothing/hands",           "latex"           },
+                    // Feet
+                    { "magboots",        "clothing/feet",            "magboots0"       },
+                    { "boots",           "clothing/feet",            "workboots"       },
+                    // Ears
+                    { "headset",         "clothing/ears",            "headset"         },
+                };
+
+                // item_id → inhand sprite category/name
+                struct IEntry { const char* id; const char* category; const char* name; };
+                static const IEntry k_inhand_map[] = {
+                    { "wrench",       "tools",   "wrench"      },
+                    { "screwdriver",  "tools",   "screwdriver" },
+                    { "crowbar",      "tools",   "crowbar"     },
+                    { "wirecutters",  "tools",   "cutters"     },
+                    { "welder",       "tools",   "welder"      },
+                    { "multitool",    "tools",   "multitool"   },
+                    { "drill",        "tools",   "drill"       },
+                    { "rcd",          "tools",   "rcd"         },
+                    { "pickaxe",      "mining",  "pickaxe"     },
+                    { "shovel",       "mining",  "shovel"      },
+                    { "flashlight",   "devices", "flashlight"  },
+                    { "radio",        "devices", "radio"       },
+                    { "baseball_bat", "melee",   "baseball_bat"},
+                    { "katana",       "swords",  "katana"      },
+                    { "bow",          "bows",    "bow"         },
+                    { "beaker",       "items",   "beaker"      },
+                    { "medipen",      "medical", "medipen"     },
+                    { "syringe",      "medical", "syringe_0"   },
+                    { "scalpel",      "medical", "scalpel"     },
+                };
+
+                static const char* k_vis_eq_slots[] = {
+                    "suit","head","glasses","mask","back","belt","gloves","shoes","ears"
+                };
+
+                // Helper: rebuild Clothing/Inhand layers in `app` when the
+                // inventory fingerprint changes.  Bodypart layers are preserved.
+                auto rebuild_if_changed = [&](HumanAppearance& app,
+                                              const Inventory&  inv,
+                                              std::string&      last_fp) {
+                    std::string fp;
+                    for (const char* sl : k_vis_eq_slots) {
+                        const auto* slt = inv.find_slot(sl);
+                        if (slt && slt->item && slt->item->def)
+                            fp += sl + std::string("=") + slt->item->def->id + ";";
+                    }
+                    for (const char* sl : { "l_hand", "r_hand" }) {
+                        const auto* slt = inv.find_slot(sl);
+                        if (slt && slt->item && slt->item->def)
+                            fp += sl + std::string("=") + slt->item->def->id + ";";
+                    }
+                    if (fp == last_fp) return;
+                    last_fp = fp;
+
+                    // Keep Bodypart layers; drop old Clothing/Inhand
+                    std::vector<HumanOverlay> new_layers;
+                    new_layers.reserve(app.layers.size() + 10);
+                    for (const auto& ov : app.layers)
+                        if (ov.kind == HumanOverlayKind::Bodypart)
+                            new_layers.push_back(ov);
+
+                    // Clothing overlays (equipment slots, drawn bottom-to-top)
+                    for (const char* sl : k_vis_eq_slots) {
+                        const auto* slt = inv.find_slot(sl);
+                        if (!slt || !slt->item || !slt->item->def) continue;
+                        for (const auto& ce : k_clothing_map) {
+                            if (slt->item->def->id == ce.id) {
+                                HumanOverlay ov;
+                                ov.kind       = HumanOverlayKind::Clothing;
+                                ov.sprite_dir = ce.dir;
+                                ov.prefix     = ce.name;
+                                new_layers.push_back(ov);
+                                break;
+                            }
+                        }
+                    }
+
+                    // Inhand overlays for left and right hand slots
+                    auto add_inhand = [&](const char* slot_id, bool right) {
+                        const auto* slt = inv.find_slot(slot_id);
+                        if (!slt || !slt->item || !slt->item->def) return;
+                        for (const auto& ie : k_inhand_map) {
+                            if (slt->item->def->id == ie.id) {
+                                HumanOverlay ov;
+                                ov.kind       = HumanOverlayKind::Inhand;
+                                ov.sprite_dir = std::string("inhands/")
+                                              + ie.category
+                                              + (right ? "_righthand" : "_lefthand");
+                                ov.prefix     = ie.name;
+                                new_layers.push_back(ov);
+                                break;
+                            }
+                        }
+                    };
+                    add_inhand("l_hand", false);
+                    add_inhand("r_hand", true);
+
+                    app.layers = std::move(new_layers);
+                    app.dirty  = true;
+                };
+
+                // ── Local player ──────────────────────────────────────────────
                 EntityID player = client.local_player();
                 if (player != NULL_ENTITY) {
                     auto* app = server.entities().get_component<HumanAppearance>(player);
                     if (app) {
-                        // Build a fingerprint from equipped + held item IDs
                         static std::string s_last_app_fp;
-                        std::string fp;
-                        static const char* k_vis_eq_slots[] = {
-                            "suit","head","glasses","mask","back","belt","gloves","shoes","ears"
-                        };
-                        for (const char* sl : k_vis_eq_slots) {
-                            const auto* slt = player_inv.find_slot(sl);
-                            if (slt && slt->item && slt->item->def)
-                                fp += sl + std::string("=") + slt->item->def->id + ";";
-                        }
-                        for (const char* sl : { "l_hand", "r_hand" }) {
-                            const auto* slt = player_inv.find_slot(sl);
-                            if (slt && slt->item && slt->item->def)
-                                fp += sl + std::string("=") + slt->item->def->id + ";";
-                        }
-
-                        if (fp != s_last_app_fp) {
-                            s_last_app_fp = fp;
-
-                            // item_id → worn clothing overlay in mob/clothing/
-                            struct CEntry { const char* id; const char* dir; const char* name; };
-                            static const CEntry k_clothing_map[] = {
-                                // Suits
-                                { "hardsuit",        "clothing/suits/spacesuit", "space"           },
-                                { "body_armor",      "clothing/suits/armor",     "armor"           },
-                                { "security_armor",  "clothing/suits/armor",     "armor_sec"       },
-                                // Head
-                                { "hardsuit_helmet", "clothing/head/spacehelm",  "space"           },
-                                { "mining_helmet",   "clothing/head/utility",    "hardhat0_orange"  },
-                                { "welding_helmet",  "clothing/head/utility",    "welding"         },
-                                { "hard_hat",        "clothing/head/utility",    "hardhat0_yellow"  },
-                                // Eyes
-                                { "welding_goggles", "clothing/eyes",            "welding-g"       },
-                                { "sunglasses",      "clothing/eyes",            "bigsunglasses"   },
-                                // Mask
-                                { "gas_mask",        "clothing/mask",            "gas_mask"        },
-                                // Back
-                                { "jetpack",         "clothing/back",            "jetpack"         },
-                                // Belt
-                                { "toolbelt",        "clothing/belt",            "ebelt"           },
-                                // Gloves
-                                { "rubber_gloves",   "clothing/hands",           "latex"           },
-                                // Feet
-                                { "magboots",        "clothing/feet",            "magboots0"       },
-                                { "boots",           "clothing/feet",            "workboots"       },
-                                // Ears
-                                { "headset",         "clothing/ears",            "headset"         },
-                            };
-
-                            // item_id → inhand overlay in mob/inhands/
-                            struct IEntry { const char* id; const char* category; const char* name; };
-                            static const IEntry k_inhand_map[] = {
-                                { "wrench",       "tools",   "wrench"      },
-                                { "screwdriver",  "tools",   "screwdriver" },
-                                { "crowbar",      "tools",   "crowbar"     },
-                                { "wirecutters",  "tools",   "cutters"     },
-                                { "welder",       "tools",   "welder"      },
-                                { "multitool",    "tools",   "multitool"   },
-                                { "drill",        "tools",   "drill"       },
-                                { "rcd",          "tools",   "rcd"         },
-                                { "pickaxe",      "mining",  "pickaxe"     },
-                                { "shovel",       "mining",  "shovel"      },
-                                { "flashlight",   "devices", "flashlight"  },
-                                { "radio",        "devices", "radio"       },
-                                { "baseball_bat", "melee",   "baseball_bat"},
-                                { "katana",       "swords",  "katana"      },
-                                { "bow",          "bows",    "bow"         },
-                                { "beaker",       "items",   "beaker"      },
-                                { "medipen",      "medical", "medipen"     },
-                                { "syringe",      "medical", "syringe_0"   },
-                                { "scalpel",      "medical", "scalpel"     },
-                            };
-
-                            // Rebuild: keep base Bodypart layers, replace Clothing/Inhand
-                            std::vector<HumanOverlay> new_layers;
-                            new_layers.reserve(app->layers.size() + 10);
-                            for (const auto& ov : app->layers)
-                                if (ov.kind == HumanOverlayKind::Bodypart)
-                                    new_layers.push_back(ov);
-
-                            // Clothing overlays from equipment slots (order = draw order)
-                            for (const char* sl : k_vis_eq_slots) {
-                                const auto* slt = player_inv.find_slot(sl);
-                                if (!slt || !slt->item || !slt->item->def) continue;
-                                for (const auto& ce : k_clothing_map) {
-                                    if (slt->item->def->id == ce.id) {
-                                        HumanOverlay ov;
-                                        ov.kind       = HumanOverlayKind::Clothing;
-                                        ov.sprite_dir = ce.dir;
-                                        ov.prefix     = ce.name;
-                                        new_layers.push_back(ov);
-                                        break;
-                                    }
-                                }
-                            }
-
-                            // Inhand overlays for left and right hand slots
-                            auto add_inhand = [&](const char* slot_id, bool right) {
-                                const auto* slt = player_inv.find_slot(slot_id);
-                                if (!slt || !slt->item || !slt->item->def) return;
-                                for (const auto& ie : k_inhand_map) {
-                                    if (slt->item->def->id == ie.id) {
-                                        HumanOverlay ov;
-                                        ov.kind       = HumanOverlayKind::Inhand;
-                                        ov.sprite_dir = std::string("inhands/")
-                                                      + ie.category
-                                                      + (right ? "_righthand" : "_lefthand");
-                                        ov.prefix     = ie.name;
-                                        new_layers.push_back(ov);
-                                        break;
-                                    }
-                                }
-                            };
-                            add_inhand("l_hand", false);
-                            add_inhand("r_hand", true);
-
-                            app->layers = std::move(new_layers);
-                            app->dirty  = true;
-                        }
+                        rebuild_if_changed(*app, player_inv, s_last_app_fp);
                     }
                 }
+
+                // ── All other mobs with InventoryComponent ────────────────────
+                server.entities().each<InventoryComponent>(
+                    [&](EntityID eid, InventoryComponent& ic) {
+                        if (eid == client.local_player()) return; // handled above
+                        auto* app = server.entities().get_component<HumanAppearance>(eid);
+                        if (!app) return;
+                        rebuild_if_changed(*app, ic.inv, ic.overlay_fp);
+                    });
             }
 
             renderer.queue_mobs(server.entities(), cam_pos, cam_yaw, client.local_player());
@@ -1326,6 +1394,44 @@ int main(int /*argc*/, char* /*argv*/[])
             renderer.queue_earth_background(cam_pos, cam_yaw, cam_pitch);
 
             renderer.begin_frame(alpha);
+
+            // Push lighting state to renderer
+            renderer.set_fullbright(fullbright_enabled);
+            renderer.set_ao_mix(ao_enabled ? 1.0f : 0.0f);
+            renderer.set_ambient(0.05f);  // dark station; light tubes provide illumination
+
+            // Dynamic point light: follows the player when a flashlight item is held
+            {
+                bool holds_flashlight = false;
+                for (const char* sl : { "l_hand", "r_hand" }) {
+                    const auto* slot = player_inv.find_slot(sl);
+                    if (slot && slot->item && slot->item->def &&
+                        slot->item->def->id == "flashlight") {
+                        holds_flashlight = true;
+                        break;
+                    }
+                }
+                static bool      s_last_held      = false;
+                static glm::ivec3 s_last_light_pos = {999999, 999999, 999999};
+                glm::ivec3 pv = glm::ivec3(glm::floor(cam_pos));
+                EntityID plr = client.local_player();
+                EntityID src = plr ? plr : static_cast<EntityID>(1u);
+                if (holds_flashlight) {
+                    if (!s_last_held || pv != s_last_light_pos) {
+                        lighting.add_dynamic_light(pv, 12, src, {255, 200, 140});
+                        s_last_light_pos = pv;
+                        // Re-mesh chunks whose light_levels changed.
+                        for (Chunk* c : server.world().dirty_chunks())
+                            mesher.enqueue(c->chunk_pos(), server.world());
+                    }
+                } else if (s_last_held) {
+                    lighting.remove_dynamic_light(src);
+                    // Re-mesh to restore steady-state static lighting.
+                    for (Chunk* c : server.world().dirty_chunks())
+                        mesher.enqueue(c->chunk_pos(), server.world());
+                }
+                s_last_held = holds_flashlight;
+            }
 
             renderer.draw_world(server.world(), cam_pos, cam_yaw, cam_pitch);
             renderer.draw_face_highlight(hit);
@@ -1647,6 +1753,7 @@ int main(int /*argc*/, char* /*argv*/[])
                             }
                         }
                         ctx_menu.open(cursor, std::move(entries));
+                        fps_ctx_just_opened = true; // suppress same-frame dismiss
                     }
                 }
 
@@ -1730,6 +1837,8 @@ int main(int /*argc*/, char* /*argv*/[])
                 adm_state.debug_overlay = debug_overlay_visible;
                 adm_state.player_stats  = player_stats_visible;
                 adm_state.verbose_log   = renderer.verbose_logging();
+                adm_state.fullbright    = fullbright_enabled;
+                adm_state.ambient_occlusion = ao_enabled;
 
                 bool esc_adm = input.is_pressed(Action::Escape);
                 auto ar = admin_menu.draw(input.mouse_pos(),
@@ -1765,6 +1874,14 @@ int main(int /*argc*/, char* /*argv*/[])
                 }
                 if (ar.toggle_verbose_log) {
                     renderer.toggle_verbose_logging();
+                }
+                if (ar.toggle_fullbright) {
+                    fullbright_enabled = !fullbright_enabled;
+                    SDL_Log("Fullbright: %s", fullbright_enabled ? "ON" : "OFF");
+                }
+                if (ar.toggle_ambient_occlusion) {
+                    ao_enabled = !ao_enabled;
+                    SDL_Log("Ambient Occlusion: %s", ao_enabled ? "ON" : "OFF");
                 }
                 if (ar.close_requested && !alt_mode.active() &&
                     !creative_menu.is_open() && !map_editor.is_open())

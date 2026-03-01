@@ -1,12 +1,14 @@
 #pragma once
 #include "core/world.h"
 #include "data/voxel_registry.h"
+#include "render/lighting.h"
 #include "render/renderer.h"
 #include <thread>
 #include <mutex>
 #include <queue>
 #include <condition_variable>
 #include <atomic>
+#include <unordered_map>
 
 // Builds ChunkMesh geometry from Chunk voxel data on worker threads.
 // Uses greedy meshing to merge co-planar, same-material quads.
@@ -22,6 +24,10 @@ public:
     // Provide the voxel registry so the mesher can snapshot per-face
     // atlas indices at enqueue time.  Must be set before the first enqueue().
     void set_registry(const VoxelRegistry* reg) { m_registry = reg; }
+
+    // Provide the lighting system so the mesher can snapshot the LightMap
+    // at enqueue time for colored smooth lighting.
+    void set_lighting(const LightingSystem* ls) { m_lighting = ls; }
 
     // Enqueue a chunk for (re)meshing.  Neighbour chunks are passed so
     // cross-boundary faces can be resolved.
@@ -55,6 +61,8 @@ private:
         // Per-type atlas indices: type_atlas[type_id][face_dir] = texture layer.
         // Sized to (max_type_id + 1).  Empty when no registry is available.
         std::vector<std::array<uint16_t, static_cast<int>(FaceDir::COUNT)>> type_atlas;
+        // Snapshot of LightMap for colored smooth lighting (may be empty).
+        std::unordered_map<glm::ivec3, LightColor> light_colors;
         // Horizontal neighbour snapshots for cross-chunk face culling.
         // Index: 0=PosX  1=NegX  2=PosZ  3=NegZ
         std::array<NeighbourSnap, 4> neighbours;
@@ -69,4 +77,5 @@ private:
     std::atomic<bool>            m_running{false};
     std::atomic<uint64_t>        m_generation{0};
     const VoxelRegistry*         m_registry = nullptr;
+    const LightingSystem*        m_lighting = nullptr;
 };

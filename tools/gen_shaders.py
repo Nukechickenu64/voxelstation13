@@ -94,6 +94,7 @@ OP_SELECTION_MERGE     = 247
 OP_BRANCH              = 249
 OP_BRANCH_CONDITIONAL  = 250
 OP_KILL                = 252
+OP_EXT_INST            = 12   # OpExtInst (for GLSL.std.450 extensions)
 
 
 def f2w(f):
@@ -147,16 +148,22 @@ def build_vertex():
         layout(location=1) in  vec3  inNormal;
         layout(location=2) in  vec2  inUV;
         layout(location=3) in  float inTexIndex;
+        layout(location=4) in  vec3  inLightColor;   // RGB light color × brightness
+        layout(location=5) in  float inAO;           // ambient occlusion 0-1
         layout(location=0) out vec3  fragNormal;
         layout(location=1) out vec2  fragUV;
         layout(location=2) out float fragTexIndex;
+        layout(location=3) out vec3  fragLightColor; // pass-through
+        layout(location=4) out float fragAO;         // pass-through
         layout(set=1, binding=0) uniform UBO { mat4 mvp; } ubo;
         out gl_PerVertex { vec4 gl_Position; };
         void main() {
-            gl_Position  = ubo.mvp * vec4(inPos, 1.0);
-            fragNormal   = inNormal;
-            fragUV       = inUV;
-            fragTexIndex = inTexIndex;
+            gl_Position    = ubo.mvp * vec4(inPos, 1.0);
+            fragNormal     = inNormal;
+            fragUV         = inUV;
+            fragTexIndex   = inTexIndex;
+            fragLightColor = inLightColor;
+            fragAO         = inAO;
         }
     """
     s = Spirv()
@@ -208,6 +215,14 @@ def build_vertex():
     ID_IN_TEXIDX    = s.new()
     ID_OUT_TEXIDX   = s.new()
     ID_LTIDX        = s.new()
+    # Light color pass-through (location 4, vec3)
+    ID_IN_LIGHT     = s.new()   # location 4: vec3 inLightColor
+    ID_OUT_LIGHT    = s.new()   # location 3 out: vec3 fragLightColor
+    ID_LLIGHT       = s.new()   # loaded vec3
+    # AO pass-through (location 5)
+    ID_IN_AO        = s.new()
+    ID_OUT_AO       = s.new()
+    ID_LAO          = s.new()
 
     # ── Capabilities ─────────────────────────────────────────────────────────
     s.emit(OP_CAPABILITY, CAP_SHADER)
@@ -217,17 +232,21 @@ def build_vertex():
 
     # ── Entry point ───────────────────────────────────────────────────────────
     s.entry_point(EXM_VERTEX, ID_MAIN, "main",
-                  ID_IN_POS, ID_IN_NRM, ID_IN_UV, ID_IN_TEXIDX,
-                  ID_GL_POS_BLOCK, ID_OUT_NRM, ID_OUT_UV, ID_OUT_TEXIDX)
+                  ID_IN_POS, ID_IN_NRM, ID_IN_UV, ID_IN_TEXIDX, ID_IN_LIGHT, ID_IN_AO,
+                  ID_GL_POS_BLOCK, ID_OUT_NRM, ID_OUT_UV, ID_OUT_TEXIDX, ID_OUT_LIGHT, ID_OUT_AO)
 
     # ── Decorations ───────────────────────────────────────────────────────────
     s.emit(OP_DECORATE, ID_IN_POS,     DEC_LOCATION, 0)
     s.emit(OP_DECORATE, ID_IN_NRM,     DEC_LOCATION, 1)
     s.emit(OP_DECORATE, ID_IN_UV,      DEC_LOCATION, 2)
     s.emit(OP_DECORATE, ID_IN_TEXIDX,  DEC_LOCATION, 3)
+    s.emit(OP_DECORATE, ID_IN_LIGHT,   DEC_LOCATION, 4)
+    s.emit(OP_DECORATE, ID_IN_AO,      DEC_LOCATION, 5)
     s.emit(OP_DECORATE, ID_OUT_NRM,    DEC_LOCATION, 0)
     s.emit(OP_DECORATE, ID_OUT_UV,     DEC_LOCATION, 1)
     s.emit(OP_DECORATE, ID_OUT_TEXIDX, DEC_LOCATION, 2)
+    s.emit(OP_DECORATE, ID_OUT_LIGHT,  DEC_LOCATION, 3)
+    s.emit(OP_DECORATE, ID_OUT_AO,     DEC_LOCATION, 4)
     # gl_PerVertex block
     s.emit(OP_DECORATE,        ID_PV_STRUCT, DEC_BLOCK)
     s.emit(OP_MEMBER_DECORATE, ID_PV_STRUCT, 0, DEC_BUILT_IN, BI_POSITION)
@@ -272,6 +291,10 @@ def build_vertex():
     s.emit(OP_VARIABLE, ID_PTR_OUT_V2, ID_OUT_UV,        SC_OUTPUT)
     s.emit(OP_VARIABLE, ID_PTR_IN_F,   ID_IN_TEXIDX,     SC_INPUT)
     s.emit(OP_VARIABLE, ID_PTR_OUT_F,  ID_OUT_TEXIDX,    SC_OUTPUT)
+    s.emit(OP_VARIABLE, ID_PTR_IN_V3,  ID_IN_LIGHT,      SC_INPUT)   # vec3 light color
+    s.emit(OP_VARIABLE, ID_PTR_OUT_V3, ID_OUT_LIGHT,     SC_OUTPUT)
+    s.emit(OP_VARIABLE, ID_PTR_IN_F,   ID_IN_AO,         SC_INPUT)
+    s.emit(OP_VARIABLE, ID_PTR_OUT_F,  ID_OUT_AO,        SC_OUTPUT)
 
     s.emit(OP_CONSTANT, ID_INT,   ID_CI0, 0)
     s.emit(OP_CONSTANT, ID_FLOAT, ID_CF1, f2w(1.0))
@@ -308,6 +331,14 @@ def build_vertex():
     s.emit(OP_LOAD,  ID_FLOAT, ID_LTIDX, ID_IN_TEXIDX)
     s.emit(OP_STORE, ID_OUT_TEXIDX, ID_LTIDX)
 
+    # Pass-through light color (vec3)
+    s.emit(OP_LOAD,  ID_VEC3, ID_LLIGHT, ID_IN_LIGHT)
+    s.emit(OP_STORE, ID_OUT_LIGHT, ID_LLIGHT)
+
+    # Pass-through AO
+    s.emit(OP_LOAD,  ID_FLOAT, ID_LAO, ID_IN_AO)
+    s.emit(OP_STORE, ID_OUT_AO, ID_LAO)
+
     s.emit(OP_RETURN)
     s.emit(OP_FUNCTION_END)
 
@@ -318,17 +349,35 @@ def build_vertex():
 def build_fragment():
     """
     GLSL equivalent:
-        layout(set=0, binding=0) uniform sampler2DArray tex;
+        layout(set=2, binding=0) uniform sampler2DArray tex;
         layout(location=0) in vec3  fragNormal;
         layout(location=1) in vec2  fragUV;
         layout(location=2) in float fragTexIndex;
+        layout(location=3) in vec3  fragLightColor; // pre-multiplied RGB light (0..1)
+        layout(location=4) in float fragAO;         // per-vertex ambient occlusion
         layout(location=0) out vec4 outColor;
+
+        layout(set=3, binding=0) uniform LightUBO {
+            vec4 opts;  // x=fullbright(0/1), y=ao_mix, z=ambient_floor, w=unused
+        } ubo;
+
         void main() {
             vec3  L    = vec3(0.57735, 0.57735, 0.57735);
             float diff = dot(fragNormal, L) * 0.45 + 0.55;
-            vec4  tc   = texture(tex, vec3(fragUV, fragTexIndex));
-            if (tc.a < 0.05) discard;   // alpha test: no depth write for invisible pixels
-            outColor   = vec4(tc.rgb * diff, tc.a);
+
+            float fullbright = ubo.opts.x;
+            float ao_mix     = ubo.opts.y;
+            float ambient    = ubo.opts.z;
+
+            // Light color: clamp each channel to at least ambient level
+            vec3 ambV = vec3(ambient);
+            vec3 effColor = fullbright > 0.5 ? vec3(1.0) : max(fragLightColor, ambV);
+
+            float aoFactor = (1.0 - ao_mix) + fragAO * ao_mix;
+
+            vec4 tc = texture(tex, vec3(fragUV, fragTexIndex));
+            if (tc.a < 0.05) discard;
+            outColor = vec4(tc.rgb * effColor * diff * aoFactor, tc.a);
         }
     """
     s = Spirv()
@@ -337,65 +386,129 @@ def build_fragment():
     ID_VOID         = s.new()
     ID_FN_VT        = s.new()
     ID_FLOAT        = s.new()
+    ID_INT          = s.new()
     ID_VEC2         = s.new()
     ID_VEC3         = s.new()
     ID_VEC4         = s.new()
-    ID_IMAGE        = s.new()   # TypeImage(float, 2D, 0, arrayed=1, ms=0, sampled=1, Unknown)
-    ID_SAMP_IMG     = s.new()   # TypeSampledImage
-    ID_PTR_UC_SIMG  = s.new()   # TypePointer(UniformConstant, SampledImage)
-    ID_PTR_IN_V3    = s.new()   # TypePointer(Input, vec3)
-    ID_PTR_IN_V2    = s.new()   # TypePointer(Input, vec2)
-    ID_PTR_IN_F     = s.new()   # TypePointer(Input, float)
-    ID_PTR_OUT_V4   = s.new()   # TypePointer(Output, vec4)
-    ID_SAMPLER_VAR  = s.new()   # var tex  UniformConstant (set=0, binding=0)
-    ID_FRAG_NRM     = s.new()   # fragNormal  Input  location=0
-    ID_FRAG_UV      = s.new()   # fragUV      Input  location=1
-    ID_FRAG_TEXIDX  = s.new()   # fragTexIndex Input location=2
-    ID_OUT_COL      = s.new()   # outColor    Output location=0
+    ID_IMAGE        = s.new()
+    ID_SAMP_IMG     = s.new()
+    ID_PTR_UC_SIMG  = s.new()
+    ID_PTR_IN_V3    = s.new()
+    ID_PTR_IN_V2    = s.new()
+    ID_PTR_IN_F     = s.new()
+    ID_PTR_OUT_V4   = s.new()
+    # Fragment UBO: { vec4 opts } at set=3, binding=0
+    ID_LIGHT_STRUCT = s.new()
+    ID_PTR_UNI_UBO  = s.new()
+    ID_PTR_UNI_V4   = s.new()
+    ID_SAMPLER_VAR  = s.new()
+    ID_LIGHT_VAR    = s.new()
+    ID_FRAG_NRM     = s.new()   # location=0
+    ID_FRAG_UV      = s.new()   # location=1
+    ID_FRAG_TEXIDX  = s.new()   # location=2
+    ID_FRAG_LIGHT   = s.new()   # location=3  vec3 light color
+    ID_FRAG_AO      = s.new()   # location=4  float AO
+    ID_OUT_COL      = s.new()
     ID_MAIN         = s.new()
     ID_ENTRY_LBL    = s.new()
-    # Constants
+    ID_CI0          = s.new()
+    # Float / vec constants
     ID_LC           = s.new()   # 0.57735
-    ID_LIGHT        = s.new()   # vec3(lc, lc, lc)
+    ID_LIGHT_VEC    = s.new()   # vec3(lc,lc,lc) for diffuse
+    ID_C0           = s.new()   # 0.0
     ID_C045         = s.new()
     ID_C055         = s.new()
-    ID_C1           = s.new()
-    # Runtime
+    ID_C05          = s.new()   # 0.5
+    ID_C1           = s.new()   # 1.0
+    ID_ALPHA_THRESH = s.new()   # 0.05
+    ID_BOOL         = s.new()
+    # Runtime – diffuse
     ID_LNRM         = s.new()
-    ID_DOT          = s.new()
-    ID_SCALED       = s.new()
+    ID_DIFF_DOT     = s.new()
+    ID_DIFF_SCALED  = s.new()
     ID_BIASED       = s.new()
+    # Runtime – UBO
+    ID_P_OPTS       = s.new()
+    ID_OPTS_VEC4    = s.new()
+    ID_FULLBRIGHT   = s.new()
+    ID_AO_MIX       = s.new()
+    ID_AMBIENT      = s.new()
+    # Runtime – light (vec3)
+    ID_LIGHT_COL    = s.new()   # loaded fragLightColor vec3
+    ID_AMB_R        = s.new()   # ambient as float component
+    ID_AMB_VEC      = s.new()   # vec3(ambient, ambient, ambient)
+    ID_IS_FULL      = s.new()
+    ID_ONE_VEC      = s.new()   # const vec3(1,1,1)
+    ID_EFF_COL_NOFL = s.new()   # max(fragLightColor, ambV)
+    ID_EFF_COL      = s.new()   # select(fullbright>0.5, vec3(1), above)
+    # Runtime – diffuse × effColor
+    ID_LC_R         = s.new()
+    ID_LC_G         = s.new()
+    ID_LC_B         = s.new()
+    ID_LIT_R        = s.new()
+    ID_LIT_G        = s.new()
+    ID_LIT_B        = s.new()
+    # Runtime – AO
+    ID_LAO          = s.new()
+    ID_INV_AO_MIX   = s.new()
+    ID_SCALED_AO    = s.new()
+    ID_AO_FACTOR    = s.new()
+    # Runtime – texture
     ID_LUV          = s.new()
     ID_LTIDX        = s.new()
     ID_UVX          = s.new()
     ID_UVY          = s.new()
-    ID_UVW          = s.new()   # vec3(uvx, uvy, texidx)
+    ID_UVW          = s.new()
     ID_SIMG_LOADED  = s.new()
-    ID_TC           = s.new()   # sampled vec4
+    ID_TC           = s.new()
     ID_TC_R         = s.new()
     ID_TC_G         = s.new()
     ID_TC_B         = s.new()
     ID_TC_A         = s.new()
+    # Runtime – output  (tc * effColor * diff * aoFactor)
+    ID_TX_R         = s.new()
+    ID_TX_G         = s.new()
+    ID_TX_B         = s.new()
+    ID_TD_R         = s.new()
+    ID_TD_G         = s.new()
+    ID_TD_B         = s.new()
+    ID_TMP_R        = s.new()
+    ID_TMP_G        = s.new()
+    ID_TMP_B        = s.new()
     ID_OUT_R        = s.new()
     ID_OUT_G        = s.new()
     ID_OUT_B        = s.new()
     ID_OUT_COLOR    = s.new()
-    # Alpha test
-    ID_BOOL         = s.new()   # TypeBool
-    ID_ALPHA_THRESH = s.new()   # constant 0.05
-    ID_ALPHA_CMP    = s.new()   # tc.a < threshold (bool result)
-    ID_DISCARD_LBL  = s.new()   # branch target → OpKill
-    ID_CONTINUE_LBL = s.new()   # merge / continue block
+    # Alpha test labels
+    ID_ALPHA_CMP    = s.new()
+    ID_DISCARD_LBL  = s.new()
+    ID_CONTINUE_LBL = s.new()
+    # Max per-component (ExtInst)
+    ID_GLSL_EXT     = s.new()
+    ID_EFF_R        = s.new()   # max(lightR, ambient)
+    ID_EFF_G        = s.new()
+    ID_EFF_B        = s.new()
+    ID_AMB_R2       = s.new()   # ambient.g component
+    ID_AMB_G2       = s.new()   # ambient.b component
 
     # ── Capabilities ─────────────────────────────────────────────────────────
     s.emit(OP_CAPABILITY, CAP_SHADER)
 
+    # ── Extension import (GLSL.std.450 for FMax) ──────────────────────────────
+    OP_EXT_INST_IMPORT = 11
+    ext_words = str_words("GLSL.std.450")
+    wc = 1 + 1 + len(ext_words)
+    s.words.append(wc << 16 | OP_EXT_INST_IMPORT)
+    s.words.append(ID_GLSL_EXT)
+    s.words.extend(ext_words)
+
     # ── Memory model ──────────────────────────────────────────────────────────
     s.emit(OP_MEMORY_MODEL, ADR_LOGICAL, MEM_GLSL450)
 
-    # ── Entry point (Input/Output vars only, not UniformConstant) ────────────
+    # ── Entry point ───────────────────────────────────────────────────────────
     s.entry_point(EXM_FRAGMENT, ID_MAIN, "main",
-                  ID_FRAG_NRM, ID_FRAG_UV, ID_FRAG_TEXIDX, ID_OUT_COL)
+                  ID_FRAG_NRM, ID_FRAG_UV, ID_FRAG_TEXIDX, ID_FRAG_LIGHT, ID_FRAG_AO,
+                  ID_OUT_COL)
 
     # ── Execution mode ────────────────────────────────────────────────────────
     s.emit(OP_EXECUTION_MODE, ID_MAIN, EM_ORIGIN_UPPER_LEFT)
@@ -404,81 +517,393 @@ def build_fragment():
     s.emit(OP_DECORATE, ID_FRAG_NRM,    DEC_LOCATION, 0)
     s.emit(OP_DECORATE, ID_FRAG_UV,     DEC_LOCATION, 1)
     s.emit(OP_DECORATE, ID_FRAG_TEXIDX, DEC_LOCATION, 2)
+    s.emit(OP_DECORATE, ID_FRAG_LIGHT,  DEC_LOCATION, 3)
+    s.emit(OP_DECORATE, ID_FRAG_AO,     DEC_LOCATION, 4)
     s.emit(OP_DECORATE, ID_OUT_COL,     DEC_LOCATION, 0)
-    # Sampler descriptor (fragment set=2, binding=0 — SDL3 GPU SPIRV layout)
+    # Texture sampler (set=2, binding=0)
     s.emit(OP_DECORATE, ID_SAMPLER_VAR, DEC_DESCRIPTOR_SET, 2)
     s.emit(OP_DECORATE, ID_SAMPLER_VAR, DEC_BINDING,        0)
+    # LightUBO (set=3, binding=0) — single vec4 opts
+    s.emit(OP_DECORATE,        ID_LIGHT_STRUCT, DEC_BLOCK)
+    s.emit(OP_MEMBER_DECORATE, ID_LIGHT_STRUCT, 0, DEC_OFFSET, 0)
+    s.emit(OP_DECORATE, ID_LIGHT_VAR, DEC_DESCRIPTOR_SET, 3)
+    s.emit(OP_DECORATE, ID_LIGHT_VAR, DEC_BINDING,        0)
 
     # ── Types + constants + global variables ──────────────────────────────────
     s.emit(OP_TYPE_VOID,     ID_VOID)
     s.emit(OP_TYPE_FUNCTION, ID_FN_VT, ID_VOID)
     s.emit(OP_TYPE_FLOAT,    ID_FLOAT, 32)
+    s.emit(OP_TYPE_INT,      ID_INT, 32, 1)
     s.emit(OP_TYPE_VECTOR,   ID_VEC2, ID_FLOAT, 2)
     s.emit(OP_TYPE_VECTOR,   ID_VEC3, ID_FLOAT, 3)
     s.emit(OP_TYPE_VECTOR,   ID_VEC4, ID_FLOAT, 4)
-    # OpTypeImage: sampled_type Dim Depth Arrayed MS Sampled Format
+    s.emit(OP_TYPE_BOOL,     ID_BOOL)
     s.emit(OP_TYPE_IMAGE,         ID_IMAGE,    ID_FLOAT, 1, 0, 1, 0, 1, 0)
     s.emit(OP_TYPE_SAMPLED_IMAGE, ID_SAMP_IMG, ID_IMAGE)
     s.emit(OP_TYPE_POINTER, ID_PTR_UC_SIMG, SC_UNIFORM_CONSTANT, ID_SAMP_IMG)
-    s.emit(OP_TYPE_POINTER, ID_PTR_IN_V3,   SC_INPUT,             ID_VEC3)
-    s.emit(OP_TYPE_POINTER, ID_PTR_IN_V2,   SC_INPUT,             ID_VEC2)
-    s.emit(OP_TYPE_POINTER, ID_PTR_IN_F,    SC_INPUT,             ID_FLOAT)
-    s.emit(OP_TYPE_POINTER, ID_PTR_OUT_V4,  SC_OUTPUT,            ID_VEC4)
+    s.emit(OP_TYPE_POINTER, ID_PTR_IN_V3,   SC_INPUT,  ID_VEC3)
+    s.emit(OP_TYPE_POINTER, ID_PTR_IN_V2,   SC_INPUT,  ID_VEC2)
+    s.emit(OP_TYPE_POINTER, ID_PTR_IN_F,    SC_INPUT,  ID_FLOAT)
+    s.emit(OP_TYPE_POINTER, ID_PTR_OUT_V4,  SC_OUTPUT, ID_VEC4)
+    # LightUBO: single vec4
+    s.emit(OP_TYPE_STRUCT,  ID_LIGHT_STRUCT, ID_VEC4)
+    s.emit(OP_TYPE_POINTER, ID_PTR_UNI_UBO,  SC_UNIFORM, ID_LIGHT_STRUCT)
+    s.emit(OP_TYPE_POINTER, ID_PTR_UNI_V4,   SC_UNIFORM, ID_VEC4)
 
+    # Global variables
     s.emit(OP_VARIABLE, ID_PTR_UC_SIMG, ID_SAMPLER_VAR, SC_UNIFORM_CONSTANT)
+    s.emit(OP_VARIABLE, ID_PTR_UNI_UBO, ID_LIGHT_VAR,   SC_UNIFORM)
     s.emit(OP_VARIABLE, ID_PTR_IN_V3,   ID_FRAG_NRM,    SC_INPUT)
     s.emit(OP_VARIABLE, ID_PTR_IN_V2,   ID_FRAG_UV,     SC_INPUT)
     s.emit(OP_VARIABLE, ID_PTR_IN_F,    ID_FRAG_TEXIDX, SC_INPUT)
+    s.emit(OP_VARIABLE, ID_PTR_IN_V3,   ID_FRAG_LIGHT,  SC_INPUT)   # vec3 now
+    s.emit(OP_VARIABLE, ID_PTR_IN_F,    ID_FRAG_AO,     SC_INPUT)
     s.emit(OP_VARIABLE, ID_PTR_OUT_V4,  ID_OUT_COL,     SC_OUTPUT)
 
-    s.emit(OP_CONSTANT,           ID_FLOAT, ID_LC,   f2w(0.57735))
-    s.emit(OP_CONSTANT_COMPOSITE, ID_VEC3,  ID_LIGHT, ID_LC, ID_LC, ID_LC)
-    s.emit(OP_TYPE_BOOL,          ID_BOOL)
-    s.emit(OP_CONSTANT,           ID_FLOAT, ID_C045, f2w(0.45))
-    s.emit(OP_CONSTANT,           ID_FLOAT, ID_C055, f2w(0.55))
-    s.emit(OP_CONSTANT,           ID_FLOAT, ID_C1,   f2w(1.0))
-    s.emit(OP_CONSTANT,           ID_FLOAT, ID_ALPHA_THRESH, f2w(0.05))
+    # Constants
+    s.emit(OP_CONSTANT, ID_INT,   ID_CI0,  0)
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_LC,   f2w(0.57735))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_C0,   f2w(0.0))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_C045, f2w(0.45))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_C055, f2w(0.55))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_C05,  f2w(0.5))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_C1,   f2w(1.0))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_ALPHA_THRESH, f2w(0.05))
+    s.emit(OP_CONSTANT_COMPOSITE, ID_VEC3, ID_LIGHT_VEC, ID_LC, ID_LC, ID_LC)
+    s.emit(OP_CONSTANT_COMPOSITE, ID_VEC3, ID_ONE_VEC,   ID_C1, ID_C1, ID_C1)
 
     # ── Function ──────────────────────────────────────────────────────────────
     s.emit(OP_FUNCTION, ID_VOID, ID_MAIN, FC_NONE, ID_FN_VT)
     s.emit(OP_LABEL, ID_ENTRY_LBL)
 
-    # Diffuse: dot(fragNormal, L) * 0.45 + 0.55
-    s.emit(OP_LOAD,  ID_VEC3,  ID_LNRM,   ID_FRAG_NRM)
-    s.emit(OP_DOT,   ID_FLOAT, ID_DOT,    ID_LNRM, ID_LIGHT)
-    s.emit(OP_F_MUL, ID_FLOAT, ID_SCALED, ID_DOT,    ID_C045)
-    s.emit(OP_F_ADD, ID_FLOAT, ID_BIASED, ID_SCALED, ID_C055)
+    # ── Lambertian diffuse (scalar) ───────────────────────────────────────────
+    s.emit(OP_LOAD,  ID_VEC3,  ID_LNRM,        ID_FRAG_NRM)
+    s.emit(OP_DOT,   ID_FLOAT, ID_DIFF_DOT,    ID_LNRM, ID_LIGHT_VEC)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_DIFF_SCALED, ID_DIFF_DOT, ID_C045)
+    s.emit(OP_F_ADD, ID_FLOAT, ID_BIASED,       ID_DIFF_SCALED, ID_C055)
 
-    # Build vec3 texture coordinate: vec3(fragUV.x, fragUV.y, fragTexIndex)
+    # ── Load UBO opts ─────────────────────────────────────────────────────────
+    s.emit(OP_ACCESS_CHAIN, ID_PTR_UNI_V4, ID_P_OPTS, ID_LIGHT_VAR, ID_CI0)
+    s.emit(OP_LOAD, ID_VEC4, ID_OPTS_VEC4, ID_P_OPTS)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_FULLBRIGHT, ID_OPTS_VEC4, 0)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_AO_MIX,    ID_OPTS_VEC4, 1)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_AMBIENT,   ID_OPTS_VEC4, 2)
+
+    # ── Load per-vertex light color (vec3) + AO ───────────────────────────────
+    s.emit(OP_LOAD, ID_VEC3,  ID_LIGHT_COL, ID_FRAG_LIGHT)
+    s.emit(OP_LOAD, ID_FLOAT, ID_LAO,       ID_FRAG_AO)
+
+    # ── Build ambient vec3(ambient, ambient, ambient) ─────────────────────────
+    s.emit(OP_COMPOSITE_CONSTRUCT, ID_VEC3, ID_AMB_VEC, ID_AMBIENT, ID_AMBIENT, ID_AMBIENT)
+
+    # ── effColor = fullbright > 0.5 ? vec3(1) : max(fragLightColor, ambV) ─────
+    # Use component-wise FMax via OpExtInst GLSL FMax (op 40)
+    GLSL_FMAX = 40
+    # Extract light components
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_LC_R, ID_LIGHT_COL, 0)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_LC_G, ID_LIGHT_COL, 1)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_LC_B, ID_LIGHT_COL, 2)
+    # Extract ambient components
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_AMB_R,  ID_AMB_VEC, 0)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_AMB_R2, ID_AMB_VEC, 1)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_AMB_G2, ID_AMB_VEC, 2)
+    s.emit(OP_EXT_INST, ID_FLOAT, ID_EFF_R, ID_GLSL_EXT, GLSL_FMAX, ID_LC_R, ID_AMB_R)
+    s.emit(OP_EXT_INST, ID_FLOAT, ID_EFF_G, ID_GLSL_EXT, GLSL_FMAX, ID_LC_G, ID_AMB_R2)
+    s.emit(OP_EXT_INST, ID_FLOAT, ID_EFF_B, ID_GLSL_EXT, GLSL_FMAX, ID_LC_B, ID_AMB_G2)
+    s.emit(OP_COMPOSITE_CONSTRUCT, ID_VEC3, ID_EFF_COL_NOFL, ID_EFF_R, ID_EFF_G, ID_EFF_B)
+    # Fullbright select: effColor = fullbright > 0.5 ? vec3(1.0) : EFF_COL_NOFL
+    s.emit(OP_F_ORD_GREATER_THAN, ID_BOOL, ID_IS_FULL, ID_FULLBRIGHT, ID_C05)
+    s.emit(OP_SELECT, ID_VEC3, ID_EFF_COL, ID_IS_FULL, ID_ONE_VEC, ID_EFF_COL_NOFL)
+
+    # ── AO factor ─────────────────────────────────────────────────────────────
+    s.emit(OP_F_SUB, ID_FLOAT, ID_INV_AO_MIX, ID_C1, ID_AO_MIX)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_SCALED_AO,  ID_LAO, ID_AO_MIX)
+    s.emit(OP_F_ADD, ID_FLOAT, ID_AO_FACTOR,  ID_INV_AO_MIX, ID_SCALED_AO)
+
+    # ── Texture sample ────────────────────────────────────────────────────────
     s.emit(OP_LOAD,              ID_VEC2,  ID_LUV,   ID_FRAG_UV)
     s.emit(OP_LOAD,              ID_FLOAT, ID_LTIDX, ID_FRAG_TEXIDX)
     s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_UVX,   ID_LUV, 0)
     s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_UVY,   ID_LUV, 1)
     s.emit(OP_COMPOSITE_CONSTRUCT, ID_VEC3, ID_UVW,  ID_UVX, ID_UVY, ID_LTIDX)
-
-    # Sample the texture array
     s.emit(OP_LOAD, ID_SAMP_IMG, ID_SIMG_LOADED, ID_SAMPLER_VAR)
     s.emit(OP_IMAGE_SAMPLE_IMPLICIT_LOD, ID_VEC4, ID_TC, ID_SIMG_LOADED, ID_UVW)
-
-    # Extract RGBA components
     s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_TC_R, ID_TC, 0)
     s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_TC_G, ID_TC, 1)
     s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_TC_B, ID_TC, 2)
     s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_TC_A, ID_TC, 3)
 
-    # Alpha test: discard fully-transparent fragments so they don't write the depth buffer,
-    # which would hide opaque geometry behind them (e.g. walls visible through door glass).
-    s.emit(OP_F_ORD_LESS_THAN,     ID_BOOL,  ID_ALPHA_CMP,   ID_TC_A, ID_ALPHA_THRESH)
-    s.emit(OP_SELECTION_MERGE,     ID_CONTINUE_LBL, 0)
-    s.emit(OP_BRANCH_CONDITIONAL,  ID_ALPHA_CMP, ID_DISCARD_LBL, ID_CONTINUE_LBL)
-    s.emit(OP_LABEL,               ID_DISCARD_LBL)
+    # Alpha test
+    s.emit(OP_F_ORD_LESS_THAN,    ID_BOOL,  ID_ALPHA_CMP,   ID_TC_A, ID_ALPHA_THRESH)
+    s.emit(OP_SELECTION_MERGE,    ID_CONTINUE_LBL, 0)
+    s.emit(OP_BRANCH_CONDITIONAL, ID_ALPHA_CMP, ID_DISCARD_LBL, ID_CONTINUE_LBL)
+    s.emit(OP_LABEL,              ID_DISCARD_LBL)
     s.emit(OP_KILL)
-    s.emit(OP_LABEL,               ID_CONTINUE_LBL)
+    s.emit(OP_LABEL,              ID_CONTINUE_LBL)
 
-    # Multiply RGB by diffuse factor
-    s.emit(OP_F_MUL, ID_FLOAT, ID_OUT_R, ID_TC_R, ID_BIASED)
-    s.emit(OP_F_MUL, ID_FLOAT, ID_OUT_G, ID_TC_G, ID_BIASED)
-    s.emit(OP_F_MUL, ID_FLOAT, ID_OUT_B, ID_TC_B, ID_BIASED)
+    # ── Apply: tc.rgb * effColor * diff * aoFactor ────────────────────────────
+    # Extract effColor components
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_LIT_R, ID_EFF_COL, 0)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_LIT_G, ID_EFF_COL, 1)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_LIT_B, ID_EFF_COL, 2)
+    # tc * effColor
+    s.emit(OP_F_MUL, ID_FLOAT, ID_TX_R, ID_TC_R, ID_LIT_R)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_TX_G, ID_TC_G, ID_LIT_G)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_TX_B, ID_TC_B, ID_LIT_B)
+    # * diff
+    s.emit(OP_F_MUL, ID_FLOAT, ID_TD_R, ID_TX_R, ID_BIASED)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_TD_G, ID_TX_G, ID_BIASED)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_TD_B, ID_TX_B, ID_BIASED)
+    # * aoFactor
+    s.emit(OP_F_MUL, ID_FLOAT, ID_OUT_R, ID_TD_R, ID_AO_FACTOR)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_OUT_G, ID_TD_G, ID_AO_FACTOR)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_OUT_B, ID_TD_B, ID_AO_FACTOR)
+
+    s.emit(OP_COMPOSITE_CONSTRUCT, ID_VEC4, ID_OUT_COLOR,
+           ID_OUT_R, ID_OUT_G, ID_OUT_B, ID_TC_A)
+    s.emit(OP_STORE, ID_OUT_COL, ID_OUT_COLOR)
+    s.emit(OP_RETURN)
+    s.emit(OP_FUNCTION_END)
+
+    return s.build()
+
+
+    s = Spirv()
+
+    # ── IDs ───────────────────────────────────────────────────────────────────
+    ID_VOID         = s.new()
+    ID_FN_VT        = s.new()
+    ID_FLOAT        = s.new()
+    ID_INT          = s.new()
+    ID_VEC2         = s.new()
+    ID_VEC3         = s.new()
+    ID_VEC4         = s.new()
+    ID_IMAGE        = s.new()
+    ID_SAMP_IMG     = s.new()
+    ID_PTR_UC_SIMG  = s.new()
+    ID_PTR_IN_V3    = s.new()
+    ID_PTR_IN_V2    = s.new()
+    ID_PTR_IN_F     = s.new()
+    ID_PTR_OUT_V4   = s.new()
+    # Fragment UBO: { vec4 opts } at set=3, binding=0
+    ID_LIGHT_STRUCT = s.new()   # TypeStruct(vec4)
+    ID_PTR_UNI_UBO  = s.new()
+    ID_PTR_UNI_V4   = s.new()
+    ID_SAMPLER_VAR  = s.new()
+    ID_LIGHT_VAR    = s.new()
+    ID_FRAG_NRM     = s.new()   # location=0
+    ID_FRAG_UV      = s.new()   # location=1
+    ID_FRAG_TEXIDX  = s.new()   # location=2
+    ID_FRAG_LIGHT   = s.new()   # location=3  dynamic light
+    ID_FRAG_AO      = s.new()   # location=4  ambient occlusion
+    ID_OUT_COL      = s.new()
+    ID_MAIN         = s.new()
+    ID_ENTRY_LBL    = s.new()
+    ID_CI0          = s.new()   # int 0
+    # Float constants
+    ID_LC           = s.new()   # 0.57735
+    ID_LIGHT_VEC    = s.new()   # vec3(lc,lc,lc)
+    ID_C0           = s.new()   # 0.0
+    ID_C045         = s.new()
+    ID_C055         = s.new()
+    ID_C05          = s.new()   # 0.5  (fullbright threshold)
+    ID_C1           = s.new()   # 1.0
+    ID_ALPHA_THRESH = s.new()   # 0.05
+    # Runtime – diffuse
+    ID_LNRM         = s.new()
+    ID_DIFF_DOT     = s.new()
+    ID_DIFF_SCALED  = s.new()
+    ID_BIASED       = s.new()
+    # Runtime – UBO
+    ID_P_OPTS       = s.new()
+    ID_OPTS_VEC4    = s.new()
+    ID_FULLBRIGHT   = s.new()
+    ID_AO_MIX       = s.new()
+    ID_AMBIENT      = s.new()
+    # Runtime – light and AO
+    ID_L_LIGHT      = s.new()
+    ID_LAO          = s.new()
+    ID_BOOL         = s.new()
+    ID_LIGHT_GT_AMB = s.new()
+    ID_MAX_LIGHT    = s.new()
+    ID_IS_FULL      = s.new()
+    ID_EFF_LIGHT    = s.new()
+    # Runtime – combine
+    ID_COMBINED     = s.new()
+    ID_GT_ZERO      = s.new()
+    ID_CLAMP_LO     = s.new()
+    ID_LT_ONE       = s.new()
+    ID_FINAL_LIGHT  = s.new()
+    # Runtime – AO
+    ID_INV_AO_MIX   = s.new()
+    ID_SCALED_AO    = s.new()
+    ID_AO_FACTOR    = s.new()
+    # Runtime – texture
+    ID_LUV          = s.new()
+    ID_LTIDX        = s.new()
+    ID_UVX          = s.new()
+    ID_UVY          = s.new()
+    ID_UVW          = s.new()
+    ID_SIMG_LOADED  = s.new()
+    ID_TC           = s.new()
+    ID_TC_R         = s.new()
+    ID_TC_G         = s.new()
+    ID_TC_B         = s.new()
+    ID_TC_A         = s.new()
+    # Runtime – output
+    ID_TMP_R        = s.new()
+    ID_TMP_G        = s.new()
+    ID_TMP_B        = s.new()
+    ID_OUT_R        = s.new()
+    ID_OUT_G        = s.new()
+    ID_OUT_B        = s.new()
+    ID_OUT_COLOR    = s.new()
+    # Alpha test labels
+    ID_ALPHA_CMP    = s.new()
+    ID_DISCARD_LBL  = s.new()
+    ID_CONTINUE_LBL = s.new()
+
+    # ── Capabilities ─────────────────────────────────────────────────────────
+    s.emit(OP_CAPABILITY, CAP_SHADER)
+
+    # ── Memory model ──────────────────────────────────────────────────────────
+    s.emit(OP_MEMORY_MODEL, ADR_LOGICAL, MEM_GLSL450)
+
+    # ── Entry point ───────────────────────────────────────────────────────────
+    s.entry_point(EXM_FRAGMENT, ID_MAIN, "main",
+                  ID_FRAG_NRM, ID_FRAG_UV, ID_FRAG_TEXIDX, ID_FRAG_LIGHT, ID_FRAG_AO,
+                  ID_OUT_COL)
+
+    # ── Execution mode ────────────────────────────────────────────────────────
+    s.emit(OP_EXECUTION_MODE, ID_MAIN, EM_ORIGIN_UPPER_LEFT)
+
+    # ── Decorations ───────────────────────────────────────────────────────────
+    s.emit(OP_DECORATE, ID_FRAG_NRM,    DEC_LOCATION, 0)
+    s.emit(OP_DECORATE, ID_FRAG_UV,     DEC_LOCATION, 1)
+    s.emit(OP_DECORATE, ID_FRAG_TEXIDX, DEC_LOCATION, 2)
+    s.emit(OP_DECORATE, ID_FRAG_LIGHT,  DEC_LOCATION, 3)
+    s.emit(OP_DECORATE, ID_FRAG_AO,     DEC_LOCATION, 4)
+    s.emit(OP_DECORATE, ID_OUT_COL,     DEC_LOCATION, 0)
+    # Texture sampler (set=2, binding=0)
+    s.emit(OP_DECORATE, ID_SAMPLER_VAR, DEC_DESCRIPTOR_SET, 2)
+    s.emit(OP_DECORATE, ID_SAMPLER_VAR, DEC_BINDING,        0)
+    # LightUBO (set=3, binding=0) — single vec4 opts
+    s.emit(OP_DECORATE,        ID_LIGHT_STRUCT, DEC_BLOCK)
+    s.emit(OP_MEMBER_DECORATE, ID_LIGHT_STRUCT, 0, DEC_OFFSET, 0)
+    s.emit(OP_DECORATE, ID_LIGHT_VAR, DEC_DESCRIPTOR_SET, 3)
+    s.emit(OP_DECORATE, ID_LIGHT_VAR, DEC_BINDING,        0)
+
+    # ── Types + constants + global variables ──────────────────────────────────
+    s.emit(OP_TYPE_VOID,     ID_VOID)
+    s.emit(OP_TYPE_FUNCTION, ID_FN_VT, ID_VOID)
+    s.emit(OP_TYPE_FLOAT,    ID_FLOAT, 32)
+    s.emit(OP_TYPE_INT,      ID_INT, 32, 1)
+    s.emit(OP_TYPE_VECTOR,   ID_VEC2, ID_FLOAT, 2)
+    s.emit(OP_TYPE_VECTOR,   ID_VEC3, ID_FLOAT, 3)
+    s.emit(OP_TYPE_VECTOR,   ID_VEC4, ID_FLOAT, 4)
+    s.emit(OP_TYPE_BOOL,     ID_BOOL)
+    s.emit(OP_TYPE_IMAGE,         ID_IMAGE,    ID_FLOAT, 1, 0, 1, 0, 1, 0)
+    s.emit(OP_TYPE_SAMPLED_IMAGE, ID_SAMP_IMG, ID_IMAGE)
+    s.emit(OP_TYPE_POINTER, ID_PTR_UC_SIMG, SC_UNIFORM_CONSTANT, ID_SAMP_IMG)
+    s.emit(OP_TYPE_POINTER, ID_PTR_IN_V3,   SC_INPUT,  ID_VEC3)
+    s.emit(OP_TYPE_POINTER, ID_PTR_IN_V2,   SC_INPUT,  ID_VEC2)
+    s.emit(OP_TYPE_POINTER, ID_PTR_IN_F,    SC_INPUT,  ID_FLOAT)
+    s.emit(OP_TYPE_POINTER, ID_PTR_OUT_V4,  SC_OUTPUT, ID_VEC4)
+    # LightUBO: single vec4
+    s.emit(OP_TYPE_STRUCT,  ID_LIGHT_STRUCT, ID_VEC4)
+    s.emit(OP_TYPE_POINTER, ID_PTR_UNI_UBO,  SC_UNIFORM, ID_LIGHT_STRUCT)
+    s.emit(OP_TYPE_POINTER, ID_PTR_UNI_V4,   SC_UNIFORM, ID_VEC4)
+
+    # Global variables
+    s.emit(OP_VARIABLE, ID_PTR_UC_SIMG, ID_SAMPLER_VAR, SC_UNIFORM_CONSTANT)
+    s.emit(OP_VARIABLE, ID_PTR_UNI_UBO, ID_LIGHT_VAR,   SC_UNIFORM)
+    s.emit(OP_VARIABLE, ID_PTR_IN_V3,   ID_FRAG_NRM,    SC_INPUT)
+    s.emit(OP_VARIABLE, ID_PTR_IN_V2,   ID_FRAG_UV,     SC_INPUT)
+    s.emit(OP_VARIABLE, ID_PTR_IN_F,    ID_FRAG_TEXIDX, SC_INPUT)
+    s.emit(OP_VARIABLE, ID_PTR_IN_F,    ID_FRAG_LIGHT,  SC_INPUT)
+    s.emit(OP_VARIABLE, ID_PTR_IN_F,    ID_FRAG_AO,     SC_INPUT)
+    s.emit(OP_VARIABLE, ID_PTR_OUT_V4,  ID_OUT_COL,     SC_OUTPUT)
+
+    # Constants
+    s.emit(OP_CONSTANT, ID_INT,   ID_CI0,  0)
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_LC,   f2w(0.57735))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_C0,   f2w(0.0))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_C045, f2w(0.45))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_C055, f2w(0.55))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_C05,  f2w(0.5))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_C1,   f2w(1.0))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_ALPHA_THRESH, f2w(0.05))
+    s.emit(OP_CONSTANT_COMPOSITE, ID_VEC3, ID_LIGHT_VEC, ID_LC, ID_LC, ID_LC)
+
+    # ── Function ──────────────────────────────────────────────────────────────
+    s.emit(OP_FUNCTION, ID_VOID, ID_MAIN, FC_NONE, ID_FN_VT)
+    s.emit(OP_LABEL, ID_ENTRY_LBL)
+
+    # ── Lambertian diffuse ────────────────────────────────────────────────────
+    s.emit(OP_LOAD,  ID_VEC3,  ID_LNRM,        ID_FRAG_NRM)
+    s.emit(OP_DOT,   ID_FLOAT, ID_DIFF_DOT,    ID_LNRM, ID_LIGHT_VEC)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_DIFF_SCALED, ID_DIFF_DOT, ID_C045)
+    s.emit(OP_F_ADD, ID_FLOAT, ID_BIASED,       ID_DIFF_SCALED, ID_C055)
+
+    # ── Load UBO opts ─────────────────────────────────────────────────────────
+    s.emit(OP_ACCESS_CHAIN, ID_PTR_UNI_V4, ID_P_OPTS, ID_LIGHT_VAR, ID_CI0)
+    s.emit(OP_LOAD, ID_VEC4, ID_OPTS_VEC4, ID_P_OPTS)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_FULLBRIGHT, ID_OPTS_VEC4, 0)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_AO_MIX,    ID_OPTS_VEC4, 1)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_AMBIENT,   ID_OPTS_VEC4, 2)
+
+    # ── Load per-vertex inputs ─────────────────────────────────────────────────
+    s.emit(OP_LOAD, ID_FLOAT, ID_L_LIGHT, ID_FRAG_LIGHT)
+    s.emit(OP_LOAD, ID_FLOAT, ID_LAO,     ID_FRAG_AO)
+
+    # ── Dynamic light: max(fragLight, ambient) ─────────────────────────────────
+    s.emit(OP_F_ORD_GREATER_THAN, ID_BOOL,  ID_LIGHT_GT_AMB, ID_L_LIGHT, ID_AMBIENT)
+    s.emit(OP_SELECT,             ID_FLOAT, ID_MAX_LIGHT, ID_LIGHT_GT_AMB, ID_L_LIGHT, ID_AMBIENT)
+
+    # ── Fullbright override: effLight = fullbright > 0.5 ? 1.0 : max_light ────
+    s.emit(OP_F_ORD_GREATER_THAN, ID_BOOL,  ID_IS_FULL,   ID_FULLBRIGHT, ID_C05)
+    s.emit(OP_SELECT,             ID_FLOAT, ID_EFF_LIGHT, ID_IS_FULL, ID_C1, ID_MAX_LIGHT)
+
+    # ── finalLight = clamp(diff * effLight, 0, 1) ─────────────────────────────
+    s.emit(OP_F_MUL,           ID_FLOAT, ID_COMBINED,    ID_BIASED, ID_EFF_LIGHT)
+    s.emit(OP_F_ORD_GREATER_THAN, ID_BOOL,  ID_GT_ZERO,  ID_COMBINED, ID_C0)
+    s.emit(OP_SELECT,          ID_FLOAT, ID_CLAMP_LO,    ID_GT_ZERO, ID_COMBINED, ID_C0)
+    s.emit(OP_F_ORD_LESS_THAN, ID_BOOL,  ID_LT_ONE,      ID_CLAMP_LO, ID_C1)
+    s.emit(OP_SELECT,          ID_FLOAT, ID_FINAL_LIGHT,  ID_LT_ONE, ID_CLAMP_LO, ID_C1)
+
+    # ── AO factor: (1 - ao_mix) + fragAO * ao_mix ────────────────────────────
+    s.emit(OP_F_SUB, ID_FLOAT, ID_INV_AO_MIX, ID_C1, ID_AO_MIX)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_SCALED_AO,  ID_LAO, ID_AO_MIX)
+    s.emit(OP_F_ADD, ID_FLOAT, ID_AO_FACTOR,  ID_INV_AO_MIX, ID_SCALED_AO)
+
+    # ── Texture sample ────────────────────────────────────────────────────────
+    s.emit(OP_LOAD,              ID_VEC2,  ID_LUV,   ID_FRAG_UV)
+    s.emit(OP_LOAD,              ID_FLOAT, ID_LTIDX, ID_FRAG_TEXIDX)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_UVX,   ID_LUV, 0)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_UVY,   ID_LUV, 1)
+    s.emit(OP_COMPOSITE_CONSTRUCT, ID_VEC3, ID_UVW,  ID_UVX, ID_UVY, ID_LTIDX)
+    s.emit(OP_LOAD, ID_SAMP_IMG, ID_SIMG_LOADED, ID_SAMPLER_VAR)
+    s.emit(OP_IMAGE_SAMPLE_IMPLICIT_LOD, ID_VEC4, ID_TC, ID_SIMG_LOADED, ID_UVW)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_TC_R, ID_TC, 0)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_TC_G, ID_TC, 1)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_TC_B, ID_TC, 2)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_TC_A, ID_TC, 3)
+
+    # Alpha test
+    s.emit(OP_F_ORD_LESS_THAN,    ID_BOOL,  ID_ALPHA_CMP,   ID_TC_A, ID_ALPHA_THRESH)
+    s.emit(OP_SELECTION_MERGE,    ID_CONTINUE_LBL, 0)
+    s.emit(OP_BRANCH_CONDITIONAL, ID_ALPHA_CMP, ID_DISCARD_LBL, ID_CONTINUE_LBL)
+    s.emit(OP_LABEL,              ID_DISCARD_LBL)
+    s.emit(OP_KILL)
+    s.emit(OP_LABEL,              ID_CONTINUE_LBL)
+
+    # ── Apply lighting + AO ───────────────────────────────────────────────────
+    s.emit(OP_F_MUL, ID_FLOAT, ID_TMP_R, ID_TC_R, ID_FINAL_LIGHT)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_TMP_G, ID_TC_G, ID_FINAL_LIGHT)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_TMP_B, ID_TC_B, ID_FINAL_LIGHT)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_OUT_R, ID_TMP_R, ID_AO_FACTOR)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_OUT_G, ID_TMP_G, ID_AO_FACTOR)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_OUT_B, ID_TMP_B, ID_AO_FACTOR)
 
     s.emit(OP_COMPOSITE_CONSTRUCT, ID_VEC4, ID_OUT_COLOR,
            ID_OUT_R, ID_OUT_G, ID_OUT_B, ID_TC_A)

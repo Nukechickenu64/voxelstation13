@@ -78,6 +78,7 @@ struct InventorySlot {
 // ── Inventory ─────────────────────────────────────────────────────────────────
 class Inventory {
 public:
+    Inventory() = default;  // empty (no slots) — use factory functions for real inventories
     explicit Inventory(std::vector<InventorySlot> slots);
 
     InventorySlot*       find_slot(const std::string& id);
@@ -157,3 +158,19 @@ private:
 // ── Factory ───────────────────────────────────────────────────────────────────
 // Build the standard Stationeers-style player inventory.
 Inventory make_player_inventory();
+
+// Build a minimal mob inventory (l_hand + r_hand only).
+Inventory make_mob_inventory();
+
+// ── InventoryComponent ────────────────────────────────────────────────────────
+// ECS component: attach alongside HumanAppearance to give any mob entity
+// held/equipped items.  The per-frame overlay-rebuild system in main.cpp
+// watches this component and updates HumanAppearance layers automatically
+// whenever the held/equipped items change.
+struct InventoryComponent {
+    Inventory   inv;
+    std::string overlay_fp;   // last fingerprint, used for dirty detection
+
+    InventoryComponent() : inv(make_mob_inventory()) {}
+    explicit InventoryComponent(Inventory i) : inv(std::move(i)) {}
+};

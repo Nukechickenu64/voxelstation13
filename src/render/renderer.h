@@ -157,6 +157,14 @@ public:
     }
     bool verbose_logging() const { return m_verbose_logging; }
 
+    // ── Lighting / AO ─────────────────────────────────────────────────────────
+    // Toggle fullbright mode (overrides all dynamic lighting).
+    void set_fullbright(bool on) { m_fullbright = on; }
+    // Set ambient-occlusion blend (0 = AO off, 1 = full AO effect).
+    void set_ao_mix(float mix)  { m_ao_mix  = mix; }
+    // Set minimum ambient light level (0-1, visible even in total darkness).
+    void set_ambient(float a)   { m_ambient = a;   }
+
 private:
     // ── Window / device ──────────────────────────────────────────────────────
     SDL_Window*    m_window = nullptr;
@@ -166,6 +174,11 @@ private:
 
     // ── Debug / logging ───────────────────────────────────────────────────────
     bool m_verbose_logging = false;
+
+    // ── Lighting state (pushed to fragment UBO each draw_world call) ─────────
+    bool  m_fullbright = false;
+    float m_ao_mix     = 0.f;   // 0 = AO disabled, 1 = AO enabled
+    float m_ambient    = 0.3f;  // ambient floor (visible in darkness)
 
     // ── Pipeline ─────────────────────────────────────────────────────────────
     SDL_GPUGraphicsPipeline* m_world_pipeline     = nullptr;

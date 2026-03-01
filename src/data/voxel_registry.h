@@ -18,7 +18,10 @@ struct VoxelTypeDef {
     std::string          material;
     std::string          on_hit;       // verb handler name
     std::string          on_walk;      // verb handler name
-    uint8_t              emit_light    = 0;  // 0-15
+    uint8_t              emit_light    = 0;   // 0-15
+    uint8_t              emit_r        = 255; // light color red   (0-255)
+    uint8_t              emit_g        = 255; // light color green (0-255)
+    uint8_t              emit_b        = 220; // light color blue  (0-255, warm white default)
     // Per-face texture overrides (keys match the "icon" format, e.g. "tiles/grass").
     // Empty string means "use icon for that face".
     std::string          tex_top;     // PosY face

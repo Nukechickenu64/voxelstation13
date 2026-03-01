@@ -16,6 +16,8 @@ struct AdminMenuState {
     bool debug_overlay = false;
     bool player_stats  = false;
     bool verbose_log   = false;
+    bool fullbright    = false;
+    bool ambient_occlusion = false;
 };
 
 // Returned by draw() — each flag is true for exactly one frame when the
@@ -27,6 +29,8 @@ struct AdminMenuResult {
     bool toggle_debug_overlay = false;
     bool toggle_player_stats  = false;
     bool toggle_verbose_log   = false;
+    bool toggle_fullbright    = false;
+    bool toggle_ambient_occlusion = false;
     bool close_requested      = false;
 };
 

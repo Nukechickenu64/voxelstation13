@@ -86,8 +86,8 @@ AdminMenuResult AdminMenu::draw(glm::vec2 cursor,
     constexpr float MARGIN_X = 12.f;
     constexpr float MARGIN_Y = 12.f;
 
-    // Six buttons
-    constexpr int NUM_BTNS = 6;
+    // Eight buttons
+    constexpr int NUM_BTNS = 8;
     float panel_h = HEADER_H + PAD
                     + NUM_BTNS * BTN_H + (NUM_BTNS - 1) * BTN_GAP
                     + PAD;
@@ -110,12 +110,14 @@ AdminMenuResult AdminMenu::draw(glm::vec2 cursor,
 
     struct BtnDef { const char* label; bool state; bool* result_flag; };
     BtnDef btns[NUM_BTNS] = {
-        { "Noclip",          state.noclip,        &result.toggle_noclip        },
-        { "Build Mode",      state.build_mode,    &result.toggle_build_mode    },
-        { "Gas Overlay",     state.gas_overlay,   &result.toggle_gas_overlay   },
-        { "Debug Overlay",   state.debug_overlay, &result.toggle_debug_overlay },
-        { "Player Stats",    state.player_stats,  &result.toggle_player_stats  },
-        { "Verbose Logging", state.verbose_log,   &result.toggle_verbose_log   },
+        { "Noclip",           state.noclip,              &result.toggle_noclip              },
+        { "Build Mode",       state.build_mode,          &result.toggle_build_mode          },
+        { "Gas Overlay",      state.gas_overlay,         &result.toggle_gas_overlay         },
+        { "Debug Overlay",    state.debug_overlay,       &result.toggle_debug_overlay       },
+        { "Player Stats",     state.player_stats,        &result.toggle_player_stats        },
+        { "Verbose Logging",  state.verbose_log,         &result.toggle_verbose_log         },
+        { "Fullbright",        state.fullbright,          &result.toggle_fullbright          },
+        { "Ambient Occlusion", state.ambient_occlusion,   &result.toggle_ambient_occlusion   },
     };
 
     for (int i = 0; i < NUM_BTNS; ++i) {

@@ -447,3 +447,12 @@ Inventory make_player_inventory()
 
     return Inventory(std::move(slots));
 }
+
+Inventory make_mob_inventory()
+{
+    using C = SlotCategory;
+    std::vector<InventorySlot> slots;
+    slots.push_back(make_slot("l_hand", "L.Hand", C::General, {"*"}));
+    slots.push_back(make_slot("r_hand", "R.Hand", C::General, {"*"}));
+    return Inventory(std::move(slots));
+}
