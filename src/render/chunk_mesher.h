@@ -18,6 +18,7 @@ public:
     // Shared-data types reused across all chunks enqueued in the same batch.
     using AtlasTable        = std::vector<std::array<uint16_t, static_cast<int>(FaceDir::COUNT)>>;
     using BitmaskAtlasTable = std::vector<uint16_t>; // [type_id] = base atlas layer (0 = not bitmask)
+    using OverlayAtlasTable = std::vector<uint16_t>; // [type_id] = overlay atlas layer (0 = none)
     using LightColors       = std::unordered_map<glm::ivec3, LightColor>;
     using EmitTable         = std::vector<bool>;  // indexed by type_id; true = emissive
 
@@ -78,6 +79,7 @@ private:
         // Shared across all jobs in the same batch — pointer copy only.
         std::shared_ptr<const AtlasTable>        type_atlas;
         std::shared_ptr<const BitmaskAtlasTable> bitmask_atlas;
+        std::shared_ptr<const OverlayAtlasTable> overlay_atlas;
         std::shared_ptr<const LightColors>       light_colors;
         std::shared_ptr<const EmitTable>         emit_table;
         std::array<NeighbourSnap, 4> neighbours;
@@ -97,5 +99,6 @@ private:
     // Cached atlas — rebuilt once per set_registry() call, shared by all jobs.
     std::shared_ptr<const AtlasTable>        m_cached_atlas;
     std::shared_ptr<const BitmaskAtlasTable> m_cached_bitmask_atlas;
+    std::shared_ptr<const OverlayAtlasTable> m_cached_overlay_atlas;
     std::shared_ptr<const EmitTable>         m_emit_table;
 };

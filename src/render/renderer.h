@@ -17,8 +17,12 @@
 // Vertex layout: pos.xyz (3f) + normal.xyz (3f) = 24 bytes per vertex.
 struct ChunkMesh {
     glm::ivec3            chunk_pos{};
-    std::vector<float>    vertices;   // 6 floats / vertex
+    std::vector<float>    vertices;   // 13 floats / vertex (opaque geometry)
     std::vector<uint32_t> indices;
+    // Semi-transparent overlay geometry (e.g. glass on doors).
+    // Uploaded to a separate GPU buffer and drawn with depth-write disabled.
+    std::vector<float>    overlay_vertices;
+    std::vector<uint32_t> overlay_indices;
     bool     transparent = false;
     bool     dirty       = true;
     uint64_t generation  = 0; // stamp set by ChunkMesher; stale results are discarded
@@ -83,15 +87,34 @@ public:
     // each tick to show the current frame.  Call after load_tile_textures().
     bool load_door_anim(const char* gif_path, uint16_t door_anim_type_id);
 
+    // Load the glass overlay color GIF and the fill/coverage mask GIF for
+    // the door animation.  Both must have the same frame count as the base
+    // door GIF.  Call after load_tile_textures().
+    bool load_door_overlay_anim(const char* gif_path);
+    bool load_door_fill_anim(const char* gif_path);
+
     // Overwrite one layer of the tile 2D-array texture in-place on the GPU.
     // rgba32x32_pixels must point to exactly 32*32*4 = 4096 bytes (RGBA8).
     // Submits a one-shot copy command; safe to call outside a render pass.
     void update_tile_layer(uint16_t type_id, const uint8_t* rgba32x32_pixels);
 
+    // Same as update_tile_layer but targets an explicit atlas layer index
+    // (used for overlay layers whose index differs from the type_id).
+    void update_tile_layer_at_index(uint16_t layer_idx, const uint8_t* rgba32x32_pixels);
+
+    // Composites overlay frame `frm` with its fill mask and uploads the result
+    // to atlas layer `overlay_layer_idx`.  Uses overlay RGB + fill alpha so
+    // the glass strip is always semi-transparent regardless of GIF limitations.
+    // overlay_alpha is the target alpha for fully-present glass pixels [0..255].
+    void composite_door_overlay_frame(int frm, uint16_t overlay_layer_idx,
+                                      uint8_t overlay_alpha = 140);
+
     // Door animation accessors (valid after load_door_anim succeeds).
     int            door_anim_frame_count()           const { return static_cast<int>(m_door_anim_frames.size()); }
     int            door_anim_frame_delay_ms(int frm) const;
     const uint8_t* door_anim_frame_pixels  (int frm) const;
+    // Returns true when both overlay and fill GIFs have been loaded successfully.
+    bool           door_overlay_anim_loaded()        const { return !m_door_overlay_anim_frames.empty() && !m_door_fill_anim_frames.empty(); }
 
     // Queue Doom-style billboard sprites for all MobComponent entities.
     // Selects one of 4 rotation sprites based on camera-to-mob angle.
@@ -147,6 +170,8 @@ public:
     void       free_mesh(glm::ivec3 chunk_pos);
     // Release ALL chunk GPU meshes (call after world.clear_all() on map reload).
     void       clear_all_meshes();
+    // Upload all finished meshes in a single GPU command buffer (call once per frame).
+    void       upload_meshes_batch(std::vector<ChunkMesh>& meshes);
 
     SDL_Window*          window()       const { return m_window; }
     SDL_GPUDevice*        gpu()          const { return m_gpu; }
@@ -239,8 +264,9 @@ private:
     const LightMap* m_light_map  = nullptr;
 
     // ── Pipeline ─────────────────────────────────────────────────────────────
-    SDL_GPUGraphicsPipeline* m_world_pipeline     = nullptr;
-    SDL_GPUGraphicsPipeline* m_wireframe_pipeline = nullptr;  // LINE fill variant
+    SDL_GPUGraphicsPipeline* m_world_pipeline         = nullptr;
+    SDL_GPUGraphicsPipeline* m_wireframe_pipeline     = nullptr;  // LINE fill variant
+    SDL_GPUGraphicsPipeline* m_world_overlay_pipeline = nullptr;  // depth-write=off for transparent quads
     SDL_GPUShader*           m_vert_shader         = nullptr;
     SDL_GPUShader*           m_frag_shader         = nullptr;
     SDL_GPUTexture*          m_depth_tex           = nullptr;
@@ -338,7 +364,15 @@ private:
     struct GPUMesh {
         SDL_GPUBuffer* vbuf = nullptr;
         SDL_GPUBuffer* ibuf = nullptr;
-        uint32_t       num_indices = 0;
+        uint32_t       num_indices   = 0;
+        Uint32         vbuf_capacity = 0;  // allocated byte size of vbuf
+        Uint32         ibuf_capacity = 0;  // allocated byte size of ibuf
+        // Overlay (semi-transparent, depth-write=off) buffers
+        SDL_GPUBuffer* ov_vbuf = nullptr;
+        SDL_GPUBuffer* ov_ibuf = nullptr;
+        uint32_t       ov_num_indices   = 0;
+        Uint32         ov_vbuf_capacity = 0;
+        Uint32         ov_ibuf_capacity = 0;
     };
     std::unordered_map<glm::ivec3, GPUMesh> m_gpu_meshes;
 
@@ -419,8 +453,10 @@ private:
     bool                     m_sky_pending      = false;   // legacy alias (earth geo)
 
     // ── Door GIF animation (CPU-side frames) ─────────────────────────────────
-    std::vector<std::vector<uint8_t>> m_door_anim_frames;  // [frame][32*32*4 bytes]
-    std::vector<int>                  m_door_anim_delays;  // ms per frame
+    std::vector<std::vector<uint8_t>> m_door_anim_frames;         // [frame][32*32*4 bytes]
+    std::vector<int>                  m_door_anim_delays;         // ms per frame
+    std::vector<std::vector<uint8_t>> m_door_overlay_anim_frames; // glass color overlay frames
+    std::vector<std::vector<uint8_t>> m_door_fill_anim_frames;    // fill/coverage mask frames
 
     // ── Static 3-D models ────────────────────────────────────────────────────
     struct ModelGPU {

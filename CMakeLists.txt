@@ -59,6 +59,7 @@ set(SRC_CORE
     src/core/world.cpp
     src/core/entity_manager.cpp
     src/core/object_types.cpp
+    src/core/verb_dispatch.cpp
     src/core/signals.cpp
     src/core/master_controller.cpp
 )

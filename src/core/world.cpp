@@ -7,8 +7,11 @@ Chunk::Chunk(glm::ivec3 chunk_pos)
     : m_chunk_pos(chunk_pos)
 {
     // Single-entry palette: 0 = air
-    m_palette.push_back(Voxel{});
+    Voxel air{};
+    m_palette.push_back(air);
     m_data.assign(CHUNK_VOL, 0);
+    // Seed the reverse-lookup map with the initial air entry.
+    m_palette_map[palette_key(air)] = 0;
 }
 
 Voxel Chunk::get(int lx, int ly, int lz) const
@@ -34,22 +37,29 @@ void Chunk::set(int lx, int ly, int lz, Voxel v)
     Voxel pal_v = v;
     pal_v.light_level = 0;
 
-    uint16_t pal_idx = 0;
-    for (uint16_t i = 0; i < static_cast<uint16_t>(m_palette.size()); ++i) {
-        if (std::memcmp(&m_palette[i], &pal_v, sizeof(Voxel)) == 0) {
-            pal_idx = i;
-            goto found;
-        }
+    // O(1) reverse-lookup via hash map (replaces O(n) linear scan).
+    uint64_t key = palette_key(pal_v);
+    uint16_t pal_idx;
+    auto map_it = m_palette_map.find(key);
+    if (map_it != m_palette_map.end()) {
+        pal_idx = map_it->second;
+    } else {
+        // Not in palette yet — add new entry.
+        pal_idx = static_cast<uint16_t>(m_palette.size());
+        m_palette.push_back(pal_v);
+        m_palette_map[key] = pal_idx;
     }
-    // Not found — add
-    pal_idx = static_cast<uint16_t>(m_palette.size());
-    m_palette.push_back(pal_v);
-found:
+
     if (m_data[cell] != pal_idx) {
+        // Update non-air voxel counter so is_empty() stays accurate after removal.
+        bool was_air = (m_palette[m_data[cell]].type_id == 0);
+        bool  is_air = (pal_v.type_id == 0);
+        if (!was_air &&  is_air) --m_non_air_count;
+        if ( was_air && !is_air) ++m_non_air_count;
+
         m_data[cell] = pal_idx;
         m_dirty = true;
     }
-    if (v.type_id != 0) m_all_air = false;
 }
 
 void Chunk::set_light(int lx, int ly, int lz, uint8_t lvl)

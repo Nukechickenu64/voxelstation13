@@ -9,6 +9,7 @@
 #include "core/signals.h"
 #include "core/master_controller.h"
 #include <SDL3/SDL.h>
+#include <glm/gtc/constants.hpp>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -65,10 +66,12 @@ void Server::tick(double dt)
     // Must run AFTER apply_pending_inputs (which fills cc->wish_move) and
     // BEFORE m_physics->tick() so the physics step sees the constrained wish_move.
     //
-    // Step 1: Reset mob_state to Normal at the start of every frame so that
-    //         effects which expired last tick don't keep their stale state.
+    // Step 1: Reset mob_state to base_mob_state at the start of every frame so
+    //         that effects which expired last tick don't keep their stale state.
+    //         base_mob_state carries the persistent voluntary state (e.g. Resting)
+    //         and is written by game logic; mob_state is the per-frame effective value.
     m_entities->each<CharacterControllerComponent>([](EntityID, CharacterControllerComponent& cc_r) {
-        cc_r.mob_state = MobState::Normal;
+        cc_r.mob_state = cc_r.base_mob_state;
     });
 
     // Step 2: Apply status-effect constraints.
@@ -101,6 +104,25 @@ void Server::tick(double dt)
         if (!cc) return;
         cc->mob_state = MobState::Hardcrit;
         cc->wish_move = glm::vec3(0.f);
+    });
+
+    // Step 4: Confusion drift — randomly deflects wish_move for confused entities.
+    // Mirrors TG's confusion mechanic: each tick the desired move direction has a
+    // random perpendicular component added, scaling with effect strength (0..1).
+    // strength 1.0 = full 90° random deflection; 0.5 = 45° max drift.
+    m_entities->each<StatusEffectsComponent>([&](EntityID eid, StatusEffectsComponent& se) {
+        if (!se.is_confused()) return;
+        auto* cc = m_entities->get_component<CharacterControllerComponent>(eid);
+        if (!cc || cc->mob_state == MobState::Hardcrit) return;
+        const auto* eff = se.get(StatusEffectType::Confusion);
+        float strength = eff ? eff->strength : 1.f;
+        // Random angle in [-90°, 90°] scaled by strength
+        float angle = (static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX) * 2.f - 1.f)
+                      * (glm::half_pi<float>() * strength);
+        float c = std::cos(angle), s2 = std::sin(angle);
+        glm::vec3 w = cc->wish_move;
+        cc->wish_move.x = w.x * c - w.z * s2;
+        cc->wish_move.z = w.x * s2 + w.z * c;
     });
 
     m_physics->tick(dt);

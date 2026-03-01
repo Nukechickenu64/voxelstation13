@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <functional>
+#include <cstring>
 
 // ── Chunk ─────────────────────────────────────────────────────────────────────
 constexpr int CHUNK_SIZE = 16;
@@ -21,7 +22,7 @@ public:
     void    set_light(int lx, int ly, int lz, uint8_t lvl);
     uint8_t get_light(int lx, int ly, int lz) const { return m_light_data[idx(lx, ly, lz)]; }
 
-    bool   is_empty() const { return m_all_air; }
+    bool   is_empty() const { return m_non_air_count == 0; }
     // is_dirty() returns true when EITHER geometry OR lighting changed.
     bool   is_dirty()       const { return m_dirty || m_light_dirty; }
     bool   is_geom_dirty()  const { return m_dirty; }
@@ -36,12 +37,23 @@ private:
     std::vector<Voxel>    m_palette;
     std::vector<uint16_t> m_data;             // CHUNK_VOL palette indices
     uint8_t               m_light_data[CHUNK_VOL]{}; // per-cell light level 0-15
+    // O(1) reverse-lookup: key = 8-byte Voxel (light_level zeroed) cast to uint64_t
+    std::unordered_map<uint64_t, uint16_t> m_palette_map;
+    // Non-air voxel counter — lets is_empty() return correctly after removal
+    int m_non_air_count = 0;
     bool m_dirty       = true;
     bool m_light_dirty = false;
-    bool m_all_air     = true;
 
     static int idx(int lx, int ly, int lz) {
         return lx + CHUNK_SIZE * (ly + CHUNK_SIZE * lz);
+    }
+    // Pack palette Voxel (light_level must already be 0) into a 64-bit lookup key.
+    static uint64_t palette_key(const Voxel& v) {
+        static_assert(sizeof(Voxel) == sizeof(uint64_t),
+            "Voxel key packing assumes sizeof(Voxel)==8");
+        uint64_t k;
+        std::memcpy(&k, &v, sizeof(uint64_t));
+        return k;
     }
 };
 

@@ -37,6 +37,12 @@ struct VoxelTypeDef {
     std::string bitmask_icon_tpl;       // path template (empty = not a bitmask type)
     uint8_t     bitmask_count      = 0; // number of variants, typically 16
     uint16_t    bitmask_atlas_base = 0; // filled by Renderer::load_tile_textures()
+
+    // Optional semi-transparent overlay drawn on top of the base face texture.
+    // E.g. the glass panel strip rendered over an airlock door.
+    // overlay_atlas_index is filled by Renderer::load_tile_textures(); 0 = none.
+    std::string overlay_icon;          // icon path for the overlay (empty = none)
+    uint16_t    overlay_atlas_index = 0; // atlas layer for the overlay texture
 };
 
 // Loads all voxel type JSON files, resolves prototype chains, and
@@ -60,6 +66,9 @@ public:
     // Write atlas_indices for a type into both lookup maps.
     void set_atlas_indices(uint16_t type_id,
                            const std::array<uint16_t, static_cast<int>(FaceDir::COUNT)>& indices);
+
+    // Write overlay_atlas_index for a type into both lookup maps.
+    void set_overlay_atlas_index(uint16_t type_id, uint16_t index);
 
 private:
     void resolve_inheritance(VoxelTypeDef& def);

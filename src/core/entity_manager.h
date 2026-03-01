@@ -60,9 +60,14 @@ public:
 
     std::vector<EntityID> all_entities() const;
 
+    // Register a callback that fires whenever an entity is destroyed.
+    void on_destroy(std::function<void(EntityID)> cb)
+    { m_on_destroy_cbs.push_back(std::move(cb)); }
+
 private:
     EntityID m_next_id = 1;
     std::unordered_map<EntityID, bool> m_alive;
     std::unordered_map<std::type_index,
         std::unordered_map<EntityID, std::any>> m_stores;
+    std::vector<std::function<void(EntityID)>> m_on_destroy_cbs;
 };

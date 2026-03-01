@@ -21,8 +21,16 @@ public:
     double fps()           const { return m_fps; }
 
 private:
+    // Number of frames used in the sliding-window FPS average.
+    static constexpr int k_fps_window = 60;
+
     double   m_fixed_dt;
     bool     m_running   = false;
     uint64_t m_tick_count= 0;
     double   m_fps       = 0.0;
+
+    // Rolling-window frame times (ring buffer).
+    double   m_frame_times[60] = {};
+    int      m_ft_head  = 0;
+    int      m_ft_count = 0;
 };

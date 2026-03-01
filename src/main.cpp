@@ -42,6 +42,7 @@
 #include "ui/pause_menu.h"
 #include "ui/character_creator.h"
 #include "core/object_types.h"
+#include "core/verb_dispatch.h"
 #include "network/server.h"
 #include "network/client.h"
 
@@ -122,6 +123,11 @@ int main(int /*argc*/, char* /*argv*/[])
     // Initialise the global prototype/type-path registry before item loading.
     init_prototype_registry();
 
+    // Initialise the verb handler dispatch registry (built-in handlers).
+    // Game-specific handlers that need simulation-system captures are registered
+    // below, after all local variables are in scope.
+    init_verb_dispatch();
+
     // ── TG SS13 systems ───────────────────────────────────────────────────────
     // Signal bus:  must come first (server's spawn_player registers signals)
     init_signals();
@@ -144,6 +150,12 @@ int main(int /*argc*/, char* /*argv*/[])
     renderer.load_mob_textures("textures");
     renderer.load_door_anim("textures/specialtile/public/glass/opening.gif",
                              voxel_reg.id_of("door_anim"));
+    // Load glass overlay color + fill/coverage mask GIFs so the overlay can be
+    // composited with correct per-frame transparency during door animations.
+    renderer.load_door_overlay_anim(
+        "textures/specialtile/public/overlays/glass_opening.gif");
+    renderer.load_door_fill_anim(
+        "textures/specialtile/public/glass/fill_opening.gif");
     renderer.load_human_bodyparts("legacysets/extracted");
     renderer.load_model("smes", "models/SMES.mesh", "textures/models/smes.png");
 
@@ -151,7 +163,7 @@ int main(int /*argc*/, char* /*argv*/[])
 
     // ── 4. Chunk mesher ───────────────────────────────────────────────────────
     ChunkMesher mesher;
-    mesher.start(2);
+    mesher.start(4);
     mesher.set_registry(&voxel_reg);  // enables per-face texture selection
 
     // ── 5. Server (local single-player) ──────────────────────────────────────
@@ -171,6 +183,8 @@ int main(int /*argc*/, char* /*argv*/[])
     lighting.set_registry(&voxel_reg);  // must be set before rebuild()
     mesher.set_lighting(&lighting);     // enables colored smooth lighting
     renderer.set_lighting(&server.world(), &lighting.light_map());  // entity/model lighting
+    // When any entity is destroyed, clean up its dynamic light (if any).
+    server.entities().on_destroy([&](EntityID id) { lighting.remove_dynamic_light(id); });
 
     // ── 8. Audio ─────────────────────────────────────────────────────────────
     AudioManager audio;
@@ -519,6 +533,13 @@ int main(int /*argc*/, char* /*argv*/[])
     const uint16_t door_anim_type_id = voxel_reg.id_of("door_anim");
     const uint16_t door_open_type_id = voxel_reg.id_of("door_open");
 
+    // Overlay atlas layer for the animating door type — used to upload
+    // composited glass overlay frames (overlay color + fill alpha).
+    const uint16_t door_anim_overlay_idx = [&]() -> uint16_t {
+        const VoxelTypeDef* def = voxel_reg.get(door_anim_type_id);
+        return def ? def->overlay_atlas_index : 0;
+    }();
+
     // Speed multiplier for door open/close animation.
     // 1.0 = original GIF speed, 2.0 = twice as fast, 0.5 = half speed.
     constexpr float DOOR_ANIM_SPEED = 6.0f;
@@ -734,6 +755,63 @@ int main(int /*argc*/, char* /*argv*/[])
     input.capture_cursor(renderer.window(), true);
 
     // ── 16. Game loop ─────────────────────────────────────────────────────────
+
+    // ── Register game-specific verb handlers (override stubs from init) ───────
+    // Registered here so they can capture local simulation variables by reference.
+    // All captured references are valid for the entire game loop lifetime.
+    {
+        auto& vd = verb_dispatch();
+
+        // verb_examine: richer output using local hud_state
+        vd.register_handler("verb_examine", [&hud_state](const VerbContext& ctx) {
+            if (!ctx.item_def) { ctx.log("[Examine] You see something."); return; }
+            const ItemStack* st = ctx.item_stack;
+            std::string disp = ctx.item_def->name;
+            if (st && !st->custom_name.empty()) disp += " \"" + st->custom_name + "\"";
+            if (st && st->count > 1) disp += " x" + std::to_string(st->count);
+            char buf[280];
+            std::snprintf(buf, sizeof(buf),
+                "[Examine] %s \xe2\x80\x94 %.2f kg / %.1f L \xe2\x80\x94 %s%s",
+                disp.c_str(), ctx.item_def->weight, ctx.item_def->volume,
+                st ? condition_label(st->integrity) : "unknown condition",
+                ctx.item_def->type_path.empty() ? ""
+                    : ("  (" + ctx.item_def->type_path + ")").c_str());
+            if (hud_state.radio_log.size() >= 30) hud_state.radio_log.pop_front();
+            hud_state.radio_log.push_back(buf);
+        });
+
+        // verb_throw: lob the target entity in the look direction
+        vd.register_handler("verb_throw", [&world_items, &cam_pos, &cam_yaw,
+                                            &cam_pitch, &hud_state](const VerbContext& ctx) {
+            if (ctx.target_ent == NULL_ENTITY) { ctx.log("[Throw] Nothing to throw."); return; }
+            auto picked = world_items.pick_up(ctx.target_ent);
+            if (!picked) { ctx.log("[Throw] Can't pick that up."); return; }
+            float yr = glm::radians(cam_yaw), pr = glm::radians(cam_pitch);
+            glm::vec3 throw_dir = {
+                std::cos(pr) * std::sin(yr),
+                std::sin(pr),
+               -std::cos(pr) * std::cos(yr)
+            };
+            if (throw_dir.y < -0.3f) throw_dir.y = -0.3f;
+            throw_dir = glm::normalize(throw_dir);
+            world_items.spawn_floating(cam_pos + throw_dir,
+                                       std::move(*picked), throw_dir * 8.f);
+            ctx.log("[Throw] You throw the "
+                + (ctx.item_def ? ctx.item_def->name : "item") + ".");
+        });
+
+        // verb_open: toggle container open/closed
+        vd.register_handler("verb_open", [](const VerbContext& ctx) {
+            if (!ctx.item_stack || !ctx.item_def || !ctx.item_def->is_container) {
+                ctx.log("[Open] Cannot open this."); return;
+            }
+            ctx.item_stack->container_open = !ctx.item_stack->container_open;
+            ctx.log(ctx.item_stack->container_open
+                ? "[Open] You open the "  + ctx.item_def->name + "."
+                : "[Close] You close the " + ctx.item_def->name + ".");
+        });
+    }
+
     GameLoop loop(1.0 / 60.0);
 
     loop.run(
@@ -884,11 +962,13 @@ int main(int /*argc*/, char* /*argv*/[])
                     if (player != NULL_ENTITY) {
                         auto* cc_z = server.entities().get_component<CharacterControllerComponent>(player);
                         if (cc_z) {
-                            cc_z->mob_state = (cc_z->mob_state == MobState::Normal)
-                                              ? MobState::Resting
-                                              : MobState::Normal;
+                            // Write base_mob_state so the state survives the per-frame reset.
+                            cc_z->base_mob_state = (cc_z->base_mob_state == MobState::Normal)
+                                                   ? MobState::Resting
+                                                   : MobState::Normal;
+                            cc_z->mob_state = cc_z->base_mob_state;
                             SDL_Log("Rest: %s",
-                                    cc_z->mob_state == MobState::Normal ? "standing" : "resting");
+                                    cc_z->base_mob_state == MobState::Normal ? "standing" : "resting");
                         }
                     }
                 }
@@ -1115,9 +1195,11 @@ int main(int /*argc*/, char* /*argv*/[])
                 bob_sway = bob_sway + (sway_target - bob_sway) * sway_alpha;
             }
 
-            // Upload any finished chunk meshes
-            for (auto& mesh : mesher.collect_finished())
-                renderer.upload_mesh(renderer.get_or_create_mesh(mesh.chunk_pos) = std::move(mesh));
+            // Upload any finished chunk meshes in one batched GPU submission
+            auto finished_meshes = mesher.collect_finished();
+            renderer.upload_meshes_batch(finished_meshes);
+            for (auto& mesh : finished_meshes)
+                renderer.get_or_create_mesh(mesh.chunk_pos) = std::move(mesh);
 
             // Lighting update for dirtied chunks
             // lighting.update(…)
@@ -1189,8 +1271,9 @@ int main(int /*argc*/, char* /*argv*/[])
                             cc_hp->mob_state = MobState::Softcrit;
                         } else if (pct >= 0.30f &&
                                    (cs == MobState::Softcrit || cs == MobState::Hardcrit)) {
-                            // Healed out of crit — restore normal (voluntary rest unaffected)
-                            cc_hp->mob_state = MobState::Normal;
+                            // Healed out of crit — restore to voluntary base state so that
+                            // a player who was Resting doesn't snap to standing on recovery.
+                            cc_hp->mob_state = cc_hp->base_mob_state;
                         }
                     }
                 }
@@ -1335,9 +1418,15 @@ int main(int /*argc*/, char* /*argv*/[])
                     last_frame = grp.frame;
                     ++it;
                 }
-                if (last_frame >= 0)
+                if (last_frame >= 0) {
                     renderer.update_tile_layer(door_anim_type_id,
                                                renderer.door_anim_frame_pixels(last_frame));
+                    // Composite and upload the glass overlay for this frame:
+                    // RGB from glass_opening.gif + alpha from fill_opening.gif coverage mask
+                    // so the overlay is semi-transparent throughout the animation.
+                    if (door_anim_overlay_idx != 0 && renderer.door_overlay_anim_loaded())
+                        renderer.composite_door_overlay_frame(last_frame, door_anim_overlay_idx);
+                }
             }
 
             // ── LMB / E: interact with world based on active hand ─────────────
@@ -1780,9 +1869,27 @@ int main(int /*argc*/, char* /*argv*/[])
                         // Separator + item-specific verbs
                         if (!wic->item.def->verbs.empty()) {
                             entries.push_back({"", false, true, nullptr}); // separator
-                            for (const auto& verb : wic->item.def->verbs)
+                            for (const auto& verb : wic->item.def->verbs) {
+                                EntityID veid     = ctx_ent;
+                                std::string vhnd  = verb.handler;
                                 entries.push_back({verb.name, true, false,
-                                    [name = verb.name]() { SDL_Log("Verb: %s", name.c_str()); }});
+                                    [veid, vhnd, &server, &world_items,
+                                     &cam_pos, &cam_yaw, &cam_pitch,
+                                     &client, &hud_state]() {
+                                        auto* wic2 = server.entities()
+                                            .get_component<WorldItemComponent>(veid);
+                                        VerbContext vctx;
+                                        vctx.actor      = client.local_player();
+                                        vctx.actor_pos  = cam_pos;
+                                        vctx.target_ent = veid;
+                                        if (wic2) {
+                                            vctx.item_def   = wic2->item.def;
+                                            vctx.item_stack = &wic2->item;
+                                        }
+                                        vctx.hud_log = &hud_state.radio_log;
+                                        verb_dispatch().invoke(vhnd, vctx);
+                                    }});
+                            }
                         }
 
                         // Open menu at screen center (FPS — no cursor yet)
@@ -1995,7 +2102,14 @@ int main(int /*argc*/, char* /*argv*/[])
                 if (input.is_pressed(Action::PrimaryInteract)) {
                     RayHit bhit = server.world().raycast(cam_pos, rdir, 8.f);
                     if (bhit.valid) {
+                        // Snapshot light level before clearing the voxel.
+                        // set_voxel(Voxel{}) zeroes light_level, which makes
+                        // bfs_remove_colored skip removal (lvl==0 early-exit).
+                        // Restoring it here lets the BFS correctly flood-remove.
+                        uint8_t old_light = server.world().get_voxel(bhit.voxel).light_level;
                         server.world().set_voxel(bhit.voxel, Voxel{});
+                        if (old_light > 0)
+                            server.world().set_light_level(bhit.voxel, old_light);
                         server.atmos().on_voxel_changed(bhit.voxel);
                         // Propagate lighting change from removed voxel, then
                         // enqueue all dirty chunks in one pass (avoids double
@@ -2741,9 +2855,27 @@ int main(int /*argc*/, char* /*argv*/[])
                         auto* wic = server.entities().get_component<WorldItemComponent>(hovered_item_entity);
                         if (wic && wic->item.def && !wic->item.def->verbs.empty()) {
                             std::vector<ContextEntry> entries;
-                            for (const auto& verb : wic->item.def->verbs)
+                            for (const auto& verb : wic->item.def->verbs) {
+                                EntityID veid    = hovered_item_entity;
+                                std::string vhnd = verb.handler;
                                 entries.push_back({verb.name, true, false,
-                                    [name = verb.name]() { SDL_Log("Verb: %s", name.c_str()); }});
+                                    [veid, vhnd, &server, &world_items,
+                                     &cam_pos, &cam_yaw, &cam_pitch,
+                                     &client, &hud_state]() {
+                                        auto* wic2 = server.entities()
+                                            .get_component<WorldItemComponent>(veid);
+                                        VerbContext vctx;
+                                        vctx.actor      = client.local_player();
+                                        vctx.actor_pos  = cam_pos;
+                                        vctx.target_ent = veid;
+                                        if (wic2) {
+                                            vctx.item_def   = wic2->item.def;
+                                            vctx.item_stack = &wic2->item;
+                                        }
+                                        vctx.hud_log = &hud_state.radio_log;
+                                        verb_dispatch().invoke(vhnd, vctx);
+                                    }});
+                            }
                             ctx_menu.open(alt_mode.cursor_pos(), std::move(entries));
                             fps_ctx_rclick     = false;
                             fps_ctx_just_opened = true;
@@ -3160,6 +3292,22 @@ int main(int /*argc*/, char* /*argv*/[])
                     loop.stop();
                 if (pm_result.exit_to_main_clicked)
                     loop.stop();  // breaks the game loop so we return to main()
+            }
+
+            // ── FPS counter (always visible, top-right corner) ──────────────────
+            {
+                char fps_buf[24];
+                SDL_snprintf(fps_buf, sizeof(fps_buf), "%.0f fps", loop.fps());
+                const float fw      = static_cast<float>(ui_renderer.fb_width());
+                const float text_w  = static_cast<float>(SDL_strlen(fps_buf)) * 7.7f;
+                constexpr float PAD = 4.f;
+                constexpr float H   = 16.f;
+                ui_renderer.rect({fw - text_w - PAD * 3.f, PAD},
+                                 {text_w + PAD * 2.f, H},
+                                 {0.f, 0.f, 0.f, 0.55f}, 2.f);
+                ui_renderer.text({fw - text_w - PAD * 2.f, PAD + 2.f},
+                                 fps_buf,
+                                 {0.90f, 1.00f, 0.55f, 0.90f}, 12.f);
             }
 
             // End world pass before UI so swapchain texture is free for the UI pass

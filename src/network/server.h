@@ -37,6 +37,8 @@ struct NetAddress {
 };
 
 // Per-player movement input submitted each frame.
+// !! DO NOT ADD a jump field here. There is no jumping in this game unless it
+// is explicitly requested in a task description.
 struct PlayerInput {
     glm::vec3 wish_dir{};   // world-space wish direction (Y component used in zero-G)
     bool sprint    = false;

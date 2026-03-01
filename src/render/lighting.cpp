@@ -1,6 +1,6 @@
 ﻿#include "render/lighting.h"
 #include "data/voxel_registry.h"
-#include <queue>
+#include <functional>
 #include <algorithm>
 
 // Six cardinal directions used by BFS.
@@ -52,17 +52,15 @@ void LightingSystem::rebuild()
     m_light_map.clear();
 
     // Zero all light levels across every loaded chunk.
+    // Use set_light_level (fast path) — avoids palette mutation entirely.
     m_world.for_each_chunk([&](const Chunk& chunk) {
         glm::ivec3 cp = chunk.chunk_pos();
         for (int lz = 0; lz < CHUNK_SIZE; ++lz)
         for (int ly = 0; ly < CHUNK_SIZE; ++ly)
         for (int lx = 0; lx < CHUNK_SIZE; ++lx) {
             glm::ivec3 wpos = cp * CHUNK_SIZE + glm::ivec3(lx, ly, lz);
-            Voxel v = m_world.get_voxel(wpos);
-            if (v.light_level != 0) {
-                v.light_level = 0;
-                m_world.set_voxel(wpos, v);
-            }
+            if (chunk.get_light(lx, ly, lz) != 0)
+                m_world.set_light_level(wpos, 0);
         }
     });
 
@@ -76,10 +74,19 @@ void LightingSystem::rebuild()
 
 void LightingSystem::update(const std::vector<glm::ivec3>& dirty_voxels)
 {
-    std::queue<glm::ivec3> relight;
+    // Use a vector+set pair so we can iterate while deduplicating relight seeds.
+    std::vector<glm::ivec3> relight_vec;
+    std::unordered_set<glm::ivec3> relight_set;
+    relight_vec.reserve(64);
+
+    // Lambda pushed into bfs_remove_colored as a deduplicating inserter.
+    auto enqueue_relight = [&](glm::ivec3 p) {
+        if (relight_set.insert(p).second)
+            relight_vec.push_back(p);
+    };
 
     for (const auto& pos : dirty_voxels) {
-        bfs_remove_colored(pos, relight);
+        bfs_remove_colored(pos, enqueue_relight);
 
         Voxel v = m_world.get_voxel(pos);
         if ((v.flags & VFLAG_LIGHT_SRC) && m_registry) {
@@ -91,8 +98,7 @@ void LightingSystem::update(const std::vector<glm::ivec3>& dirty_voxels)
         }
     }
 
-    while (!relight.empty()) {
-        glm::ivec3 p = relight.front(); relight.pop();
+    for (const auto& p : relight_vec) {
         Voxel v = m_world.get_voxel(p);
         if (v.light_level > 0)
             bfs_add(p, v.light_level, m_light_map.get(p), false);
@@ -158,40 +164,47 @@ void LightingSystem::bfs_add(glm::ivec3 pos, uint8_t level, LightColor color, bo
 {
     if (level == 0) return;
     struct Entry { glm::ivec3 p; uint8_t l; LightColor c; };
-    std::queue<Entry> q;
-    q.push({pos, level, color});
 
-    while (!q.empty()) {
-        auto [p, l, col] = q.front(); q.pop();
+    // Vector-based flat BFS queue — avoids std::deque segment allocations.
+    std::vector<Entry> q;
+    q.reserve(4096);
+    q.push_back({pos, level, color});
+    size_t head = 0;
+
+    while (head < q.size()) {
+        auto [p, l, col] = q[head++];
         if (!m_world.get_chunk(World::to_chunk_pos(p))) continue;
         Voxel v = m_world.get_voxel(p);
         if (v.light_level >= l) {
-            // Even if brightness won't improve, blend in the color if same level.
             if (v.light_level == l) {
                 LightColor existing = m_light_map.get(p);
                 m_light_map.set(p, blend_colors(existing, l, col, l));
             }
             continue;
         }
-        // Use set_light_level (fast path) — avoids palette scan and only marks
-        // m_light_dirty, not m_dirty, so it doesn’t cause unnecessary remeshes.
+        // Use set_light_level (fast path) — avoids palette scan.
         m_world.set_light_level(p, l);
         m_light_map.set(p, col);
         if (l <= 1) continue;
-        for (auto& d : k_dirs) {
+        const uint8_t nl = static_cast<uint8_t>(l - 1);
+        for (const auto& d : k_dirs) {
             glm::ivec3 np = p + d;
+            if (!m_world.get_chunk(World::to_chunk_pos(np))) continue;
             Voxel nv = m_world.get_voxel(np);
-            if (!(nv.flags & VFLAG_OPAQUE) && nv.light_level < static_cast<uint8_t>(l - 1))
-                q.push({np, static_cast<uint8_t>(l - 1), col});
+            if (!(nv.flags & VFLAG_OPAQUE) && nv.light_level < nl)
+                q.push_back({np, nl, col});
         }
     }
 }
-
 // â”€â”€ BFS dark-flood with color removal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-void LightingSystem::bfs_remove_colored(glm::ivec3 pos, std::queue<glm::ivec3>& relight)
+void LightingSystem::bfs_remove_colored(glm::ivec3 pos,
+                                         const std::function<void(glm::ivec3)>& enqueue_relight)
 {
-    std::queue<std::pair<glm::ivec3, uint8_t>> rmQ;
+    struct RmEntry { glm::ivec3 p; uint8_t l; };
+    // Vector-based removal queue — avoids std::deque heap churn.
+    std::vector<RmEntry> rmQ;
+    rmQ.reserve(1024);
     {
         Voxel v = m_world.get_voxel(pos);
         uint8_t lvl = v.light_level;
@@ -199,12 +212,13 @@ void LightingSystem::bfs_remove_colored(glm::ivec3 pos, std::queue<glm::ivec3>& 
         // Fast path: only clears the light level, no palette scan.
         m_world.set_light_level(pos, 0);
         m_light_map.set(pos, {255, 255, 255});
-        rmQ.push({pos, lvl});
+        rmQ.push_back({pos, lvl});
     }
 
-    while (!rmQ.empty()) {
-        auto [p, l] = rmQ.front(); rmQ.pop();
-        for (auto& d : k_dirs) {
+    size_t head = 0;
+    while (head < rmQ.size()) {
+        auto [p, l] = rmQ[head++];
+        for (const auto& d : k_dirs) {
             glm::ivec3 np = p + d;
             if (!m_world.get_chunk(World::to_chunk_pos(np))) continue;
             Voxel nv = m_world.get_voxel(np);
@@ -213,9 +227,9 @@ void LightingSystem::bfs_remove_colored(glm::ivec3 pos, std::queue<glm::ivec3>& 
                 uint8_t old_lvl = nv.light_level;
                 m_world.set_light_level(np, 0);
                 m_light_map.set(np, {255, 255, 255});
-                rmQ.push({np, old_lvl});
+                rmQ.push_back({np, old_lvl});
             } else {
-                relight.push(np);
+                enqueue_relight(np);
             }
         }
     }
@@ -261,17 +275,15 @@ void LightingSystem::rebuild_dynamic()
 {
     m_light_map.clear();
 
+    // Zero light levels using the fast set_light_level path.
     m_world.for_each_chunk([&](const Chunk& chunk) {
         glm::ivec3 cp = chunk.chunk_pos();
         for (int lz = 0; lz < CHUNK_SIZE; ++lz)
         for (int ly = 0; ly < CHUNK_SIZE; ++ly)
         for (int lx = 0; lx < CHUNK_SIZE; ++lx) {
             glm::ivec3 wpos = cp * CHUNK_SIZE + glm::ivec3(lx, ly, lz);
-            Voxel v = m_world.get_voxel(wpos);
-            if (v.light_level != 0) {
-                v.light_level = 0;
-                m_world.set_voxel(wpos, v);
-            }
+            if (chunk.get_light(lx, ly, lz) != 0)
+                m_world.set_light_level(wpos, 0);
         }
     });
 

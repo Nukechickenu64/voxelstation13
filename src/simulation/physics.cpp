@@ -164,19 +164,88 @@ void PhysicsSystem::tick(double dt)
                 std::abs(new_pos.y - (tr.pos.y + delta.y)) > 0.0001f)
                 vel->linear.y = 0.f;
 
-            // ── Density check (TG-style): block horizontal movement into dense entities ──
-            // If another dense entity (mob) occupies the proposed AABB, cancel
-            // horizontal movement and fire the bump callback.
+            // ── Density check: capsule-slide around other dense entities ────────
+            // When the proposed position overlaps a dense entity, try to slide
+            // the movement around the other mob's circular/capsule footprint.
+            // The mover's velocity is projected onto the tangent of the line
+            // connecting the two mob centres (XZ plane), and that perpendicular
+            // component is attempted as the slide motion.  Only if the slide
+            // position is also blocked (or velocity is purely head-on) does
+            // movement stop and the bump callback fire.
             if (m_bump_cb) {
                 EntityID blocker = NULL_ENTITY;
                 glm::vec3 nmin = new_pos + glm::vec3(-cc->radius, 0.f,       -cc->radius);
                 glm::vec3 nmax = new_pos + glm::vec3( cc->radius, cc_height,  cc->radius);
                 if (check_entity_density(id, nmin, nmax, blocker)) {
-                    new_pos.x     = tr.pos.x;
-                    new_pos.z     = tr.pos.z;
-                    vel->linear.x = 0.f;
-                    vel->linear.z = 0.f;
-                    m_bump_cb(id, blocker);
+                    bool slid = false;
+
+                    auto* blocker_tr = m_entities.get_component<TransformComponent>(blocker);
+                    if (blocker_tr) {
+                        // Vector from blocker centre → mover centre (XZ only)
+                        glm::vec2 away{
+                            tr.pos.x - blocker_tr->pos.x,
+                            tr.pos.z - blocker_tr->pos.z
+                        };
+                        float away_len = glm::length(away);
+                        glm::vec2 vel_xz{ vel->linear.x, vel->linear.z };
+
+                        // If the centres are exactly coincident, pick an arbitrary
+                        // separation direction so we don't divide by zero.
+                        if (away_len < 0.0001f) {
+                            away     = { 1.f, 0.f };
+                            away_len = 1.f;
+                        }
+
+                        if (glm::length(vel_xz) > 0.0001f) {
+                            // Tangent direction is perpendicular to the separation axis
+                            glm::vec2 away_n  = away / away_len;
+                            glm::vec2 tangent{ -away_n.y, away_n.x };
+
+                            // Project velocity onto tangent — this is the slide speed
+                            float slide_speed = glm::dot(vel_xz, tangent);
+
+                            if (std::abs(slide_speed) > 0.0001f) {
+                                glm::vec2 slide_vel = tangent * slide_speed;
+
+                                // Calculate how far the mover needs to be pushed out of
+                                // the blocker's footprint along the separation axis so
+                                // the slide position starts outside the overlap region.
+                                float b_rad = 0.3f;
+                                if (auto* bcc_bl = m_entities.get_component<CharacterControllerComponent>(blocker))
+                                    b_rad = bcc_bl->radius;
+                                float min_sep   = cc->radius + b_rad + 0.01f;
+                                float push_dist = (away_len < min_sep) ? (min_sep - away_len) : 0.f;
+
+                                glm::vec3 slid_pos{
+                                    tr.pos.x + away_n.x * push_dist + slide_vel.x * fdt,
+                                    new_pos.y,
+                                    tr.pos.z + away_n.y * push_dist + slide_vel.y * fdt
+                                };
+                                glm::vec3 smin = slid_pos + glm::vec3(-cc->radius, 0.f, -cc->radius);
+                                glm::vec3 smax = slid_pos + glm::vec3( cc->radius, cc_height, cc->radius);
+                                EntityID  dummy = NULL_ENTITY;
+                                // Accept the slide only if it is clear of voxel
+                                // geometry and dense entities OTHER than the mob
+                                // we're explicitly sliding around.
+                                if (!overlaps_solid(smin, smax) &&
+                                    !check_entity_density(id, smin, smax, dummy, blocker)) {
+                                    new_pos       = slid_pos;
+                                    vel->linear.x = slide_vel.x;
+                                    vel->linear.z = slide_vel.y;
+                                    slid = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!slid) {
+                        // Truly blocked — cancel horizontal movement and attack
+                        new_pos.x     = tr.pos.x;
+                        new_pos.z     = tr.pos.z;
+                        vel->linear.x = 0.f;
+                        vel->linear.z = 0.f;
+                        m_bump_cb(id, blocker);
+                    }
                 }
             }
 
@@ -346,13 +415,14 @@ glm::vec3 PhysicsSystem::resolve_collisions(glm::vec3 pos, glm::vec3 delta,
 // extents at query time.
 bool PhysicsSystem::check_entity_density(EntityID mover,
                                           glm::vec3 mn, glm::vec3 mx,
-                                          EntityID& out_blocker) const
+                                          EntityID& out_blocker,
+                                          EntityID exclude2) const
 {
     out_blocker = NULL_ENTITY;
     bool found = false;
 
     m_entities.each<DensityComponent>([&](EntityID id, DensityComponent& dc) {
-        if (found || id == mover || !dc.dense) return;
+        if (found || id == mover || id == exclude2 || !dc.dense) return;
         auto* tr = m_entities.get_component<TransformComponent>(id);
         if (!tr) return;
 

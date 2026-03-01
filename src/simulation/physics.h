@@ -30,6 +30,9 @@ struct VelocityComponent {
 struct CharacterControllerComponent {
     float move_speed  = 4.5f;
     float sprint_mult = 1.8f;
+    // !! jump_vel is a species stat used for dataloading / display only.
+    // DO NOT implement a jump mechanic or read this in the physics tick unless
+    // a jump action is explicitly requested in a task description.
     float jump_vel    = 6.f;
     float height      = 0.9f;   // < 1.0 so player fits in 1-tile-tall passages
     float radius      = 0.3f;   // 0.6 total width — fits in a 1-voxel gap
@@ -51,7 +54,17 @@ struct CharacterControllerComponent {
     // tick() accelerates the actual velocity toward this using GROUND/AIR_ACCEL.
     glm::vec3 wish_move{};
 
-    // Incapacitation / rest state — affects movement speed and rendering.
+    // Voluntary / persistent incapacitation state set by the player or game logic
+    // (e.g. Z-rest, death).  This is the "floor" value for mob_state each frame:
+    // the server resets mob_state to base_mob_state at the start of every tick,
+    // then escalates it for stun/knockdown/death.  Write here — not to mob_state
+    // directly — when you want the state to survive across frames.
+    MobState base_mob_state = MobState::Normal;
+
+    // Current effective incapacitation state — set by the server each tick by
+    // starting from base_mob_state and escalating for active status effects.
+    // Read by physics, rendering, and input processing.  Do NOT write to this
+    // to toggle resting or similar persistent states; write base_mob_state instead.
     MobState mob_state = MobState::Normal;
 };
 
@@ -91,10 +104,11 @@ public:
 private:
     glm::vec3 resolve_collisions(glm::vec3 pos, glm::vec3 delta, float radius, float height) const;
 
-    // Check if any dense entity (other than `mover`) blocks the target AABB.
-    // Sets `out_blocker` to the blocking entity (or NULL_ENTITY if clear).
+    // Check if any dense entity (other than `mover` and optional `exclude2`)
+    // blocks the target AABB.  Sets `out_blocker` to the blocking entity.
     bool check_entity_density(EntityID mover, glm::vec3 min, glm::vec3 max,
-                               EntityID& out_blocker) const;
+                               EntityID& out_blocker,
+                               EntityID exclude2 = NULL_ENTITY) const;
 
     World&         m_world;
     EntityManager& m_entities;

@@ -25,6 +25,31 @@ struct ItemDef {
     // nullptr if no parent ItemDef exists (only a PrototypeDef may exist).
     const ItemDef*           prototype_parent = nullptr;
 
+    // ── BYOND-style prototype inheritance ────────────────────────────────────
+    // Set from JSON "parent": "some_item_id".
+    // ItemRegistry::resolve_prototypes() walks the chain and copies fields that
+    // were NOT explicitly set in this def's JSON from its nearest ancestor that
+    // has them.  Verb lists are merged (parent verbs first; child overrides by
+    // display name).  Tags are additively merged (never replaced).
+    std::string              parent_id;
+
+    // Bitmask tracking which fields were explicitly present in the source JSON.
+    // Any field whose bit is NOT set here may be inherited from parent_id.
+    uint32_t                 explicit_json_fields = 0;
+    static constexpr uint32_t EJF_ICON                   = 1u <<  0;
+    static constexpr uint32_t EJF_WEIGHT                 = 1u <<  1;
+    static constexpr uint32_t EJF_VOLUME                 = 1u <<  2;
+    static constexpr uint32_t EJF_STACK_MAX              = 1u <<  3;
+    static constexpr uint32_t EJF_IS_CONTAINER           = 1u <<  4;
+    static constexpr uint32_t EJF_CONTAINER_VOLUME       = 1u <<  5;
+    static constexpr uint32_t EJF_EQUIP_SLOT             = 1u <<  6;
+    static constexpr uint32_t EJF_TWO_HANDED             = 1u <<  7;
+    static constexpr uint32_t EJF_PLACES_VOXEL           = 1u <<  8;
+    static constexpr uint32_t EJF_TAGS                   = 1u <<  9;
+    static constexpr uint32_t EJF_VERBS                  = 1u << 10;
+    static constexpr uint32_t EJF_CONTAINER_ACCEPTS_TAGS = 1u << 11;
+    static constexpr uint32_t EJF_TYPE_PATH              = 1u << 12;
+
     std::string              id;
     std::string              name;
     std::string              icon;       // path in textures/items/

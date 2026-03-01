@@ -126,6 +126,7 @@
     "id":    "door",
     "name":  "Airlock Door",
     "icon":  "specialtile/public/glass/closed",
+    "overlay_icon": "specialtile/public/overlays/glass_closed",
     "flags": ["SOLID", "VERT_PLANE_Z"],
     "health": 200,
     "material": "steel"
@@ -134,6 +135,7 @@
     "id":    "door_anim",
     "name":  "Airlock Door (Animating)",
     "icon":  "specialtile/public/glass/closed",
+    "overlay_icon": "specialtile/public/overlays/glass_closed",
     "flags": ["SOLID", "VERT_PLANE_Z"],
     "health": 200,
     "material": "steel"
@@ -142,6 +144,7 @@
     "id":    "door_open",
     "name":  "Airlock Door (Open)",
     "icon":  "specialtile/public/glass/open",
+    "overlay_icon": "specialtile/public/overlays/glass_open",
     "flags": ["VERT_PLANE_Z", "GAS_PASSABLE"],
     "health": 200,
     "material": "steel"

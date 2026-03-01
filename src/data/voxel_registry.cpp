@@ -64,6 +64,7 @@ bool VoxelRegistry::load_file(const std::string& path)
             def.tex_sides        = obj.value("texture_sides",     "");
             def.bitmask_icon_tpl = obj.value("bitmask_icon_tpl",  "");
             def.bitmask_count    = static_cast<uint8_t>(obj.value("bitmask_count", 0));
+            def.overlay_icon     = obj.value("overlay_icon",      "");
 
             if (obj.contains("flags"))
                 for (const auto& flag : obj["flags"]) {
@@ -118,6 +119,7 @@ void VoxelRegistry::resolve_inheritance(VoxelTypeDef& def)
     if (def.tex_top.empty())    def.tex_top    = parent->tex_top;
     if (def.tex_bottom.empty()) def.tex_bottom = parent->tex_bottom;
     if (def.tex_sides.empty())  def.tex_sides  = parent->tex_sides;
+    if (def.overlay_icon.empty()) def.overlay_icon = parent->overlay_icon;
 }
 
 const VoxelTypeDef* VoxelRegistry::get(uint16_t type_id) const
@@ -143,8 +145,18 @@ uint16_t VoxelRegistry::id_of(const std::string& name_id) const
     return it != m_by_name.end() ? it->second.type_id : 0;
 }
 
-void VoxelRegistry::set_atlas_indices(
-    uint16_t type_id,
+void VoxelRegistry::set_overlay_atlas_index(uint16_t type_id, uint16_t index)
+{
+    auto it_id = m_by_id.find(type_id);
+    if (it_id != m_by_id.end()) {
+        it_id->second.overlay_atlas_index = index;
+        auto it_nm = m_by_name.find(it_id->second.id);
+        if (it_nm != m_by_name.end())
+            it_nm->second.overlay_atlas_index = index;
+    }
+}
+
+void VoxelRegistry::set_atlas_indices(uint16_t type_id,
     const std::array<uint16_t, static_cast<int>(FaceDir::COUNT)>& indices)
 {
     auto it_id = m_by_id.find(type_id);

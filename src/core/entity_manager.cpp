@@ -9,6 +9,8 @@ EntityID EntityManager::create()
 
 void EntityManager::destroy(EntityID id)
 {
+    for (auto& cb : m_on_destroy_cbs)
+        cb(id);
     m_alive.erase(id);
     for (auto& [ti, store] : m_stores)
         store.erase(id);

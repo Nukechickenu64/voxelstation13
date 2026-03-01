@@ -223,6 +223,21 @@ bool Renderer::create_pipeline()
     }
     SDL_Log("Renderer: wireframe pipeline created");
 
+    // ── Overlay variant: same as world pipeline but depth-write disabled ──────
+    // Used for semi-transparent quads (e.g. glass on doors) so they don't
+    // occlude geometry behind them while still being depth-tested (occluded by
+    // solid walls) and blended correctly.
+    pci.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+    pci.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
+    pci.depth_stencil_state.enable_depth_test  = true;
+    pci.depth_stencil_state.enable_depth_write = false;
+    m_world_overlay_pipeline = SDL_CreateGPUGraphicsPipeline(m_gpu, &pci);
+    if (!m_world_overlay_pipeline) {
+        SDL_Log("SDL_CreateGPUGraphicsPipeline (overlay) failed: %s", SDL_GetError());
+        return false;
+    }
+    SDL_Log("Renderer: world overlay pipeline created");
+
     // Shaders no longer needed after pipeline creation
     SDL_ReleaseGPUShader(m_gpu, m_vert_shader); m_vert_shader = nullptr;
     SDL_ReleaseGPUShader(m_gpu, m_frag_shader); m_frag_shader = nullptr;
@@ -240,9 +255,10 @@ void Renderer::shutdown()
             release_gpu_mesh(gm);
         m_gpu_meshes.clear();
 
-        if (m_world_pipeline)     { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_world_pipeline);     m_world_pipeline     = nullptr; }
-        if (m_wireframe_pipeline) { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_wireframe_pipeline); m_wireframe_pipeline = nullptr; }
-        if (m_highlight_pipeline) { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_highlight_pipeline); m_highlight_pipeline = nullptr; }
+        if (m_world_pipeline)         { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_world_pipeline);         m_world_pipeline         = nullptr; }
+        if (m_wireframe_pipeline)     { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_wireframe_pipeline);     m_wireframe_pipeline     = nullptr; }
+        if (m_world_overlay_pipeline) { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_world_overlay_pipeline); m_world_overlay_pipeline = nullptr; }
+        if (m_highlight_pipeline)     { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_highlight_pipeline);     m_highlight_pipeline     = nullptr; }
         if (m_item_pipeline)      { SDL_ReleaseGPUGraphicsPipeline(m_gpu, m_item_pipeline);      m_item_pipeline      = nullptr; }
         if (m_highlight_vbuf)     { SDL_ReleaseGPUBuffer(m_gpu, m_highlight_vbuf);               m_highlight_vbuf     = nullptr; }
         if (m_highlight_ibuf)     { SDL_ReleaseGPUBuffer(m_gpu, m_highlight_ibuf);               m_highlight_ibuf     = nullptr; }
@@ -295,9 +311,16 @@ void Renderer::shutdown()
 
 void Renderer::release_gpu_mesh(GPUMesh& gm)
 {
-    if (gm.vbuf) { SDL_ReleaseGPUBuffer(m_gpu, gm.vbuf); gm.vbuf = nullptr; }
-    if (gm.ibuf) { SDL_ReleaseGPUBuffer(m_gpu, gm.ibuf); gm.ibuf = nullptr; }
-    gm.num_indices = 0;
+    if (gm.vbuf)    { SDL_ReleaseGPUBuffer(m_gpu, gm.vbuf);    gm.vbuf    = nullptr; }
+    if (gm.ibuf)    { SDL_ReleaseGPUBuffer(m_gpu, gm.ibuf);    gm.ibuf    = nullptr; }
+    if (gm.ov_vbuf) { SDL_ReleaseGPUBuffer(m_gpu, gm.ov_vbuf); gm.ov_vbuf = nullptr; }
+    if (gm.ov_ibuf) { SDL_ReleaseGPUBuffer(m_gpu, gm.ov_ibuf); gm.ov_ibuf = nullptr; }
+    gm.num_indices      = 0;
+    gm.vbuf_capacity    = 0;
+    gm.ibuf_capacity    = 0;
+    gm.ov_num_indices   = 0;
+    gm.ov_vbuf_capacity = 0;
+    gm.ov_ibuf_capacity = 0;
 }
 
 // ── Per-frame render ──────────────────────────────────────────────────────────
@@ -468,6 +491,39 @@ void Renderer::draw_world(const World& /*world*/,
     int culled_chunks = total_chunks - drawn;
     VLOG("draw_world: %d/%d chunks drawn, %d frustum-culled",
          drawn, total_chunks, culled_chunks);
+
+    // ── Overlay pass (semi-transparent, depth-write disabled) ─────────────────
+    // Geometry in overlay buffers (glass panels, etc.) must be drawn AFTER all
+    // opaque world geometry so that the depth buffer already reflects solid walls
+    // and floors (overlay is depth-tested but must not depth-write).
+    if (m_world_overlay_pipeline) {
+        SDL_BindGPUGraphicsPipeline(m_render_pass, m_world_overlay_pipeline);
+        // Samplers are still bound from the opaque pass.
+
+        for (auto& [chunk_pos, gm] : m_gpu_meshes) {
+            if (!gm.ov_vbuf || !gm.ov_ibuf || gm.ov_num_indices == 0) continue;
+
+            glm::vec3 mn = glm::vec3(chunk_pos)     * float(CHUNK_SIZE);
+            glm::vec3 mx = glm::vec3(chunk_pos + 1) * float(CHUNK_SIZE);
+            if (!aabb_in_frustum(view_proj, mn, mx)) continue;
+
+            glm::mat4 model = glm::translate(glm::mat4(1.f),
+                                             glm::vec3(chunk_pos) * float(CHUNK_SIZE));
+            glm::mat4 chunk_mvp = view_proj * model;
+            struct VertexUBO { float mvp[16]; float snap_res, y_shear, _pad1, _pad2; };
+            VertexUBO vert_ubo{};
+            std::memcpy(vert_ubo.mvp, &chunk_mvp[0][0], sizeof(float) * 16);
+            vert_ubo.snap_res = m_psx_wobble ? m_psx_snap_res : 0.f;
+            vert_ubo.y_shear  = m_psx_yshear;
+            SDL_PushGPUVertexUniformData(m_cmd_buf, 0, &vert_ubo, sizeof(vert_ubo));
+
+            SDL_GPUBufferBinding vb{ gm.ov_vbuf, 0 };
+            SDL_GPUBufferBinding ib{ gm.ov_ibuf, 0 };
+            SDL_BindGPUVertexBuffers(m_render_pass, 0, &vb, 1);
+            SDL_BindGPUIndexBuffer(m_render_pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+            SDL_DrawGPUIndexedPrimitives(m_render_pass, gm.ov_num_indices, 1, 0, 0, 0);
+        }
+    }
 }
 
 void Renderer::draw_face_highlight(const RayHit& hit)
@@ -542,7 +598,7 @@ void Renderer::upload_mesh(ChunkMesh& mesh)
         // Nothing to upload – release any old GPU buffers
         auto it = m_gpu_meshes.find(mesh.chunk_pos);
         if (it != m_gpu_meshes.end()) {
-            SDL_Log("upload_mesh: releasing empty mesh at chunk (%d,%d,%d)",
+            VLOG("upload_mesh: releasing empty mesh at chunk (%d,%d,%d)",
                     mesh.chunk_pos.x, mesh.chunk_pos.y, mesh.chunk_pos.z);
             release_gpu_mesh(it->second);
         }
@@ -551,27 +607,35 @@ void Renderer::upload_mesh(ChunkMesh& mesh)
     }
 
     auto& gm = m_gpu_meshes[mesh.chunk_pos];
-    release_gpu_mesh(gm);   // free old buffers if any
 
     const Uint32 vsize = (Uint32)(mesh.vertices.size() * sizeof(float));
     const Uint32 isize = (Uint32)(mesh.indices.size()  * sizeof(uint32_t));
 
-    SDL_Log("upload_mesh: chunk (%d,%d,%d) verts=%u idx=%u vsize=%u bytes isize=%u bytes",
+    VLOG("upload_mesh: chunk (%d,%d,%d) verts=%u idx=%u vsize=%u bytes isize=%u bytes",
             mesh.chunk_pos.x, mesh.chunk_pos.y, mesh.chunk_pos.z,
-            (unsigned)(mesh.vertices.size() / 6),
+            (unsigned)(mesh.vertices.size() / 13),
             (unsigned)mesh.indices.size(),
             vsize, isize);
 
-    // ── Create GPU vertex / index buffers ─────────────────────────────────────
-    SDL_GPUBufferCreateInfo vbi{};
-    vbi.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
-    vbi.size  = vsize;
-    gm.vbuf = SDL_CreateGPUBuffer(m_gpu, &vbi);
+    // ── Reuse or reallocate vertex buffer ────────────────────────────────────
+    if (!gm.vbuf || vsize > gm.vbuf_capacity) {
+        if (gm.vbuf) SDL_ReleaseGPUBuffer(m_gpu, gm.vbuf);
+        SDL_GPUBufferCreateInfo vbi{};
+        vbi.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+        vbi.size  = vsize;
+        gm.vbuf          = SDL_CreateGPUBuffer(m_gpu, &vbi);
+        gm.vbuf_capacity = vsize;
+    }
 
-    SDL_GPUBufferCreateInfo ibi{};
-    ibi.usage = SDL_GPU_BUFFERUSAGE_INDEX;
-    ibi.size  = isize;
-    gm.ibuf = SDL_CreateGPUBuffer(m_gpu, &ibi);
+    // ── Reuse or reallocate index buffer ─────────────────────────────────────
+    if (!gm.ibuf || isize > gm.ibuf_capacity) {
+        if (gm.ibuf) SDL_ReleaseGPUBuffer(m_gpu, gm.ibuf);
+        SDL_GPUBufferCreateInfo ibi{};
+        ibi.usage = SDL_GPU_BUFFERUSAGE_INDEX;
+        ibi.size  = isize;
+        gm.ibuf          = SDL_CreateGPUBuffer(m_gpu, &ibi);
+        gm.ibuf_capacity = isize;
+    }
 
     if (!gm.vbuf || !gm.ibuf) {
         SDL_Log("SDL_CreateGPUBuffer failed: %s", SDL_GetError());
@@ -613,6 +677,61 @@ void Renderer::upload_mesh(ChunkMesh& mesh)
     SDL_ReleaseGPUTransferBuffer(m_gpu, tbuf);
 
     gm.num_indices = (uint32_t)mesh.indices.size();
+
+    // ── Upload overlay (semi-transparent) geometry ───────────────────────────
+    if (!mesh.overlay_vertices.empty() && !mesh.overlay_indices.empty()) {
+        const Uint32 ov_vsize = (Uint32)(mesh.overlay_vertices.size() * sizeof(float));
+        const Uint32 ov_isize = (Uint32)(mesh.overlay_indices.size()  * sizeof(uint32_t));
+
+        if (!gm.ov_vbuf || ov_vsize > gm.ov_vbuf_capacity) {
+            if (gm.ov_vbuf) SDL_ReleaseGPUBuffer(m_gpu, gm.ov_vbuf);
+            SDL_GPUBufferCreateInfo vbi{};
+            vbi.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+            vbi.size  = ov_vsize;
+            gm.ov_vbuf          = SDL_CreateGPUBuffer(m_gpu, &vbi);
+            gm.ov_vbuf_capacity = ov_vsize;
+        }
+        if (!gm.ov_ibuf || ov_isize > gm.ov_ibuf_capacity) {
+            if (gm.ov_ibuf) SDL_ReleaseGPUBuffer(m_gpu, gm.ov_ibuf);
+            SDL_GPUBufferCreateInfo ibi{};
+            ibi.usage = SDL_GPU_BUFFERUSAGE_INDEX;
+            ibi.size  = ov_isize;
+            gm.ov_ibuf          = SDL_CreateGPUBuffer(m_gpu, &ibi);
+            gm.ov_ibuf_capacity = ov_isize;
+        }
+        if (gm.ov_vbuf && gm.ov_ibuf) {
+            SDL_GPUTransferBufferCreateInfo ov_tbi{};
+            ov_tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+            ov_tbi.size  = ov_vsize + ov_isize;
+            auto* ov_tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &ov_tbi);
+            if (ov_tbuf) {
+                auto* ov_ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, ov_tbuf, false));
+                std::memcpy(ov_ptr,            mesh.overlay_vertices.data(), ov_vsize);
+                std::memcpy(ov_ptr + ov_vsize, mesh.overlay_indices.data(),  ov_isize);
+                SDL_UnmapGPUTransferBuffer(m_gpu, ov_tbuf);
+
+                auto* ov_cmd       = SDL_AcquireGPUCommandBuffer(m_gpu);
+                auto* ov_copy_pass = SDL_BeginGPUCopyPass(ov_cmd);
+                SDL_GPUTransferBufferLocation ov_src_v{ ov_tbuf, 0 };
+                SDL_GPUBufferRegion           ov_dst_v{ gm.ov_vbuf, 0, ov_vsize };
+                SDL_UploadToGPUBuffer(ov_copy_pass, &ov_src_v, &ov_dst_v, false);
+                SDL_GPUTransferBufferLocation ov_src_i{ ov_tbuf, ov_vsize };
+                SDL_GPUBufferRegion           ov_dst_i{ gm.ov_ibuf, 0, ov_isize };
+                SDL_UploadToGPUBuffer(ov_copy_pass, &ov_src_i, &ov_dst_i, false);
+                SDL_EndGPUCopyPass(ov_copy_pass);
+                SDL_SubmitGPUCommandBuffer(ov_cmd);
+                SDL_ReleaseGPUTransferBuffer(m_gpu, ov_tbuf);
+
+                gm.ov_num_indices = (uint32_t)mesh.overlay_indices.size();
+            }
+        }
+    } else {
+        // No overlay geometry — release any old overlay buffers
+        if (gm.ov_vbuf) { SDL_ReleaseGPUBuffer(m_gpu, gm.ov_vbuf); gm.ov_vbuf = nullptr; gm.ov_vbuf_capacity = 0; }
+        if (gm.ov_ibuf) { SDL_ReleaseGPUBuffer(m_gpu, gm.ov_ibuf); gm.ov_ibuf = nullptr; gm.ov_ibuf_capacity = 0; }
+        gm.ov_num_indices = 0;
+    }
+
     mesh.dirty = false;
 }
 
@@ -620,7 +739,7 @@ void Renderer::free_mesh(glm::ivec3 chunk_pos)
 {
     auto it = m_gpu_meshes.find(chunk_pos);
     if (it != m_gpu_meshes.end()) {
-        SDL_Log("free_mesh: releasing GPU mesh for chunk (%d,%d,%d)",
+        VLOG("free_mesh: releasing GPU mesh for chunk (%d,%d,%d)",
                 chunk_pos.x, chunk_pos.y, chunk_pos.z);
         release_gpu_mesh(it->second);
         m_gpu_meshes.erase(it);
@@ -635,6 +754,173 @@ void Renderer::clear_all_meshes()
         release_gpu_mesh(gm);
     m_gpu_meshes.clear();
     m_meshes.clear();
+}
+
+void Renderer::upload_meshes_batch(std::vector<ChunkMesh>& meshes)
+{
+    if (meshes.empty()) return;
+
+    // ── Phase 1: ensure GPU buffers exist / are large enough ─────────────────
+    struct UploadEntry {
+        ChunkMesh*             mesh;
+        GPUMesh*               gm;
+        SDL_GPUTransferBuffer* tbuf;
+        Uint32                 vsize;
+        Uint32                 isize;
+        // overlay
+        SDL_GPUTransferBuffer* ov_tbuf;
+        Uint32                 ov_vsize;
+        Uint32                 ov_isize;
+    };
+    std::vector<UploadEntry> uploads;
+    uploads.reserve(meshes.size());
+
+    for (auto& mesh : meshes) {
+        if (mesh.vertices.empty() || mesh.indices.empty()) {
+            // Release any old GPU buffers for this chunk
+            auto it = m_gpu_meshes.find(mesh.chunk_pos);
+            if (it != m_gpu_meshes.end())
+                release_gpu_mesh(it->second);
+            mesh.dirty = false;
+            continue;
+        }
+
+        auto& gm = m_gpu_meshes[mesh.chunk_pos];
+
+        const Uint32 vsize = (Uint32)(mesh.vertices.size() * sizeof(float));
+        const Uint32 isize = (Uint32)(mesh.indices.size()  * sizeof(uint32_t));
+
+        // Reuse or reallocate vertex buffer
+        if (!gm.vbuf || vsize > gm.vbuf_capacity) {
+            if (gm.vbuf) SDL_ReleaseGPUBuffer(m_gpu, gm.vbuf);
+            SDL_GPUBufferCreateInfo vbi{};
+            vbi.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+            vbi.size  = vsize;
+            gm.vbuf          = SDL_CreateGPUBuffer(m_gpu, &vbi);
+            gm.vbuf_capacity = vsize;
+        }
+        // Reuse or reallocate index buffer
+        if (!gm.ibuf || isize > gm.ibuf_capacity) {
+            if (gm.ibuf) SDL_ReleaseGPUBuffer(m_gpu, gm.ibuf);
+            SDL_GPUBufferCreateInfo ibi{};
+            ibi.usage = SDL_GPU_BUFFERUSAGE_INDEX;
+            ibi.size  = isize;
+            gm.ibuf          = SDL_CreateGPUBuffer(m_gpu, &ibi);
+            gm.ibuf_capacity = isize;
+        }
+        if (!gm.vbuf || !gm.ibuf) {
+            SDL_Log("upload_meshes_batch: SDL_CreateGPUBuffer failed: %s", SDL_GetError());
+            release_gpu_mesh(gm);
+            mesh.dirty = false;
+            continue;
+        }
+
+        // Create staging transfer buffer for this mesh
+        SDL_GPUTransferBufferCreateInfo tbi{};
+        tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        tbi.size  = vsize + isize;
+        auto* tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &tbi);
+        if (!tbuf) {
+            SDL_Log("upload_meshes_batch: SDL_CreateGPUTransferBuffer failed: %s", SDL_GetError());
+            release_gpu_mesh(gm);
+            mesh.dirty = false;
+            continue;
+        }
+
+        // Fill staging buffer
+        auto* ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
+        std::memcpy(ptr,         mesh.vertices.data(), vsize);
+        std::memcpy(ptr + vsize, mesh.indices.data(),  isize);
+        SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
+
+        // ── Handle overlay geometry ───────────────────────────────────────────
+        SDL_GPUTransferBuffer* ov_tbuf  = nullptr;
+        Uint32                 ov_vsize = 0;
+        Uint32                 ov_isize = 0;
+
+        if (!mesh.overlay_vertices.empty() && !mesh.overlay_indices.empty()) {
+            ov_vsize = (Uint32)(mesh.overlay_vertices.size() * sizeof(float));
+            ov_isize = (Uint32)(mesh.overlay_indices.size()  * sizeof(uint32_t));
+
+            if (!gm.ov_vbuf || ov_vsize > gm.ov_vbuf_capacity) {
+                if (gm.ov_vbuf) SDL_ReleaseGPUBuffer(m_gpu, gm.ov_vbuf);
+                SDL_GPUBufferCreateInfo vbi{};
+                vbi.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+                vbi.size  = ov_vsize;
+                gm.ov_vbuf          = SDL_CreateGPUBuffer(m_gpu, &vbi);
+                gm.ov_vbuf_capacity = ov_vsize;
+            }
+            if (!gm.ov_ibuf || ov_isize > gm.ov_ibuf_capacity) {
+                if (gm.ov_ibuf) SDL_ReleaseGPUBuffer(m_gpu, gm.ov_ibuf);
+                SDL_GPUBufferCreateInfo ibi{};
+                ibi.usage = SDL_GPU_BUFFERUSAGE_INDEX;
+                ibi.size  = ov_isize;
+                gm.ov_ibuf          = SDL_CreateGPUBuffer(m_gpu, &ibi);
+                gm.ov_ibuf_capacity = ov_isize;
+            }
+            if (gm.ov_vbuf && gm.ov_ibuf) {
+                SDL_GPUTransferBufferCreateInfo ov_tbi{};
+                ov_tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+                ov_tbi.size  = ov_vsize + ov_isize;
+                ov_tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &ov_tbi);
+                if (ov_tbuf) {
+                    auto* ov_ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, ov_tbuf, false));
+                    std::memcpy(ov_ptr,            mesh.overlay_vertices.data(), ov_vsize);
+                    std::memcpy(ov_ptr + ov_vsize, mesh.overlay_indices.data(),  ov_isize);
+                    SDL_UnmapGPUTransferBuffer(m_gpu, ov_tbuf);
+                } else {
+                    ov_vsize = ov_isize = 0;
+                }
+            } else {
+                ov_vsize = ov_isize = 0;
+            }
+        } else {
+            // No overlay for this chunk — release old overlay buffers
+            if (gm.ov_vbuf) { SDL_ReleaseGPUBuffer(m_gpu, gm.ov_vbuf); gm.ov_vbuf = nullptr; gm.ov_vbuf_capacity = 0; }
+            if (gm.ov_ibuf) { SDL_ReleaseGPUBuffer(m_gpu, gm.ov_ibuf); gm.ov_ibuf = nullptr; gm.ov_ibuf_capacity = 0; }
+            gm.ov_num_indices = 0;
+        }
+
+        uploads.push_back({ &mesh, &gm, tbuf, vsize, isize, ov_tbuf, ov_vsize, ov_isize });
+    }
+
+    if (uploads.empty()) return;
+
+    // ── Phase 2: single command buffer + single copy pass for all uploads ─────
+    auto* cmd       = SDL_AcquireGPUCommandBuffer(m_gpu);
+    auto* copy_pass = SDL_BeginGPUCopyPass(cmd);
+
+    for (auto& e : uploads) {
+        SDL_GPUTransferBufferLocation src_v{ e.tbuf, 0 };
+        SDL_GPUBufferRegion           dst_v{ e.gm->vbuf, 0, e.vsize };
+        SDL_UploadToGPUBuffer(copy_pass, &src_v, &dst_v, false);
+
+        SDL_GPUTransferBufferLocation src_i{ e.tbuf, e.vsize };
+        SDL_GPUBufferRegion           dst_i{ e.gm->ibuf, 0, e.isize };
+        SDL_UploadToGPUBuffer(copy_pass, &src_i, &dst_i, false);
+
+        if (e.ov_tbuf && e.ov_vsize > 0) {
+            SDL_GPUTransferBufferLocation ov_src_v{ e.ov_tbuf, 0 };
+            SDL_GPUBufferRegion           ov_dst_v{ e.gm->ov_vbuf, 0, e.ov_vsize };
+            SDL_UploadToGPUBuffer(copy_pass, &ov_src_v, &ov_dst_v, false);
+
+            SDL_GPUTransferBufferLocation ov_src_i{ e.ov_tbuf, e.ov_vsize };
+            SDL_GPUBufferRegion           ov_dst_i{ e.gm->ov_ibuf, 0, e.ov_isize };
+            SDL_UploadToGPUBuffer(copy_pass, &ov_src_i, &ov_dst_i, false);
+        }
+    }
+
+    SDL_EndGPUCopyPass(copy_pass);
+    SDL_SubmitGPUCommandBuffer(cmd);
+
+    // Release all transfer buffers and mark meshes clean
+    for (auto& e : uploads) {
+        SDL_ReleaseGPUTransferBuffer(m_gpu, e.tbuf);
+        if (e.ov_tbuf) SDL_ReleaseGPUTransferBuffer(m_gpu, e.ov_tbuf);
+        e.gm->num_indices    = (uint32_t)e.mesh->indices.size();
+        e.gm->ov_num_indices = (uint32_t)e.mesh->overlay_indices.size();
+        e.mesh->dirty = false;
+    }
 }
 
 // ── Tile texture array ─────────────────────────────────────────────────────────────────
@@ -692,6 +978,7 @@ bool Renderer::load_tile_textures(VoxelRegistry& reg, const char* texture_dir)
     for (const auto& [id, def] : all) {
         std::array<uint16_t, static_cast<int>(FaceDir::COUNT)> idx{};
 
+
         // The base layer for this type (already at slot type_id in the array)
         const uint16_t base_idx = static_cast<uint16_t>(id);
 
@@ -732,6 +1019,21 @@ bool Renderer::load_tile_textures(VoxelRegistry& reg, const char* texture_dir)
         idx[static_cast<int>(FaceDir::NegZ)] = side_idx;
 
         reg.set_atlas_indices(id, idx);
+    }
+
+    // ── Phase 2.5: Assign overlay atlas indices ───────────────────────────────
+    // Overlays share the extra_path_to_layer dedup map so two door types using
+    // the same overlay PNG only allocate one atlas layer between them.
+    {
+        std::vector<std::pair<uint16_t, uint16_t>> ov_assignments; // {type_id, layer}
+        for (const auto& [id, def] : all) {
+            if (def.overlay_icon.empty()) continue;
+            const std::string p = icon_path(def.overlay_icon);
+            const uint16_t ov_idx = extra_layer(p);
+            ov_assignments.push_back({static_cast<uint16_t>(id), ov_idx});
+        }
+        for (const auto& [id, ov_idx] : ov_assignments)
+            reg.set_overlay_atlas_index(id, ov_idx);
     }
 
     // ── Phase 3: Build the pixel buffer ──────────────────────────────────────
@@ -2863,6 +3165,129 @@ const uint8_t* Renderer::door_anim_frame_pixels(int frm) const
 {
     if (frm < 0 || frm >= static_cast<int>(m_door_anim_frames.size())) return nullptr;
     return m_door_anim_frames[static_cast<size_t>(frm)].data();
+}
+
+void Renderer::update_tile_layer_at_index(uint16_t layer_idx, const uint8_t* rgba32x32_pixels)
+{
+    if (!m_tile_array || !rgba32x32_pixels) return;
+
+    constexpr uint32_t TEX_W = 32, TEX_H = 32;
+    constexpr uint32_t LAYER_BYTES = TEX_W * TEX_H * 4;
+
+    SDL_GPUTransferBufferCreateInfo tbci{};
+    tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    tbci.size  = LAYER_BYTES;
+    auto* tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &tbci);
+    if (!tbuf) return;
+
+    auto* ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
+    std::memcpy(ptr, rgba32x32_pixels, LAYER_BYTES);
+    SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
+
+    auto* cmd       = SDL_AcquireGPUCommandBuffer(m_gpu);
+    auto* copy_pass = SDL_BeginGPUCopyPass(cmd);
+
+    SDL_GPUTextureTransferInfo src{};
+    src.transfer_buffer = tbuf;
+    src.offset          = 0;
+    src.pixels_per_row  = TEX_W;
+    src.rows_per_layer  = TEX_H;
+
+    SDL_GPUTextureRegion dst{};
+    dst.texture   = m_tile_array;
+    dst.mip_level = 0;
+    dst.layer     = static_cast<Uint32>(layer_idx);
+    dst.x = dst.y = dst.z = 0;
+    dst.w = TEX_W;
+    dst.h = TEX_H;
+    dst.d = 1;
+
+    SDL_UploadToGPUTexture(copy_pass, &src, &dst, false);
+    SDL_EndGPUCopyPass(copy_pass);
+    SDL_SubmitGPUCommandBuffer(cmd);
+    SDL_ReleaseGPUTransferBuffer(m_gpu, tbuf);
+}
+
+// ── Shared GIF loader helper ───────────────────────────────────────────────────
+static bool load_gif_frames(const char* gif_path, const char* label,
+                             std::vector<std::vector<uint8_t>>& out_frames)
+{
+    FILE* f = std::fopen(gif_path, "rb");
+    if (!f) { SDL_Log("%s: cannot open '%s'", label, gif_path); return false; }
+    std::fseek(f, 0, SEEK_END); long fsize = std::ftell(f); std::rewind(f);
+    if (fsize <= 0) { std::fclose(f); return false; }
+    std::vector<uint8_t> buf(static_cast<size_t>(fsize));
+    std::fread(buf.data(), 1, buf.size(), f);
+    std::fclose(f);
+
+    int w = 0, h = 0, frame_count = 0, comp = 0, *delays_raw = nullptr;
+    stbi_uc* pixels = stbi_load_gif_from_memory(
+        buf.data(), static_cast<int>(buf.size()),
+        &delays_raw, &w, &h, &frame_count, &comp, 4);
+    if (!pixels || frame_count <= 0 || w <= 0 || h <= 0) {
+        SDL_Log("%s: stbi_load_gif_from_memory failed for '%s': %s",
+                label, gif_path, stbi_failure_reason());
+        if (pixels)     stbi_image_free(pixels);
+        if (delays_raw) stbi_image_free(delays_raw);
+        return false;
+    }
+
+    constexpr uint32_t TEX_W = 32, TEX_H = 32;
+    constexpr uint32_t LAYER_BYTES = TEX_W * TEX_H * 4;
+    const size_t src_frame_bytes = static_cast<size_t>(w * h * 4);
+
+    out_frames.resize(static_cast<size_t>(frame_count));
+    for (int i = 0; i < frame_count; ++i) {
+        out_frames[i].resize(LAYER_BYTES);
+        uint8_t*       dst = out_frames[i].data();
+        const stbi_uc* src = pixels + i * src_frame_bytes;
+        for (uint32_t py = 0; py < TEX_H; ++py)
+        for (uint32_t px = 0; px < TEX_W; ++px) {
+            int sx = static_cast<int>(px) * w / static_cast<int>(TEX_W);
+            int sy = static_cast<int>(py) * h / static_cast<int>(TEX_H);
+            const stbi_uc* sp = src + (sy * w + sx) * 4;
+            uint8_t*       dp = dst + (py * TEX_W + px) * 4;
+            dp[0]=sp[0]; dp[1]=sp[1]; dp[2]=sp[2]; dp[3]=sp[3];
+        }
+    }
+    if (delays_raw) stbi_image_free(delays_raw);
+    stbi_image_free(pixels);
+    SDL_Log("%s: loaded %d frames from '%s'", label, frame_count, gif_path);
+    return true;
+}
+
+bool Renderer::load_door_overlay_anim(const char* gif_path)
+{
+    return load_gif_frames(gif_path, "load_door_overlay_anim", m_door_overlay_anim_frames);
+}
+
+bool Renderer::load_door_fill_anim(const char* gif_path)
+{
+    return load_gif_frames(gif_path, "load_door_fill_anim", m_door_fill_anim_frames);
+}
+
+void Renderer::composite_door_overlay_frame(int frm, uint16_t overlay_layer_idx,
+                                             uint8_t overlay_alpha)
+{
+    if (!m_tile_array) return;
+    if (frm < 0 || frm >= static_cast<int>(m_door_overlay_anim_frames.size())) return;
+    if (frm >= static_cast<int>(m_door_fill_anim_frames.size())) return;
+
+    constexpr uint32_t TEX_W = 32, TEX_H = 32;
+    constexpr uint32_t NUM_PIXELS = TEX_W * TEX_H;
+
+    // Build composited frame: RGB from overlay, alpha from fill coverage.
+    // Fill GIF pixels that are opaque (alpha > 0) indicate glass is present.
+    std::array<uint8_t, NUM_PIXELS * 4> composited{};
+    const uint8_t* ov   = m_door_overlay_anim_frames[static_cast<size_t>(frm)].data();
+    const uint8_t* fill = m_door_fill_anim_frames[static_cast<size_t>(frm)].data();
+    for (uint32_t i = 0; i < NUM_PIXELS; ++i) {
+        composited[i*4+0] = ov[i*4+0];
+        composited[i*4+1] = ov[i*4+1];
+        composited[i*4+2] = ov[i*4+2];
+        composited[i*4+3] = (fill[i*4+3] > 0) ? overlay_alpha : 0;
+    }
+    update_tile_layer_at_index(overlay_layer_idx, composited.data());
 }
 
 void Renderer::queue_earth_background(glm::vec3 /*cam_pos*/, float yaw, float pitch)

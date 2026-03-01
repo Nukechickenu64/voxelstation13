@@ -372,10 +372,8 @@ void AtmosSimulator::rebuild_zones()
                        + glm::vec3(0.5f);
     }
 
-    SDL_Log("AtmosSimulator: rebuild done — %d room(s), %u cells, %u door link(s).",
-            total_rooms(),
-            static_cast<unsigned>(m_cell_zone.size()),
-            static_cast<unsigned>(m_door_links.size()));
+    // (verbose) SDL_Log("AtmosSimulator: rebuild done — %d room(s), %u cells, %u door link(s).",
+    //         total_rooms(), (unsigned)m_cell_zone.size(), (unsigned)m_door_links.size());
 }
 
 // ── tick ──────────────────────────────────────────────────────────────────────

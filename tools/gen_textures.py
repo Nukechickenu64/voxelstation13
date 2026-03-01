@@ -544,13 +544,13 @@ pipe_variants = compose_bitmask(pipe_base, pipe_overlays)
 TEXTURES = {
     # Voxel tiles
     "textures/tiles/floor_steel.png":  diamond_plate(W, H),
-    "textures/tiles/floor_monk_steel.png": from_legacy_turf("floors/floor_variations/iron_above.png"),
-    "textures/tiles/floor_monk_maint.png": from_legacy_turf("floors/floor_variations/maint_above.png"),
+    "textures/tiles/floor_monk_steel.png": from_legacy_turf("floors/catwalk_plating/iron_above.png"),
+    "textures/tiles/floor_monk_maint.png": from_legacy_turf("floors/catwalk_plating/maint_above.png"),
     "textures/tiles/wall.png":         grid(W, H, 70, 70, 80, 40, 45),
     "textures/tiles/rwall.png":        rwall_tex(W, H),
     "textures/tiles/window.png":       window_tex(W, H),
     "textures/tiles/plating.png":      cross_hatch(W, H, 90, 80, 70, 50, 45, 40),
-    "textures/tiles/plating_monk.png": from_legacy_turf("floors/floor_variations/iron_below.png"),
+    "textures/tiles/plating_monk.png": from_legacy_turf("floors/catwalk_plating/iron_below.png"),
     "textures/tiles/catwalk.png":      catwalk_tex(W, H),
     "textures/tiles/light_tube.png":   light_tube_tex(W, H),
     "textures/tiles/fallback.png":     fallback_magenta(W, H),

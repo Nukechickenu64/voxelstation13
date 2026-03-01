@@ -4,6 +4,8 @@
 #include <queue>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
+#include <functional>
 #include <glm/glm.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
@@ -78,7 +80,7 @@ private:
     // BFS add/remove: the color-tinted variants propagate the source color into
     // the light map alongside the brightness BFS in Voxel::light_level.
     void bfs_add(glm::ivec3 pos, uint8_t level, LightColor color, bool sky);
-    void bfs_remove_colored(glm::ivec3 pos, std::queue<glm::ivec3>& relight);
+    void bfs_remove_colored(glm::ivec3 pos, const std::function<void(glm::ivec3)>& enqueue_relight);
 
     static constexpr uint8_t MAX_LIGHT = 15;
 

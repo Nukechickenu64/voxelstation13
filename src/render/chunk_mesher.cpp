@@ -17,6 +17,7 @@ void ChunkMesher::rebuild_atlas()
     if (!m_registry) {
         m_cached_atlas.reset();
         m_cached_bitmask_atlas.reset();
+        m_cached_overlay_atlas.reset();
         return;
     }
     const auto& all = m_registry->all();
@@ -36,6 +37,13 @@ void ChunkMesher::rebuild_atlas()
         if (def.bitmask_count > 0 && def.bitmask_atlas_base > 0)
             (*bm)[id] = def.bitmask_atlas_base;
     m_cached_bitmask_atlas = std::move(bm);
+
+    // Build per-type overlay atlas (extra semi-transparent layer, e.g. glass on doors).
+    auto ov = std::make_shared<OverlayAtlasTable>(static_cast<size_t>(max_id) + 1, 0u);
+    for (const auto& [id, def] : all)
+        if (def.overlay_atlas_index > 0)
+            (*ov)[id] = def.overlay_atlas_index;
+    m_cached_overlay_atlas = std::move(ov);
 
     // Rebuild the per-type emissive flag table (true = voxel emits light).
     auto emit = std::make_shared<EmitTable>(static_cast<size_t>(max_id) + 1, false);
@@ -96,9 +104,10 @@ void ChunkMesher::enqueue(glm::ivec3 chunk_pos, const World& world)
     }
 
     // Reuse the cached atlas (built once in set_registry) — pointer copy only.
-    job.type_atlas    = m_cached_atlas;
-    job.bitmask_atlas = m_cached_bitmask_atlas;
-    job.emit_table    = m_emit_table;
+    job.type_atlas      = m_cached_atlas;
+    job.bitmask_atlas   = m_cached_bitmask_atlas;
+    job.overlay_atlas   = m_cached_overlay_atlas;
+    job.emit_table      = m_emit_table;
 
     // Take a fresh LightMap snapshot for this single-chunk enqueue.
     if (m_lighting) {
@@ -130,8 +139,11 @@ void ChunkMesher::enqueue_batch(const std::vector<Chunk*>& chunks, const World& 
     };
 
     const uint64_t gen = m_generation.load(std::memory_order_relaxed);
-    int notified = 0;
 
+    // Build all job snapshots outside the lock so the main thread isn't
+    // blocked by mutex contention while copying voxel data.
+    std::vector<Job> jobs;
+    jobs.reserve(chunks.size());
     for (Chunk* chunk : chunks) {
         if (!chunk) continue;
         glm::ivec3 chunk_pos = chunk->chunk_pos();
@@ -139,10 +151,11 @@ void ChunkMesher::enqueue_batch(const std::vector<Chunk*>& chunks, const World& 
         Job job;
         job.chunk_pos  = chunk_pos;
         job.generation = gen;
-        job.type_atlas    = m_cached_atlas;   // shared — pointer copy
-        job.bitmask_atlas = m_cached_bitmask_atlas; // shared — pointer copy
-        job.light_colors  = shared_lightmap;  // shared — pointer copy
-        job.emit_table    = m_emit_table;     // shared — pointer copy
+        job.type_atlas      = m_cached_atlas;          // shared — pointer copy
+        job.bitmask_atlas   = m_cached_bitmask_atlas;   // shared — pointer copy
+        job.overlay_atlas   = m_cached_overlay_atlas;   // shared — pointer copy
+        job.light_colors    = shared_lightmap;          // shared — pointer copy
+        job.emit_table      = m_emit_table;             // shared — pointer copy
 
         for (int z = 0; z < CHUNK_SIZE; ++z)
             for (int y = 0; y < CHUNK_SIZE; ++y)
@@ -162,15 +175,24 @@ void ChunkMesher::enqueue_batch(const std::vector<Chunk*>& chunks, const World& 
             }
         }
 
-        {
-            std::lock_guard<std::mutex> lk(m_queue_mutex);
-            if (m_pending.count(chunk_pos)) continue;
-            m_pending.insert(chunk_pos);
-            m_job_queue.push(std::move(job));
-        }
-        m_cv.notify_one();
-        ++notified;
+        jobs.push_back(std::move(job));
     }
+
+    // Acquire the lock ONCE for the whole batch and enqueue all jobs.
+    int added = 0;
+    {
+        std::lock_guard<std::mutex> lk(m_queue_mutex);
+        for (auto& job : jobs) {
+            if (m_pending.count(job.chunk_pos)) continue;
+            m_pending.insert(job.chunk_pos);
+            m_job_queue.push(std::move(job));
+            ++added;
+        }
+    }
+
+    // Wake all workers in one shot instead of one notify_one() per chunk.
+    if (added > 0)
+        m_cv.notify_all();
 }
 
 std::vector<ChunkMesh> ChunkMesher::collect_finished()
@@ -303,6 +325,14 @@ void ChunkMesher::worker_loop()
                 static_cast<size_t>(type_id) < job.type_atlas->size())
                 return static_cast<float>((*job.type_atlas)[type_id][face_dir]);
             return static_cast<float>(type_id);
+        };
+
+        // Helper: return the overlay atlas layer index for a voxel type (0 = none).
+        auto overlay_atlas_idx = [&](uint16_t type_id) -> float {
+            if (job.overlay_atlas && !job.overlay_atlas->empty() &&
+                static_cast<size_t>(type_id) < job.overlay_atlas->size())
+                return static_cast<float>((*job.overlay_atlas)[type_id]);
+            return 0.0f;
         };
 
         // Flat-plane geometry: top (+Y) and bottom (-Y) faces at the floor of the cell (y=0)
@@ -585,9 +615,11 @@ void ChunkMesher::worker_loop()
                 const bool any_open = !wall_nz || !wall_pz || !wall_nx || !wall_px;
                 if (!any_open) { panels[0].emit = true; panels[1].emit = true; }
 
-                auto emit_quad = [&](const FaceGeo& fg, float tex_idx) {
+                auto emit_quad = [&](const FaceGeo& fg, float tex_idx, float nudge = 0.0f, bool force_emissive = false, bool into_overlay = false) {
+                    auto& tgt_verts = into_overlay ? mesh.overlay_vertices : mesh.vertices;
+                    auto& tgt_idx   = into_overlay ? mesh.overlay_indices  : mesh.indices;
                     uint32_t base_d =
-                        static_cast<uint32_t>(mesh.vertices.size() / 13);
+                        static_cast<uint32_t>(tgt_verts.size() / 13);
                     // Door cells are solid so the lighting system never floods light
                     // into them — sampling at(x,y,z).light_level always yields 0
                     // (pitch black).  Instead take the brightest neighbour cell so
@@ -619,24 +651,24 @@ void ChunkMesher::worker_loop()
                             }
                         }
                         door_lc = best_col * best_lvl;
-                        if (is_emissive) door_lc = glm::vec3(2.0f);  // fullbright
+                        if (is_emissive || force_emissive) door_lc = glm::vec3(2.0f);  // fullbright
                     }
                     for (int vi = 0; vi < 4; ++vi) {
-                        mesh.vertices.push_back(fx + fg.v[vi][0]);
-                        mesh.vertices.push_back(fy + fg.v[vi][1]);
-                        mesh.vertices.push_back(fz + fg.v[vi][2]);
-                        mesh.vertices.push_back(fg.n[0]);
-                        mesh.vertices.push_back(fg.n[1]);
-                        mesh.vertices.push_back(fg.n[2]);
-                        mesh.vertices.push_back(k_uvs[vi][0]);
-                        mesh.vertices.push_back(k_uvs[vi][1]);
-                        mesh.vertices.push_back(tex_idx);
-                        mesh.vertices.push_back(door_lc.r);  // lightR
-                        mesh.vertices.push_back(door_lc.g);  // lightG
-                        mesh.vertices.push_back(door_lc.b);  // lightB
-                        mesh.vertices.push_back(1.0f);       // AO: doors get full brightness
+                        tgt_verts.push_back(fx + fg.v[vi][0] + nudge * fg.n[0]);
+                        tgt_verts.push_back(fy + fg.v[vi][1] + nudge * fg.n[1]);
+                        tgt_verts.push_back(fz + fg.v[vi][2] + nudge * fg.n[2]);
+                        tgt_verts.push_back(fg.n[0]);
+                        tgt_verts.push_back(fg.n[1]);
+                        tgt_verts.push_back(fg.n[2]);
+                        tgt_verts.push_back(k_uvs[vi][0]);
+                        tgt_verts.push_back(k_uvs[vi][1]);
+                        tgt_verts.push_back(tex_idx);
+                        tgt_verts.push_back(door_lc.r);  // lightR
+                        tgt_verts.push_back(door_lc.g);  // lightG
+                        tgt_verts.push_back(door_lc.b);  // lightB
+                        tgt_verts.push_back(1.0f);       // AO: doors get full brightness
                     }
-                    mesh.indices.insert(mesh.indices.end(), {
+                    tgt_idx.insert(tgt_idx.end(), {
                         base_d, base_d+1, base_d+2,
                         base_d, base_d+2, base_d+3
                     });
@@ -648,6 +680,23 @@ void ChunkMesher::worker_loop()
                         atlas_idx(v.type_id, static_cast<int>(panel.atlas_dir));
                     emit_quad(panel.front, tex_idx);
                     emit_quad(panel.back,  tex_idx);
+                }
+                // Semi-transparent glass overlay panels — nudged 0.004 world-units
+                // outward along each panel normal so they clear the depth buffer
+                // written by the base door quads and always appear on top.
+                {
+                    const float ov_idx = overlay_atlas_idx(v.type_id);
+                    if (ov_idx > 0.0f) {
+                        constexpr float k_ov_nudge = 0.004f;
+                        for (const auto& panel : panels) {
+                            if (!panel.emit) continue;
+                            // Overlay quads go into the separate overlay buffer so they
+                            // are drawn with depth-write disabled (prevents occluding
+                            // geometry behind the semi-transparent glass panels).
+                            emit_quad(panel.front, ov_idx, k_ov_nudge, /*force_emissive=*/true, /*into_overlay=*/true);
+                            emit_quad(panel.back,  ov_idx, k_ov_nudge, /*force_emissive=*/true, /*into_overlay=*/true);
+                        }
+                    }
                 }
                 continue;  // skip cube meshing
             }

@@ -6,6 +6,9 @@
 #include <functional>
 
 // Named actions mapped to SDL keys / mouse buttons
+// !! DO NOT ADD A JUMP ACTION. There is no jumping in this game unless it is
+// explicitly requested in a task description. The design is strictly tile/floor
+// based movement (SS13 heritage) and a Jump action would break that contract.
 enum class Action : uint32_t {
     MoveForward, MoveBack, MoveLeft, MoveRight,
     GrabWall, Sprint,
