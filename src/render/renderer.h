@@ -35,7 +35,7 @@ public:
 
     // Called each frame.  alpha = interpolation between simulation ticks.
     void begin_frame(double alpha);
-    void draw_world(const World& world, glm::vec3 cam_pos, float yaw, float pitch);
+    void draw_world(const World& world, glm::vec3 cam_pos, float yaw, float pitch, float roll = 0.f);
     // Call BEFORE begin_frame so geometry is uploaded with no lag.
     void queue_highlight(const RayHit& hit);
     void draw_face_highlight(const RayHit& hit);
@@ -103,6 +103,11 @@ public:
 
     // Draw the queued mob sprites (call inside the render pass, after draw_world()).
     void draw_mobs();
+
+    // Return the 32×32 RGBA 2-D texture updated by queue_mobs() for the local
+    // player's front-facing assembled sprite.  Used by the HUD mirror panel.
+    // Returns nullptr until queue_mobs() is called with a valid HumanAppearance player.
+    SDL_GPUTexture* player_mirror_tex() const { return m_player_mirror_tex; }
 
     // ── Static 3-D model rendering ─────────────────────────────────────────────
     // Load a .mesh file (written by tools/fbx_to_mesh.py) and an optional
@@ -267,6 +272,11 @@ private:
     SDL_GPUTexture*           m_assembly_tex         = nullptr;
     SDL_GPUSampler*           m_assembly_sampler     = nullptr;
 
+    // Single 2-D (non-array) texture updated every frame with the local player's
+    // front-facing assembled sprite for use by the HUD mirror panel.
+    SDL_GPUTexture* m_player_mirror_tex = nullptr;
+    std::string     m_player_mirror_key;   // last-used cache key; skip upload when unchanged
+
     // Assembled-mob quad staging (separate from legacy mob quads).
     static constexpr uint32_t k_max_asm_quads = 64;
     std::vector<ItemVert>     m_asm_verts;
@@ -326,6 +336,14 @@ private:
     // uploads the result to GPU and returns the layer index.  Returns 0 on failure.
     // dir: 0=front(s) 1=back(n) 2=left(e) 3=right(w).
     uint32_t get_or_assemble_human(HumanAppearance& app, int dir);
+
+    // Compose 32×32 RGBA canvas for the given HumanAppearance + direction without
+    // uploading to the assembly array texture.  Returns an empty vector on failure.
+    std::vector<uint8_t> compose_human_canvas(const HumanAppearance& app, int dir);
+
+    // Upload the player's front-facing assembled sprite to m_player_mirror_tex.
+    // Skips re-upload when the appearance hasn't changed since last call.
+    void refresh_player_mirror(HumanAppearance& app);
 
     // ── Sky / space background (Earth orbit, stars, nebulae) ─────────────────
     SDL_GPUGraphicsPipeline* m_sky_pipeline    = nullptr;

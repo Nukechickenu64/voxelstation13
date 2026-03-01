@@ -2,6 +2,14 @@
 #include "core/world.h"
 #include "core/entity_manager.h"
 
+// Movement / incapacitation state for a mob.
+enum class MobState : uint8_t {
+    Normal   = 0,  // standing, full speed
+    Resting  = 1,  // voluntarily lying down; slow crawl allowed
+    Softcrit = 2,  // stunned / soft-crit; very slow crawl
+    Hardcrit = 3,  // hard-crit / fully incapacitated; cannot move
+};
+
 // Forward declaration — avoids pulling simulation/model_objects.h into every
 // translation unit that includes physics.h.
 class ModelObjectManager;
@@ -41,6 +49,9 @@ struct CharacterControllerComponent {
     // Desired horizontal velocity written by prepare_character_movement each frame.
     // tick() accelerates the actual velocity toward this using GROUND/AIR_ACCEL.
     glm::vec3 wish_move{};
+
+    // Incapacitation / rest state — affects movement speed and rendering.
+    MobState mob_state = MobState::Normal;
 };
 
 // Kinematic character physics and projectile movement.

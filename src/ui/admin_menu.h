@@ -18,6 +18,7 @@ struct AdminMenuState {
     bool verbose_log   = false;
     bool fullbright    = false;
     bool ambient_occlusion = false;
+    bool godmode       = false;
 };
 
 // Returned by draw() — each flag is true for exactly one frame when the
@@ -31,6 +32,7 @@ struct AdminMenuResult {
     bool toggle_verbose_log   = false;
     bool toggle_fullbright    = false;
     bool toggle_ambient_occlusion = false;
+    bool toggle_godmode       = false;
     bool close_requested      = false;
 };
 

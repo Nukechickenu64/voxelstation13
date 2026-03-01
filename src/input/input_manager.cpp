@@ -26,6 +26,8 @@ void InputManager::build_default_bindings()
     m_key_map[SDL_SCANCODE_ESCAPE]  = Action::Escape;
     m_key_map[SDL_SCANCODE_T]       = Action::ChatOpen;
     m_key_map[SDL_SCANCODE_SLASH]   = Action::ChatOpen;
+    m_key_map[SDL_SCANCODE_C]       = Action::ToggleCamera;
+    m_key_map[SDL_SCANCODE_Z]       = Action::Rest;
 
     m_mouse_map[SDL_BUTTON_LEFT]    = Action::PrimaryInteract;
     m_mouse_map[SDL_BUTTON_RIGHT]   = Action::SecondaryInteract;

@@ -86,8 +86,8 @@ AdminMenuResult AdminMenu::draw(glm::vec2 cursor,
     constexpr float MARGIN_X = 12.f;
     constexpr float MARGIN_Y = 12.f;
 
-    // Eight buttons
-    constexpr int NUM_BTNS = 8;
+    // Nine buttons
+    constexpr int NUM_BTNS = 9;
     float panel_h = HEADER_H + PAD
                     + NUM_BTNS * BTN_H + (NUM_BTNS - 1) * BTN_GAP
                     + PAD;
@@ -111,6 +111,7 @@ AdminMenuResult AdminMenu::draw(glm::vec2 cursor,
     struct BtnDef { const char* label; bool state; bool* result_flag; };
     BtnDef btns[NUM_BTNS] = {
         { "Noclip",           state.noclip,              &result.toggle_noclip              },
+        { "God Mode",         state.godmode,             &result.toggle_godmode             },
         { "Build Mode",       state.build_mode,          &result.toggle_build_mode          },
         { "Gas Overlay",      state.gas_overlay,         &result.toggle_gas_overlay         },
         { "Debug Overlay",    state.debug_overlay,       &result.toggle_debug_overlay       },

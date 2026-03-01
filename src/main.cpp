@@ -33,6 +33,7 @@
 #include "simulation/model_objects.h"
 #include "ui/map_editor.h"
 #include "ui/admin_menu.h"
+#include "ui/main_menu.h"
 #include "core/object_types.h"
 #include "network/server.h"
 #include "network/client.h"
@@ -47,7 +48,57 @@
 // ────────────────────────────────────────────────────────────────────────────
 int main(int /*argc*/, char* /*argv*/[])
 {
-    // ── 1. Data validation ────────────────────────────────────────────────────
+    // ── 1. Renderer + window (must come first to show the loading screen) ────
+    Renderer renderer;
+    if (!renderer.init("VoxelStation 13", 1280, 720)) {
+        SDL_Log("Renderer init failed.");
+        return 1;
+    }
+
+    UIRenderer ui_renderer(renderer.gpu());
+    if (!ui_renderer.init(renderer.window(), renderer.width(), renderer.height())) {
+        SDL_Log("UIRenderer init failed.");
+        return 1;
+    }
+
+    // Helper: render one loading frame with a status message so the player
+    // never stares at a black screen while resources are being loaded.
+    auto render_loading_frame = [&](const char* status) {
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {} // keep the window responsive
+        renderer.begin_frame(0.0);
+        if (!renderer.swapchain_tex()) { renderer.end_frame(); return; }
+        renderer.end_world_pass();
+        const float fw = static_cast<float>(ui_renderer.fb_width());
+        const float fh = static_cast<float>(ui_renderer.fb_height());
+        ui_renderer.begin();
+        // Dark background
+        ui_renderer.rect({0.f, 0.f}, {fw, fh}, {0.04f, 0.04f, 0.08f, 1.0f});
+        // Faint scanlines for atmosphere
+        for (float y = 0.f; y < fh; y += 4.f)
+            ui_renderer.rect({0.f, y}, {fw, 1.f}, {0.f, 0.f, 0.f, 0.06f});
+        // Title text
+        constexpr const char* LOAD_TITLE = "VOXELSTATION 13";
+        float tw = static_cast<float>(SDL_strlen(LOAD_TITLE)) * 12.5f;
+        ui_renderer.text({(fw - tw) * 0.5f, fh * 0.40f},
+                         LOAD_TITLE, {0.80f, 0.90f, 1.00f, 1.00f}, 22.f);
+        // Status bar at bottom
+        constexpr float BAR_H = 48.f;
+        ui_renderer.rect({0.f, fh - BAR_H}, {fw, BAR_H},
+                         {0.08f, 0.09f, 0.18f, 0.95f});
+        ui_renderer.rect({0.f, fh - BAR_H}, {fw, 1.5f},
+                         {0.25f, 0.30f, 0.50f, 0.70f});
+        float sw = static_cast<float>(SDL_strlen(status)) * 7.0f;
+        ui_renderer.text({(fw - sw) * 0.5f, fh - BAR_H + 14.f},
+                         status, {0.70f, 0.80f, 0.95f, 0.90f}, 14.f);
+        ui_renderer.end(renderer.cmd_buf(), renderer.swapchain_tex(),
+                        renderer.width(), renderer.height());
+        renderer.end_frame();
+    };
+
+    render_loading_frame("Validating data...");
+
+    // ── 2. Data validation ────────────────────────────────────────────────────
     DataValidator validator;
     if (!validator.validate_all("data")) {
         SDL_Log("Data validation failed with %u error(s).",
@@ -55,7 +106,9 @@ int main(int /*argc*/, char* /*argv*/[])
         // Non-fatal during early development; continue anyway.
     }
 
-    // ── 2. Registry loading ───────────────────────────────────────────────────
+    render_loading_frame("Loading registries...");
+
+    // ── 3. Registry loading ───────────────────────────────────────────────────
     VoxelRegistry voxel_reg;
     voxel_reg.load_directory("data/voxel_types");
 
@@ -68,12 +121,9 @@ int main(int /*argc*/, char* /*argv*/[])
     MobSpeciesRegistry mob_species_reg;
     mob_species_reg.load_directory("data/mob_species");
 
-    // ── 3. Renderer + window ──────────────────────────────────────────────────
-    Renderer renderer;
-    if (!renderer.init("VoxelStation 13", 1280, 720)) {
-        SDL_Log("Renderer init failed.");
-        return 1;
-    }
+    render_loading_frame("Loading textures...");
+
+    // ── 4. Renderer texture + asset loading ───────────────────────────────────
     renderer.load_tile_textures(voxel_reg, "textures");
     renderer.load_item_textures(item_reg,  "textures");
     renderer.load_mob_textures("textures");
@@ -82,11 +132,6 @@ int main(int /*argc*/, char* /*argv*/[])
     renderer.load_human_bodyparts("legacysets/extracted");
     renderer.load_model("smes", "models/SMES.mesh", "textures/models/smes.png");
 
-    UIRenderer ui_renderer(renderer.gpu());
-    if (!ui_renderer.init(renderer.window(), renderer.width(), renderer.height())) {
-        SDL_Log("UIRenderer init failed.");
-        return 1;
-    }
     ui_renderer.load_item_icons(item_reg, "textures");
 
     // ── 4. Chunk mesher ───────────────────────────────────────────────────────
@@ -119,7 +164,7 @@ int main(int /*argc*/, char* /*argv*/[])
 
     // ── 9. Input ──────────────────────────────────────────────────────────────
     InputManager input;
-    input.capture_cursor(renderer.window(), true);
+    input.capture_cursor(renderer.window(), false); // captured when entering the game
 
     AltMode alt_mode(input, renderer.window());
 
@@ -399,7 +444,11 @@ int main(int /*argc*/, char* /*argv*/[])
     // ── 14. Camera state ──────────────────────────────────────────────────────
     float cam_yaw   = 0.f;
     float cam_pitch = 0.f;
+    float cam_roll  = 0.f;  // current camera roll in degrees (0=upright, 90=lying on side)
     glm::vec3 cam_pos = {0.f, 1.5f, 0.f};  // player feet at y=1, eyes at +0.5
+    float player_body_yaw   = 0.f;         // body direction; decoupled from cam_yaw during 3P orbit
+    bool  third_person      = false;
+    static constexpr float k_3p_dist = 0.7f;  // pull-back distance in world units
 
     // Currently hovered / targeted world item entity (updated each render frame)
     EntityID hovered_item_entity = NULL_ENTITY;
@@ -470,7 +519,49 @@ int main(int /*argc*/, char* /*argv*/[])
         return group;
     };
 
-    // ── 15. Game loop ─────────────────────────────────────────────────────────
+    render_loading_frame("Ready to play!");
+
+    // ── 15. Main menu ─────────────────────────────────────────────────────────
+    {
+        MainMenu main_menu(ui_renderer);
+        bool in_menu = true;
+        while (in_menu) {
+            SDL_Event e;
+            bool lmb_down = false;
+            while (SDL_PollEvent(&e)) {
+                if (e.type == SDL_EVENT_QUIT)           return 0;
+                if (e.type == SDL_EVENT_WINDOW_RESIZED)
+                    ui_renderer.on_resize(e.window.data1, e.window.data2);
+                if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN
+                    && e.button.button == SDL_BUTTON_LEFT)
+                    lmb_down = true;
+            }
+            float mx = 0.f, my = 0.f;
+            SDL_GetMouseState(&mx, &my);
+
+            main_menu.tick(1.0 / 60.0);
+
+            renderer.begin_frame(0.0);
+            if (renderer.swapchain_tex()) {
+                renderer.end_world_pass();
+                ui_renderer.begin();
+                MainMenuResult mr = main_menu.draw({mx, my}, lmb_down);
+                ui_renderer.end(renderer.cmd_buf(), renderer.swapchain_tex(),
+                                renderer.width(), renderer.height());
+                renderer.end_frame();
+                if (mr.exit_clicked) return 0;
+                if (mr.play_clicked) in_menu = false;
+            } else {
+                renderer.end_frame();
+            }
+            SDL_Delay(16); // ~60 fps
+        }
+    }
+
+    // Capture cursor now that the player has entered the game.
+    input.capture_cursor(renderer.window(), true);
+
+    // ── 16. Game loop ─────────────────────────────────────────────────────────
     GameLoop loop(1.0 / 60.0);
 
     loop.run(
@@ -501,6 +592,29 @@ int main(int /*argc*/, char* /*argv*/[])
                 glm::vec2 mdelta = input.mouse_delta();
                 cam_yaw   += mdelta.x * SENSITIVITY;
                 cam_pitch  = glm::clamp(cam_pitch - mdelta.y * SENSITIVITY, -89.f, 89.f);
+                // Body tracks camera when not orbiting
+                player_body_yaw = cam_yaw;
+            } else if (third_person) {
+                // Alt held in 3P: drag orbits camera around player without rotating the body
+                const float SENSITIVITY = 0.15f;
+                glm::vec2 mdelta = input.mouse_delta();
+                cam_yaw   += mdelta.x * SENSITIVITY;
+                cam_pitch  = glm::clamp(cam_pitch - mdelta.y * SENSITIVITY, -89.f, 89.f);
+                // player_body_yaw intentionally NOT updated here
+            }
+
+            // C: toggle third-person camera
+            {
+                static bool s_cam_prev = false;
+                bool c_now = input.is_held(Action::ToggleCamera);
+                if (c_now && !s_cam_prev) {
+                    third_person = !third_person;
+                    if (!third_person) {
+                        // Snap camera back to body direction when returning to 1P
+                        cam_yaw = player_body_yaw;
+                    }
+                }
+                s_cam_prev = c_now;
             }
 
             // F1: toggle admin menu
@@ -559,6 +673,19 @@ int main(int /*argc*/, char* /*argv*/[])
                     }
                     s_f7_prev = f7_now;
                 }
+                // Z — toggle resting (lie down / stand up)
+                if (input.consume_press(Action::Rest)) {
+                    if (player != NULL_ENTITY) {
+                        auto* cc_z = server.entities().get_component<CharacterControllerComponent>(player);
+                        if (cc_z) {
+                            cc_z->mob_state = (cc_z->mob_state == MobState::Normal)
+                                              ? MobState::Resting
+                                              : MobState::Normal;
+                            SDL_Log("Rest: %s",
+                                    cc_z->mob_state == MobState::Normal ? "standing" : "resting");
+                        }
+                    }
+                }
             }
 
             // Movement wish direction – full 3D when noclip or jetpack in zero-G,
@@ -572,11 +699,13 @@ int main(int /*argc*/, char* /*argv*/[])
             bool noclip_active   = false;
             bool zero_g_active   = false;
             bool jetpack_present = false;
+            MobState local_mob_state = MobState::Normal;
             if (player != NULL_ENTITY) {
                 auto* cc_r = server.entities().get_component<CharacterControllerComponent>(player);
                 if (cc_r) {
-                    noclip_active = cc_r->noclip;
-                    zero_g_active = cc_r->zero_g;
+                    noclip_active   = cc_r->noclip;
+                    zero_g_active   = cc_r->zero_g;
+                    local_mob_state = cc_r->mob_state;
 
                     // Detect jetpack in back slot (client inventory mirrors equipment)
                     const auto* back = player_inv.find_slot("back");
@@ -608,11 +737,19 @@ int main(int /*argc*/, char* /*argv*/[])
             // In zero-G without a jetpack the player cannot self-propel,
             // unless they are wall-grabbing (Ctrl) — then WASD crawls along surfaces
             bool can_move = !zero_g_active || jetpack_present || noclip_active || grab_wall_held;
+            // Hardcrit: fully immobile
+            if (local_mob_state == MobState::Hardcrit) can_move = false;
             if (can_move) {
                 if (input.is_held(Action::MoveForward)) wish += fwd;
                 if (input.is_held(Action::MoveBack))    wish -= fwd;
                 if (input.is_held(Action::MoveRight))   wish += right;
                 if (input.is_held(Action::MoveLeft))    wish -= right;
+            }
+            // Resting / softcrit: crawl at reduced speed (half of walking)
+            static constexpr float k_crawl_mult = 0.50f;
+            if (local_mob_state == MobState::Resting ||
+                local_mob_state == MobState::Softcrit) {
+                wish *= k_crawl_mult;
             }
 
             // Submit movement input to server
@@ -674,14 +811,37 @@ int main(int /*argc*/, char* /*argv*/[])
             if (player != NULL_ENTITY) {
                 auto* tr = server.entities().get_component<TransformComponent>(player);
                 if (tr) {
-                    cam_pos  = tr->pos + glm::vec3(0, 0.5f, 0);
-                    tr->yaw  = cam_yaw;  // body follows camera horizontal
+                    float yaw_r      = glm::radians(cam_yaw);
+                    float pitch_r    = glm::radians(cam_pitch);
+                    // Use body yaw for head offset so it tracks the sprite, not the camera.
+                    float body_yaw_r = glm::radians(player_body_yaw);
+                    glm::vec3 body_horiz_fwd = { std::sin(body_yaw_r), 0.f, -std::cos(body_yaw_r) };
 
-                    // Push the camera slightly forward so the player can see
-                    // their own body when looking down in first-person.
-                    float yaw_r = glm::radians(cam_yaw);
-                    glm::vec3 horiz_fwd = { std::sin(yaw_r), 0.f, -std::cos(yaw_r) };
-                    cam_pos += horiz_fwd * 0.1f;
+                    tr->yaw = player_body_yaw;  // body faces its own direction, not the orbit angle
+
+                    // Eye height and position: lower + offset toward head when prone.
+                    // Smoothly interpolate a "prone_t" 0→1 using cam_roll as the lerp variable
+                    // (repurposed: 0=standing, 1=fully prone) so the transition is animated.
+                    float prone_t = std::abs(cam_roll) / 90.f;  // 0 upright, 1 fully prone
+                    float eye_h   = 0.50f + prone_t * (0.05f - 0.50f);  // 0.5 → 0.05 (just above floor)
+                    // Head forward offset along body direction:
+                    // prone sprite head is at feet + body_fwd * 0.65 m (full MOB_HEIGHT)
+                    static constexpr float k_head_offset = 0.65f;
+                    float fwd_offset = 0.10f + prone_t * (k_head_offset - 0.10f);
+
+                    if (third_person) {
+                        glm::vec3 cam_fwd3 = {
+                            std::cos(pitch_r) * std::sin(yaw_r),
+                            std::sin(pitch_r),
+                           -std::cos(pitch_r) * std::cos(yaw_r)
+                        };
+                        glm::vec3 eye = tr->pos + glm::vec3(0.f, eye_h, 0.f)
+                                      + body_horiz_fwd * fwd_offset;
+                        cam_pos = eye - cam_fwd3 * k_3p_dist;
+                    } else {
+                        cam_pos = tr->pos + glm::vec3(0.f, eye_h, 0.f)
+                                + body_horiz_fwd * fwd_offset;
+                    }
                 }
             }
 
@@ -716,12 +876,43 @@ int main(int /*argc*/, char* /*argv*/[])
             hud_state.cam_pitch          = cam_pitch;
             hud_state.active_hand_is_left = (player_inv.active_hand_id() == "l_hand");
 
+            // ── Camera roll: drive prone_t for position lerp, no view rotation ─
+            {
+                float roll_target = 0.f;
+                if (player != NULL_ENTITY) {
+                    auto* cc_roll = server.entities().get_component<CharacterControllerComponent>(player);
+                    if (cc_roll && cc_roll->mob_state != MobState::Normal)
+                        roll_target = 90.f;  // 90 = fully prone (used as t, not actual roll degrees)
+                }
+                float roll_alpha = 1.0f - std::exp(-12.0f * static_cast<float>(dt));
+                cam_roll = cam_roll + (roll_target - cam_roll) * roll_alpha;
+            }
+
             // ── Player health from HealthComponent ───────────────────────────
             if (player != NULL_ENTITY) {
                 auto* hp = server.entities().get_component<HealthComponent>(player);
                 if (hp) {
                     hud_state.health     = hp->current();
                     hud_state.health_max = hp->health_max;
+
+                    // Auto-transition mob_state based on health (never overrides
+                    // a voluntary Resting state when the player is healthy)
+                    auto* cc_hp = server.entities().get_component<CharacterControllerComponent>(player);
+                    if (cc_hp) {
+                        float pct = hp->current() / hp->health_max;
+                        MobState cs = cc_hp->mob_state;
+                        if (pct <= 0.f || hp->dead) {
+                            // Knocked out / dead — hard crit
+                            cc_hp->mob_state = MobState::Hardcrit;
+                        } else if (pct < 0.30f && cs == MobState::Normal) {
+                            // Critically injured but still barely conscious
+                            cc_hp->mob_state = MobState::Softcrit;
+                        } else if (pct >= 0.30f &&
+                                   (cs == MobState::Softcrit || cs == MobState::Hardcrit)) {
+                            // Healed out of crit — restore normal (voluntary rest unaffected)
+                            cc_hp->mob_state = MobState::Normal;
+                        }
+                    }
                 }
             }
 
@@ -1183,6 +1374,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 std::sin(pitch_r),
                -std::cos(pitch_r) * std::cos(yaw_r)
             };
+            // No camera roll — up is always world up.
             glm::mat4 vp_mat = glm::perspective(
                 glm::radians(90.f),
                 renderer.height() > 0 ? float(renderer.width()) / renderer.height() : 1.f,
@@ -1395,7 +1587,8 @@ int main(int /*argc*/, char* /*argv*/[])
                     });
             }
 
-            renderer.queue_mobs(server.entities(), cam_pos, cam_yaw, client.local_player());
+            renderer.queue_mobs(server.entities(), cam_pos, cam_yaw,
+                                 third_person ? NULL_ENTITY : client.local_player());
             for (const auto& obj : model_objs.objects())
                 renderer.queue_model(obj.name.c_str(), obj.world_pos, obj.yaw, obj.scale);
             renderer.queue_earth_background(cam_pos, cam_yaw, cam_pitch);
@@ -1440,7 +1633,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 s_last_held = holds_flashlight;
             }
 
-            renderer.draw_world(server.world(), cam_pos, cam_yaw, cam_pitch);
+            renderer.draw_world(server.world(), cam_pos, cam_yaw, cam_pitch, 0.f);
             renderer.draw_world_items();
             renderer.draw_mobs();
             renderer.draw_models();
@@ -1509,9 +1702,36 @@ int main(int /*argc*/, char* /*argv*/[])
                     : glm::vec2{-9999.f, -9999.f};
                 bool hud_click = cursor_free && input.is_pressed(Action::PrimaryInteract);
                 {
-                    std::string hud_clicked = hud.draw(hud_state, player_inv, hud_mouse, hud_click);
-                    if (!hud_clicked.empty())
-                        player_inv.swap(hud_clicked, player_inv.active_hand_id());
+                    std::string hud_clicked = hud.draw(hud_state, player_inv, hud_mouse, hud_click,
+                                                           renderer.player_mirror_tex());
+                    if (!hud_clicked.empty()) {
+                        const std::string& active = player_inv.active_hand_id();
+                        auto* eq_slot   = player_inv.find_slot(hud_clicked);
+                        auto* hand_slot = player_inv.find_slot(active);
+                        bool did_swap = false;
+                        // If an equipment slot has an item but the active hand holds
+                        // something the slot won't accept, the normal swap fails
+                        // silently and the player can't take the clothing off.
+                        // Find a free hand or pocket to receive the equipped item instead.
+                        if (eq_slot && eq_slot->item && hand_slot && hand_slot->item) {
+                            const ItemDef* hand_def = hand_slot->item->def;
+                            if (hand_def && !eq_slot->accepts(*hand_def)) {
+                                static const char* k_unequip_targets[] =
+                                    {"l_hand", "r_hand", "l_pocket", "r_pocket"};
+                                for (const char* tgt : k_unequip_targets) {
+                                    if (std::string(tgt) == hud_clicked) continue;
+                                    auto* tgt_slot = player_inv.find_slot(tgt);
+                                    if (tgt_slot && !tgt_slot->item) {
+                                        player_inv.swap(hud_clicked, tgt);
+                                        did_swap = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (!did_swap)
+                            player_inv.swap(hud_clicked, active);
+                    }
                 }
             }
 
@@ -1530,6 +1750,12 @@ int main(int /*argc*/, char* /*argv*/[])
                 ui_renderer.rect({cx - HALF, cy - HALF},         {T, HALF * 2.f},    CR_COL, 0.f);
                 // right
                 ui_renderer.rect({cx + HALF - T, cy - HALF},     {T, HALF * 2.f},    CR_COL, 0.f);
+
+                // Third-person indicator
+                if (third_person) {
+                    constexpr glm::vec4 k_3p_col = {0.70f, 0.88f, 1.00f, 0.85f};
+                    ui_renderer.text({cx - 7.f, cy + HALF + 5.f}, "3P", k_3p_col, 11.f);
+                }
             }
 
             // ── Debug overlay (F5) ────────────────────────────────────────────
@@ -1758,6 +1984,8 @@ int main(int /*argc*/, char* /*argv*/[])
                     if (plr != NULL_ENTITY) {
                         auto* cc = server.entities().get_component<CharacterControllerComponent>(plr);
                         if (cc) adm_state.noclip = cc->noclip;
+                        auto* hp = server.entities().get_component<HealthComponent>(plr);
+                        if (hp) adm_state.godmode = hp->godmode;
                     }
                 }
                 adm_state.build_mode    = build_mode;
@@ -1781,6 +2009,16 @@ int main(int /*argc*/, char* /*argv*/[])
                         if (cc) {
                             cc->noclip = !cc->noclip;
                             SDL_Log("Noclip: %s", cc->noclip ? "ON" : "OFF");
+                        }
+                    }
+                }
+                if (ar.toggle_godmode) {
+                    EntityID plr = client.local_player();
+                    if (plr != NULL_ENTITY) {
+                        auto* hp = server.entities().get_component<HealthComponent>(plr);
+                        if (hp) {
+                            hp->godmode = !hp->godmode;
+                            SDL_Log("God Mode: %s", hp->godmode ? "ON" : "OFF");
                         }
                     }
                 }

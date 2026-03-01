@@ -245,6 +245,7 @@ void Renderer::shutdown()
         if (m_asm_ibuf)           { SDL_ReleaseGPUBuffer(m_gpu, m_asm_ibuf);                     m_asm_ibuf           = nullptr; }
         if (m_assembly_tex)       { SDL_ReleaseGPUTexture(m_gpu, m_assembly_tex);                m_assembly_tex       = nullptr; }
         if (m_assembly_sampler)   { SDL_ReleaseGPUSampler(m_gpu, m_assembly_sampler);            m_assembly_sampler   = nullptr; }
+        if (m_player_mirror_tex)  { SDL_ReleaseGPUTexture(m_gpu, m_player_mirror_tex);           m_player_mirror_tex  = nullptr; }
         if (m_vert_shader)        { SDL_ReleaseGPUShader(m_gpu, m_vert_shader);                  m_vert_shader        = nullptr; }
         if (m_frag_shader)        { SDL_ReleaseGPUShader(m_gpu, m_frag_shader);                  m_frag_shader        = nullptr; }
         if (m_tile_array)         { SDL_ReleaseGPUTexture(m_gpu, m_tile_array);                  m_tile_array         = nullptr; }
@@ -359,7 +360,7 @@ void Renderer::begin_frame(double /*alpha*/)
 }
 
 void Renderer::draw_world(const World& /*world*/,
-                          glm::vec3 cam_pos, float yaw, float pitch)
+                          glm::vec3 cam_pos, float yaw, float pitch, float roll)
 {
     if (!m_render_pass || !m_world_pipeline) {
         VLOG("draw_world: skipped (render_pass=%s world_pipeline=%s)",
@@ -373,12 +374,26 @@ void Renderer::draw_world(const World& /*world*/,
     // ── Build view-projection matrix ─────────────────────────────────────────
     float yaw_r   = glm::radians(yaw);
     float pitch_r = glm::radians(pitch);
+    float roll_r  = glm::radians(roll);
     glm::vec3 forward = {
         std::cos(pitch_r) * std::sin(yaw_r),
         std::sin(pitch_r),
        -std::cos(pitch_r) * std::cos(yaw_r)
     };
-    glm::mat4 view = glm::lookAt(cam_pos, cam_pos + forward, {0.f, 1.f, 0.f});
+    // Roll-aware up vector: rotate the standard up/right pair around the forward axis.
+    glm::vec3 world_up = {0.f, 1.f, 0.f};
+    glm::vec3 right_raw;
+    if (std::abs(glm::dot(forward, world_up)) > 0.99f) {
+        // Looking nearly straight up/down — use yaw-aligned right as fallback.
+        right_raw = {std::sin(yaw_r + glm::half_pi<float>()), 0.f,
+                     -std::cos(yaw_r + glm::half_pi<float>())};
+    } else {
+        right_raw = glm::normalize(glm::cross(forward, world_up));
+    }
+    glm::vec3 up_no_roll = glm::normalize(glm::cross(right_raw, forward));
+    // Apply roll: positive roll tilts the camera clockwise (lying on right side).
+    glm::vec3 cam_up = up_no_roll * std::cos(roll_r) - right_raw * std::sin(roll_r);
+    glm::mat4 view = glm::lookAt(cam_pos, cam_pos + forward, cam_up);
     float aspect = (m_height > 0) ? float(m_width) / float(m_height) : 1.f;
     glm::mat4 proj = glm::perspective(glm::radians(90.f), aspect, 0.1f, 400.f);
     // No manual Y-flip: SDL3 GPU handles Vulkan clip-space internally
@@ -1537,6 +1552,25 @@ bool Renderer::create_assembly_texture()
 
     SDL_Log("create_assembly_texture: %u layers of %ux%u RGBA pre-allocated",
             k_max_assembly_layers, k_assembly_w, k_assembly_h);
+
+    // ── Player mirror texture (plain 2-D, not an array) ───────────────────────
+    // Holds the local player's assembled front-facing sprite for the HUD mirror.
+    {
+        SDL_GPUTextureCreateInfo mtci{};
+        mtci.type                 = SDL_GPU_TEXTURETYPE_2D;
+        mtci.format               = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+        mtci.usage                = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        mtci.width                = k_assembly_w;
+        mtci.height               = k_assembly_h;
+        mtci.layer_count_or_depth = 1;
+        mtci.num_levels           = 1;
+        mtci.sample_count         = SDL_GPU_SAMPLECOUNT_1;
+        m_player_mirror_tex = SDL_CreateGPUTexture(m_gpu, &mtci);
+        if (!m_player_mirror_tex)
+            SDL_Log("create_assembly_texture: player mirror texture failed: %s", SDL_GetError());
+        // Non-fatal — HUD mirror simply won't display
+    }
+
     return true;
 }
 
@@ -1708,21 +1742,161 @@ static void alpha_composite(uint8_t* dst, const uint8_t* src,
 {
     for (uint32_t i = 0; i < num_pixels; ++i) {
         // Apply tint to source
-        uint32_t sr = (uint32_t)src[0] * tint.r / 255u;
-        uint32_t sg = (uint32_t)src[1] * tint.g / 255u;
-        uint32_t sb = (uint32_t)src[2] * tint.b / 255u;
-        uint32_t sa = (uint32_t)src[3] * tint.a / 255u;
-
-        if (sa == 0) { src += 4; dst += 4; continue; }
-
-        // Source-over blend
-        uint32_t inv_a = 255u - sa;
-        dst[0] = (uint8_t)((sr * sa + (uint32_t)dst[0] * inv_a) / 255u);
-        dst[1] = (uint8_t)((sg * sa + (uint32_t)dst[1] * inv_a) / 255u);
-        dst[2] = (uint8_t)((sb * sa + (uint32_t)dst[2] * inv_a) / 255u);
-        dst[3] = (uint8_t)(sa + (uint32_t)dst[3] * inv_a / 255u);
-        src += 4; dst += 4;
+        uint32_t sr = (static_cast<uint32_t>(src[i*4+0]) * tint.r) / 255u;
+        uint32_t sg = (static_cast<uint32_t>(src[i*4+1]) * tint.g) / 255u;
+        uint32_t sb = (static_cast<uint32_t>(src[i*4+2]) * tint.b) / 255u;
+        uint32_t sa = (static_cast<uint32_t>(src[i*4+3]) * tint.a) / 255u;
+        if (sa == 0) continue;
+        uint32_t inv = 255u - sa;
+        dst[i*4+0] = static_cast<uint8_t>((sr * sa + dst[i*4+0] * inv) / 255u);
+        dst[i*4+1] = static_cast<uint8_t>((sg * sa + dst[i*4+1] * inv) / 255u);
+        dst[i*4+2] = static_cast<uint8_t>((sb * sa + dst[i*4+2] * inv) / 255u);
+        dst[i*4+3] = static_cast<uint8_t>(sa + (dst[i*4+3] * inv) / 255u);
     }
+}
+
+// ── compose_human_canvas ──────────────────────────────────────────────────────
+// CPU-side composition of all overlay layers → 32×32 RGBA pixels, no GPU upload.
+// dir: 0=front(s) 1=back(n) 2=left(e) 3=right(w)
+
+std::vector<uint8_t> Renderer::compose_human_canvas(const HumanAppearance& app, int dir)
+{
+    constexpr uint32_t W = k_assembly_w;
+    constexpr uint32_t H = k_assembly_h;
+    constexpr uint32_t N = W * H;
+    std::vector<uint8_t> canvas(N * 4, 0u);  // transparent black
+
+    const char* dir_suf = k_asm_dir_suffix[dir];
+
+    // Phase 1: bodyparts
+    for (const auto& ov : app.layers) {
+        if (ov.kind != HumanOverlayKind::Bodypart) continue;
+
+        for (int p = 0; p < k_asm_num_parts; ++p) {
+            const char* part = k_asm_parts[p];
+
+            std::string stem = ov.prefix + "_" + part;
+            if (k_asm_part_has_gender[p] && !ov.gender.empty())
+                stem += ov.gender;
+            stem += dir_suf;
+
+            std::string key = ov.sprite_dir + "/" + stem;
+            auto it = m_bodypart_pixels.find(key);
+
+            if (it == m_bodypart_pixels.end() && k_asm_part_has_gender[p] && !ov.gender.empty()) {
+                stem = ov.prefix + "_" + part + std::string(dir_suf);
+                key  = ov.sprite_dir + "/" + stem;
+                it   = m_bodypart_pixels.find(key);
+            }
+
+            if (it == m_bodypart_pixels.end()) continue;
+            alpha_composite(canvas.data(), it->second.data(), N, ov.tint);
+        }
+    }
+
+    // Horizontal flip (BYOND bodyparts are in mob-perspective)
+    {
+        const uint32_t row_bytes = W * 4;
+        for (uint32_t row = 0; row < H; ++row) {
+            uint8_t* row_ptr = canvas.data() + row * row_bytes;
+            for (uint32_t col = 0; col < W / 2; ++col) {
+                uint8_t* a = row_ptr + col * 4;
+                uint8_t* b = row_ptr + (W - 1 - col) * 4;
+                std::swap(a[0], b[0]); std::swap(a[1], b[1]);
+                std::swap(a[2], b[2]); std::swap(a[3], b[3]);
+            }
+        }
+    }
+
+    // Phase 2: clothing + inhand overlays
+    for (const auto& ov : app.layers) {
+        if (ov.kind == HumanOverlayKind::Bodypart) continue;
+
+        std::string key = ov.sprite_dir + "/" + ov.prefix + dir_suf;
+        auto it = m_bodypart_pixels.find(key);
+        const std::vector<uint8_t>* pix = nullptr;
+        if (it != m_bodypart_pixels.end()) {
+            pix = it->second.empty() ? nullptr : &it->second;
+        } else {
+            pix = load_overlay_on_demand(key);
+        }
+        if (!pix) continue;
+
+        std::vector<uint8_t> flipped(N * 4);
+        const uint32_t row_bytes = W * 4;
+        for (uint32_t row = 0; row < H; ++row) {
+            const uint8_t* src_row = pix->data() + row * row_bytes;
+            uint8_t*       dst_row = flipped.data() + row * row_bytes;
+            for (uint32_t col = 0; col < W; ++col) {
+                const uint8_t* s = src_row + (W - 1 - col) * 4;
+                uint8_t*       d = dst_row + col * 4;
+                d[0]=s[0]; d[1]=s[1]; d[2]=s[2]; d[3]=s[3];
+            }
+        }
+        alpha_composite(canvas.data(), flipped.data(), N, ov.tint);
+    }
+
+    return canvas;
+}
+
+// ── refresh_player_mirror ─────────────────────────────────────────────────────
+// Assembles the player's front-facing (dir=0) sprite and uploads it to the
+// dedicated 2-D mirror texture.  Skips the upload when the key hasn't changed.
+
+void Renderer::refresh_player_mirror(HumanAppearance& app)
+{
+    if (!m_player_mirror_tex) return;
+
+    // Build cache key (direction fixed to 0 = front/south)
+    std::string key;
+    key.reserve(128);
+    for (const auto& ov : app.layers) {
+        key += std::to_string(static_cast<int>(ov.kind)) + ':';
+        key += ov.sprite_dir + ':' + ov.prefix + ':' + ov.gender + ':';
+        key += std::to_string(ov.tint.r) + ',' + std::to_string(ov.tint.g) + ','
+             + std::to_string(ov.tint.b) + ',' + std::to_string(ov.tint.a) + '|';
+    }
+    key += "d0";  // always front
+
+    if (!app.dirty && key == m_player_mirror_key) return;  // nothing changed
+
+    auto canvas = compose_human_canvas(app, 0);
+    if (canvas.empty()) return;
+
+    // Upload to the plain 2-D mirror texture
+    constexpr uint32_t BYTES = k_assembly_w * k_assembly_h * 4;
+    SDL_GPUTransferBufferCreateInfo tbci{};
+    tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    tbci.size  = BYTES;
+    auto* tbuf = SDL_CreateGPUTransferBuffer(m_gpu, &tbci);
+    if (!tbuf) return;
+
+    auto* ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
+    std::memcpy(ptr, canvas.data(), BYTES);
+    SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
+
+    auto* cmd = SDL_AcquireGPUCommandBuffer(m_gpu);
+    auto* cp  = SDL_BeginGPUCopyPass(cmd);
+
+    SDL_GPUTextureTransferInfo src{};
+    src.transfer_buffer = tbuf;
+    src.offset          = 0;
+    src.pixels_per_row  = k_assembly_w;
+    src.rows_per_layer  = k_assembly_h;
+
+    SDL_GPUTextureRegion dst{};
+    dst.texture   = m_player_mirror_tex;
+    dst.mip_level = 0;
+    dst.layer     = 0;
+    dst.x = dst.y = dst.z = 0;
+    dst.w = k_assembly_w; dst.h = k_assembly_h; dst.d = 1;
+
+    SDL_UploadToGPUTexture(cp, &src, &dst, false);
+    SDL_EndGPUCopyPass(cp);
+    SDL_SubmitGPUCommandBuffer(cmd);
+    SDL_ReleaseGPUTransferBuffer(m_gpu, tbuf);
+
+    m_player_mirror_key = std::move(key);
 }
 
 uint32_t Renderer::get_or_assemble_human(HumanAppearance& app, int dir)
@@ -1747,93 +1921,7 @@ uint32_t Renderer::get_or_assemble_human(HumanAppearance& app, int dir)
     }
 
     // ── Composite CPU pixels ──────────────────────────────────────────────────
-    constexpr uint32_t W = k_assembly_w;
-    constexpr uint32_t H = k_assembly_h;
-    constexpr uint32_t N = W * H;
-    std::vector<uint8_t> canvas(N * 4, 0u);  // transparent black
-
-    const char* dir_suf = k_asm_dir_suffix[dir];
-
-    for (const auto& ov : app.layers) {
-        if (ov.kind != HumanOverlayKind::Bodypart) continue;  // Phase 1: bodyparts only
-
-        for (int p = 0; p < k_asm_num_parts; ++p) {
-            const char* part = k_asm_parts[p];
-
-            // Try with gender infix for gender-specific parts, fall back without
-            std::string stem = ov.prefix + "_" + part;
-            if (k_asm_part_has_gender[p] && !ov.gender.empty())
-                stem += ov.gender;
-            stem += dir_suf;
-
-            std::string key = ov.sprite_dir + "/" + stem;
-            auto it = m_bodypart_pixels.find(key);
-
-            // Fall back to no gender suffix if gender variant not found
-            if (it == m_bodypart_pixels.end() && k_asm_part_has_gender[p] && !ov.gender.empty()) {
-                stem = ov.prefix + "_" + part + std::string(dir_suf);
-                key  = ov.sprite_dir + "/" + stem;
-                it   = m_bodypart_pixels.find(key);
-            }
-
-            if (it == m_bodypart_pixels.end()) continue;  // part not available
-
-            alpha_composite(canvas.data(), it->second.data(), N, ov.tint);
-        }
-    }
-
-    // ── Horizontal flip (bodypart-only — BYOND bodyparts are in mob-perspective) ──
-    // Clothing and inhand overlays come from the viewer's perspective and must NOT
-    // be flipped.  We flip the bodypart canvas first, then composite the rest on top.
-    {
-        const uint32_t row_bytes = W * 4;
-        for (uint32_t row = 0; row < H; ++row) {
-            uint8_t* row_ptr = canvas.data() + row * row_bytes;
-            for (uint32_t col = 0; col < W / 2; ++col) {
-                uint8_t* a = row_ptr + col * 4;
-                uint8_t* b = row_ptr + (W - 1 - col) * 4;
-                std::swap(a[0], b[0]);
-                std::swap(a[1], b[1]);
-                std::swap(a[2], b[2]);
-                std::swap(a[3], b[3]);
-            }
-        }
-    }
-
-    // ── Phase 2: Clothing + Inhand overlays (single-sprite per direction) ─────
-    // BYOND exports ALL sprites (bodyparts, clothing, inhands) in mob-perspective,
-    // so clothing/inhand overlays must be flipped the same way as bodyparts.
-    // We composite each overlay onto a temporary canvas, flip it, then merge onto
-    // the main canvas so the flip matches the already-flipped bodypart layer.
-    for (const auto& ov : app.layers) {
-        if (ov.kind == HumanOverlayKind::Bodypart) continue;
-
-        // Key: "{sprite_dir}/{prefix}{dir_suffix}"
-        // e.g. "clothing/suits/spacesuit/space_s"  or  "inhands/tools_lefthand/wrench_s"
-        std::string key = ov.sprite_dir + "/" + ov.prefix + dir_suf;
-        auto it = m_bodypart_pixels.find(key);
-        const std::vector<uint8_t>* pix = nullptr;
-        if (it != m_bodypart_pixels.end()) {
-            pix = it->second.empty() ? nullptr : &it->second;
-        } else {
-            pix = load_overlay_on_demand(key);
-        }
-        if (!pix) continue;
-
-        // Flip horizontally into a temporary buffer, then composite.
-        std::vector<uint8_t> flipped(N * 4);
-        const uint32_t row_bytes = W * 4;
-        for (uint32_t row = 0; row < H; ++row) {
-            const uint8_t* src_row = pix->data() + row * row_bytes;
-            uint8_t*       dst_row = flipped.data() + row * row_bytes;
-            for (uint32_t col = 0; col < W; ++col) {
-                const uint8_t* s = src_row + (W - 1 - col) * 4;
-                uint8_t*       d = dst_row + col * 4;
-                d[0]=s[0]; d[1]=s[1]; d[2]=s[2]; d[3]=s[3];
-            }
-        }
-        alpha_composite(canvas.data(), flipped.data(), N, ov.tint);
-    }
+    auto canvas = compose_human_canvas(app, dir);
 
     // ── Upload to GPU and cache ───────────────────────────────────────────────
     if (m_assembly_used >= k_max_assembly_layers) {
@@ -2138,6 +2226,45 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
         indices.push_back(base+2); indices.push_back(base+3);
     };
 
+    // Helper: build a flat (horizontal) quad for a prone mob lying on the floor.
+    // The mob's head points in its facing direction; feet are behind.
+    // Uses whatever tex_layer is supplied (caller picks the front-facing sprite).
+    auto push_prone_quad = [&](std::vector<ItemVert>& verts,
+                               std::vector<uint32_t>& indices,
+                               glm::vec3 feet,
+                               float yaw_deg,
+                               float half_w, float half_l,
+                               uint32_t tex_layer,
+                               glm::vec3 tint = {1.f, 1.f, 1.f})
+    {
+        static constexpr float REST_EPS = 0.015f;
+        float yr = glm::radians(yaw_deg);
+        glm::vec3 fwd_h   = { std::sin(yr), 0.f, -std::cos(yr) };
+        glm::vec3 right_h = glm::cross(glm::vec3(0.f, 1.f, 0.f), fwd_h);
+
+        // Center of the prone sprite, offset forward by half_l from feet
+        glm::vec3 center = feet + fwd_h * half_l + glm::vec3(0.f, REST_EPS, 0.f);
+
+        glm::vec3 c[4];
+        // c[0] left-foot, c[1] right-foot, c[2] right-head, c[3] left-head
+        c[0] = center - right_h * half_w - fwd_h * half_l;
+        c[1] = center + right_h * half_w - fwd_h * half_l;
+        c[2] = center + right_h * half_w + fwd_h * half_l;
+        c[3] = center - right_h * half_w + fwd_h * half_l;
+
+        // UV: (0,1) foot-left, (1,1) foot-right, (1,0) head-right, (0,0) head-left
+        const float k_uv[4][2] = {{0,1},{1,1},{1,0},{0,0}};
+        auto base = static_cast<uint32_t>(verts.size());
+        for (int i = 0; i < 4; ++i)
+            verts.push_back({ c[i].x, c[i].y, c[i].z,
+                              tint.r, tint.g, tint.b, 1.f,
+                              k_uv[i][0], k_uv[i][1],
+                              static_cast<float>(tex_layer) });
+        indices.push_back(base+0); indices.push_back(base+1);
+        indices.push_back(base+2); indices.push_back(base+0);
+        indices.push_back(base+2); indices.push_back(base+3);
+    };
+
     // Local-player body-only constants: show sprite from feet up to ~eye level,
     // cutting off the head (top ~23% of the sprite).
     // MOB_HEIGHT = 0.65, eye offset = 0.5  →  body frac = 0.5/0.65 ≈ 0.769
@@ -2160,13 +2287,33 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
             uint32_t layer = get_or_assemble_human(app, dir);
 
             glm::vec3 mob_tint = entity_light_tint(feet + glm::vec3(0.f, 0.5f, 0.f));
+
+            // Check for prone state
+            auto* cc_mob = entities.get_component<CharacterControllerComponent>(eid);
+            bool prone = cc_mob && cc_mob->mob_state != MobState::Normal;
+
             if (eid == local_player_eid) {
-                // First-person: render body only (no head), skip back-face cull
-                push_quad(m_asm_verts, m_asm_indices, feet, MOB_HALF_W,
-                          k_body_height, layer, k_body_uv_top, mob_tint);
+                // Update the HUD mirror with the player's front-facing sprite
+                refresh_player_mirror(app);
+                if (prone) {
+                    // Prone first-person: render flat full sprite (head visible overhead)
+                    uint32_t front_layer = get_or_assemble_human(app, 0);
+                    push_prone_quad(m_asm_verts, m_asm_indices, feet, tr->yaw,
+                                    MOB_HALF_W, MOB_HEIGHT * 0.5f, front_layer, mob_tint);
+                } else {
+                    // First-person standing: render body only (no head), skip back-face cull
+                    push_quad(m_asm_verts, m_asm_indices, feet, MOB_HALF_W,
+                              k_body_height, layer, k_body_uv_top, mob_tint);
+                }
             } else {
-                push_quad(m_asm_verts, m_asm_indices, feet, MOB_HALF_W, MOB_HEIGHT, layer,
-                          0.0f, mob_tint);
+                if (prone) {
+                    uint32_t front_layer = get_or_assemble_human(app, 0);
+                    push_prone_quad(m_asm_verts, m_asm_indices, feet, tr->yaw,
+                                    MOB_HALF_W, MOB_HEIGHT * 0.5f, front_layer, mob_tint);
+                } else {
+                    push_quad(m_asm_verts, m_asm_indices, feet, MOB_HALF_W, MOB_HEIGHT, layer,
+                              0.0f, mob_tint);
+                }
             }
         });
         m_asm_pending = !m_asm_verts.empty();
@@ -2194,8 +2341,17 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
             }
 
             glm::vec3 mob_tint = entity_light_tint(feet + glm::vec3(0.f, 0.5f, 0.f));
-            push_quad(m_mob_verts, m_mob_indices, feet, MOB_HALF_W, MOB_HEIGHT, tex_layer,
-                      0.0f, mob_tint);
+
+            // Check for prone state
+            auto* cc_leg = entities.get_component<CharacterControllerComponent>(eid);
+            bool prone_leg = cc_leg && cc_leg->mob_state != MobState::Normal;
+            if (prone_leg) {
+                push_prone_quad(m_mob_verts, m_mob_indices, feet, tr->yaw,
+                                MOB_HALF_W, MOB_HEIGHT * 0.5f, tex_layer, mob_tint);
+            } else {
+                push_quad(m_mob_verts, m_mob_indices, feet, MOB_HALF_W, MOB_HEIGHT, tex_layer,
+                          0.0f, mob_tint);
+            }
         });
         m_mob_pending = !m_mob_verts.empty();
     }

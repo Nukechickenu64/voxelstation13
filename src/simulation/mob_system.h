@@ -47,7 +47,8 @@ struct HealthComponent {
     float tox   = 0.f;
     float oxy   = 0.f;
 
-    bool  dead  = false;
+    bool  dead    = false;
+    bool  godmode = false;  // when true, no damage is accepted
 
     // Current effective health [0, health_max]
     float current() const {
@@ -56,6 +57,7 @@ struct HealthComponent {
 
     // Apply damage of a named type.  Clamps each bucket to [0, health_max].
     void apply(const std::string& type, float amount) {
+        if (godmode && amount > 0.f) return;  // absorb all incoming damage
         auto clamp = [&](float& bucket) {
             bucket = std::clamp(bucket + amount, 0.f, health_max);
         };

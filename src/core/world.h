@@ -19,6 +19,7 @@ public:
     bool   is_empty() const { return m_all_air; }
     bool   is_dirty() const { return m_dirty; }
     void   clear_dirty()    { m_dirty = false; }
+    void   mark_dirty()     { m_dirty = true;  }
     glm::ivec3 chunk_pos() const { return m_chunk_pos; }
 
 private:

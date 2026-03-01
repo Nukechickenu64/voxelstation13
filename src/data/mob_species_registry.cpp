@@ -36,8 +36,8 @@ bool MobSpeciesRegistry::load_file(const std::string& path)
         def.species     = j.at("species").get<std::string>();
         def.name        = j.value("name",        def.species);
         def.health_max  = j.value("health_max",  100.f);
-        def.move_speed  = j.value("move_speed",  4.5f);
-        def.sprint_mult = j.value("sprint_mult", 1.8f);
+        def.move_speed  = j.value("move_speed",  2.25f);
+        def.sprint_mult = j.value("sprint_mult", 2.0f);
         def.jump_vel    = j.value("jump_vel",    6.f);
         def.height      = j.value("height",      1.8f);
         def.radius      = j.value("radius",      0.4f);

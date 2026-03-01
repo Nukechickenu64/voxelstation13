@@ -14,8 +14,8 @@ struct MobSpeciesDef {
     std::string              species;       // primary key, e.g. "human"
     std::string              name;          // display name
     float                    health_max   = 100.f;
-    float                    move_speed   = 4.5f;
-    float                    sprint_mult  = 1.8f;
+    float                    move_speed   = 2.25f;
+    float                    sprint_mult  = 2.0f;
     float                    jump_vel     = 6.f;
     float                    height       = 1.8f;
     float                    radius       = 0.4f;

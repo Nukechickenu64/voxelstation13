@@ -54,8 +54,10 @@ public:
 
     // mouse_pos   — current cursor position (pass {-9999,-9999} when cursor captured)
     // lmb_clicked — true on the frame the primary mouse button is pressed
+    // player_mirror_tex — assembled front-facing sprite from Renderer (may be nullptr)
     std::string draw(HUDState& state, const Inventory& inv,
-                     glm::vec2 mouse_pos, bool lmb_clicked);
+                     glm::vec2 mouse_pos, bool lmb_clicked,
+                     SDL_GPUTexture* player_mirror_tex = nullptr);
 
 private:
     // ── Unified bottom bar sections ────────────────────────────────────────
@@ -81,6 +83,9 @@ private:
     void draw_examine_label     (const std::string& label);
     void draw_radio_log         (const std::deque<std::string>& log);
     void draw_clock             (const std::string& time_str);
+    // Draw the player mirror panel in the top-left corner.
+    // sprite_tex: 32×32 RGBA assembled sprite; pass nullptr to show placeholder.
+    void draw_mirror            (SDL_GPUTexture* sprite_tex);
 
     // Draw one slot box; returns true if it was clicked.
     bool draw_slot(const Inventory& inv, const char* slot_id,

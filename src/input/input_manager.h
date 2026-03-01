@@ -16,6 +16,8 @@ enum class Action : uint32_t {
     AltMode,
     ChatOpen,
     Escape,
+    ToggleCamera,
+    Rest,
     COUNT
 };
 

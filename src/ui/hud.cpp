@@ -48,7 +48,8 @@ HUD::HUD(UIRenderer& ui) : m_ui(ui) {}
 //  draw() — master layout: unified full-width bottom bar
 // ─────────────────────────────────────────────────────────────────────────────
 std::string HUD::draw(HUDState& state, const Inventory& inv,
-                      glm::vec2 mouse_pos, bool lmb_clicked)
+                      glm::vec2 mouse_pos, bool lmb_clicked,
+                      SDL_GPUTexture* player_mirror_tex)
 {
     const float fb_w   = static_cast<float>(m_ui.fb_width());
     const float fb_h   = static_cast<float>(m_ui.fb_height());
@@ -129,7 +130,7 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
         draw_examine_label(state.examine_label);
     if (!state.radio_log.empty())
         draw_radio_log(state.radio_log);
-
+    draw_mirror(player_mirror_tex);
     return clicked;
 }
 
@@ -459,4 +460,43 @@ void HUD::draw_clock(const std::string& time_str)
     const float fb_w = static_cast<float>(m_ui.fb_width());
     m_ui.text({fb_w-81.f, 11.f}, time_str, {0,0,0,0.50f}, 13.f);
     m_ui.text({fb_w-82.f, 10.f}, time_str, {0.85f,0.90f,0.95f,0.88f}, 13.f);
+}
+// ─────────────────────────────────────────────────────────────────────────────
+//  Mirror — top-left corner, shows the player's front-facing assembled sprite
+//  so they can see how other players see them.
+// ─────────────────────────────────────────────────────────────────────────────
+void HUD::draw_mirror(SDL_GPUTexture* sprite_tex)
+{
+    if (!sprite_tex) return;
+
+    // Layout constants
+    constexpr float SPRITE_PX  = 64.f;   // 2× pixel-art scale of 32px sprite
+    constexpr float PAD        =  6.f;
+    constexpr float LABEL_H    = 14.f;
+    constexpr float PANEL_W    = SPRITE_PX + PAD * 2.f;
+    constexpr float PANEL_H    = PAD + LABEL_H + PAD * 0.5f + SPRITE_PX + PAD;
+    constexpr float MARGIN     =  8.f;
+
+    const glm::vec2 panel_pos  = { MARGIN, MARGIN };
+
+    // Background + border
+    static constexpr glm::vec4 k_bg     = { 0.04f, 0.05f, 0.07f, 0.88f };
+    static constexpr glm::vec4 k_border = { 0.32f, 0.58f, 1.00f, 0.55f };
+    static constexpr glm::vec4 k_label  = { 0.70f, 0.82f, 1.00f, 0.90f };
+
+    // Outer border (1-px inset)
+    m_ui.rect(panel_pos - glm::vec2(1.f), { PANEL_W + 2.f, PANEL_H + 2.f }, k_border, 4.f);
+    // Background
+    m_ui.rect(panel_pos, { PANEL_W, PANEL_H }, k_bg, 4.f);
+
+    // Label "YOU"
+    m_ui.text({ panel_pos.x + PAD, panel_pos.y + PAD * 0.5f },
+              "YOU", k_label, 11.f);
+
+    // Sprite (pixel-perfect scaled 32→64)
+    const glm::vec2 sprite_pos = {
+        panel_pos.x + PAD,
+        panel_pos.y + PAD + LABEL_H + PAD * 0.5f
+    };
+    m_ui.image(sprite_pos, { SPRITE_PX, SPRITE_PX }, sprite_tex, 1.f);
 }

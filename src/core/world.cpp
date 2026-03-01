@@ -101,6 +101,26 @@ void World::set_voxel(glm::ivec3 pos, Voxel v)
     glm::ivec3 cp = to_chunk_pos(pos);
     glm::ivec3 lp = to_local_pos(pos);
     get_or_create_chunk(cp)->set(lp.x, lp.y, lp.z, v);
+
+    // When a voxel sits on a chunk boundary, the adjacent chunk's boundary
+    // faces may have been culled by this voxel.  Mark those neighbours dirty
+    // so they are re-meshed and the now-exposed faces become visible.
+    const int dirs[3][3] = {{1,0,0},{0,1,0},{0,0,1}};
+    const int local[3]   = {lp.x, lp.y, lp.z};
+    for (int axis = 0; axis < 3; ++axis) {
+        if (local[axis] == 0) {
+            glm::ivec3 ncp = cp;
+            ncp[axis] -= 1;
+            Chunk* nb = get_chunk(ncp);
+            if (nb) nb->mark_dirty();
+        }
+        if (local[axis] == CHUNK_SIZE - 1) {
+            glm::ivec3 ncp = cp;
+            ncp[axis] += 1;
+            Chunk* nb = get_chunk(ncp);
+            if (nb) nb->mark_dirty();
+        }
+    }
 }
 
 VoxelFace World::get_face(glm::ivec3 pos, FaceDir dir) const

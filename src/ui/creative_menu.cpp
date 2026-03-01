@@ -3,6 +3,7 @@
 #include <sstream>
 #include <iomanip>
 #include <cmath>
+#include <string_view>
 
 // ─────────────────────────────────────────────────────────────────────────────
 static constexpr float PANEL_MARGIN = 60.f;   // from screen edges
@@ -33,9 +34,57 @@ void CreativeMenu::open(const ItemRegistry& items, const VoxelRegistry& voxels)
     std::sort(m_voxels.begin(), m_voxels.end(),
               [](const auto& a, const auto& b){ return a.second->name < b.second->name; });
 
-    m_open         = true;
-    m_scroll_offset= 0.f;
-    m_tab          = 0;
+    m_open          = true;
+    m_scroll_offset = 0.f;
+    m_tab           = 0;
+    m_item_category = ItemCategory::All;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Returns the subset of m_items that matches the active ItemCategory filter,
+// using the type_path classification system (istype checks).
+std::vector<const ItemDef*> CreativeMenu::filtered_items() const
+{
+    if (m_item_category == ItemCategory::All)
+        return m_items;
+
+    std::vector<const ItemDef*> out;
+    out.reserve(m_items.size());
+
+    for (const ItemDef* def : m_items) {
+        bool match = false;
+        switch (m_item_category) {
+            case ItemCategory::Tools:
+                match = istype(*def, "/obj/item/tool");
+                break;
+            case ItemCategory::Equipment:
+                match = istype(*def, "/obj/item/clothing");
+                break;
+            case ItemCategory::Storage:
+                match = istype(*def, "/obj/item/storage");
+                break;
+            case ItemCategory::Medical:
+                match = istype(*def, "/obj/item/medical");
+                break;
+            case ItemCategory::Weapons:
+                match = istype(*def, "/obj/item/weapon");
+                break;
+            case ItemCategory::Misc:
+                // Misc = stack types + anything that isn't one of the above named categories
+                match = istype(*def, "/obj/item/stack") ||
+                        (!istype(*def, "/obj/item/tool")     &&
+                         !istype(*def, "/obj/item/clothing") &&
+                         !istype(*def, "/obj/item/storage")  &&
+                         !istype(*def, "/obj/item/medical")  &&
+                         !istype(*def, "/obj/item/weapon"));
+                break;
+            default:
+                match = true;
+                break;
+        }
+        if (match) out.push_back(def);
+    }
+    return out;
 }
 
 void CreativeMenu::close()
@@ -57,6 +106,36 @@ void CreativeMenu::draw_tab_bar(glm::vec2 origin, float width, float alpha)
         m_ui.text({x + 8.f, origin.y + 9.f}, tabs[i],
                   {0.9f, 0.95f, 1.f, alpha}, 12.f);
         x += tw + 4.f;
+    }
+    (void)width;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Category filter bar — rendered below the main tab bar when in the Items tab.
+void CreativeMenu::draw_category_bar(glm::vec2 origin, float width, float alpha)
+{
+    struct CatEntry { ItemCategory cat; const char* label; float w; };
+    static const CatEntry cats[] = {
+        { ItemCategory::All,       "  All  ",       60.f },
+        { ItemCategory::Tools,     " Tools ",       64.f },
+        { ItemCategory::Equipment, " Equipment ",  100.f },
+        { ItemCategory::Storage,   " Storage ",     78.f },
+        { ItemCategory::Medical,   " Medical ",     78.f },
+        { ItemCategory::Weapons,   " Weapons ",     78.f },
+        { ItemCategory::Misc,      " Misc ",        56.f },
+    };
+
+    float x = origin.x;
+    for (const auto& entry : cats) {
+        bool active = (m_item_category == entry.cat);
+        glm::vec4 bg = active
+            ? glm::vec4{0.25f, 0.45f, 0.30f, 0.95f * alpha}
+            : glm::vec4{0.08f, 0.10f, 0.15f, 0.75f * alpha};
+        m_ui.rect({x, origin.y}, {entry.w, CATEGORY_H}, bg, 4.f);
+        m_ui.text({x + 5.f, origin.y + 7.f}, entry.label,
+                  {0.8f, 0.95f, 0.85f, alpha}, 10.f);
+        x += entry.w + 4.f;
+        if (x > origin.x + width) break;
     }
     (void)width;
 }
@@ -105,8 +184,42 @@ CreativeResult CreativeMenu::draw(glm::vec2 cursor, bool lmb_pressed,
         }
     }
 
-    // Grid area
-    const float GRID_Y0 = panel_tl.y + HEADER_H + TAB_H + 8.f;
+    // Category filter bar (Items tab only)
+    float cat_bar_extra = 0.f;
+    if (m_tab == 0) {
+        const glm::vec2 cat_origin = panel_tl + glm::vec2(14.f, HEADER_H + TAB_H + 6.f);
+        draw_category_bar(cat_origin, panel_w - 28.f, 1.f);
+        cat_bar_extra = CATEGORY_H + 6.f;
+
+        // Handle category click
+        if (lmb_pressed) {
+            struct CatEntry { ItemCategory cat; float w; };
+            static const CatEntry cats[] = {
+                { ItemCategory::All,       60.f },
+                { ItemCategory::Tools,     64.f },
+                { ItemCategory::Equipment,100.f },
+                { ItemCategory::Storage,   78.f },
+                { ItemCategory::Medical,   78.f },
+                { ItemCategory::Weapons,   78.f },
+                { ItemCategory::Misc,      56.f },
+            };
+            float cx = cat_origin.x;
+            for (const auto& entry : cats) {
+                bool hit = cursor.x >= cx && cursor.x <= cx + entry.w &&
+                           cursor.y >= cat_origin.y && cursor.y <= cat_origin.y + CATEGORY_H;
+                if (hit) {
+                    m_item_category = entry.cat;
+                    m_scroll_offset = 0.f;
+                    break;
+                }
+                cx += entry.w + 4.f;
+                if (cx > cat_origin.x + panel_w - 28.f) break;
+            }
+        }
+    }
+
+    // Grid area — starts below tab bar + optional category bar
+    const float GRID_Y0 = panel_tl.y + HEADER_H + TAB_H + 8.f + cat_bar_extra;
     const float GRID_H  = panel_tl.y + panel_h - GRID_Y0 - 10.f;
     const float STEP    = CELL_SIZE + CELL_PAD;
     const int   cols    = COLS;
@@ -114,8 +227,12 @@ CreativeResult CreativeMenu::draw(glm::vec2 cursor, bool lmb_pressed,
     // Scissor (simulate by clamping drawing to grid bounds)
     // We don't have a real scissor API, so just skip cells outside range.
 
+    // Build the active list for this frame
+    std::vector<const ItemDef*> active_items;
+    if (m_tab == 0) active_items = filtered_items();
+
     // Scroll
-    const int  count = (m_tab == 0) ? static_cast<int>(m_items.size())
+    const int  count = (m_tab == 0) ? static_cast<int>(active_items.size())
                                     : static_cast<int>(m_voxels.size());
     const int  rows  = (count + cols - 1) / cols;
     const float total_h = static_cast<float>(rows) * STEP;
@@ -147,7 +264,7 @@ CreativeResult CreativeMenu::draw(glm::vec2 cursor, bool lmb_pressed,
 
         // Icon: use loaded item icon when available; fall back to a tinted rect.
         if (m_tab == 0) {
-            SDL_GPUTexture* icon_tex = m_ui.item_icon(m_items[i]->id);
+            SDL_GPUTexture* icon_tex = m_ui.item_icon(active_items[i]->id);
             if (icon_tex) {
                 m_ui.image(cpos + glm::vec2(8.f, 8.f),
                            {CELL_SIZE - 16.f, CELL_SIZE - 26.f},
@@ -165,7 +282,7 @@ CreativeResult CreativeMenu::draw(glm::vec2 cursor, bool lmb_pressed,
         // Name label
         std::string name;
         if (m_tab == 0) {
-            name = m_items[i]->name;
+            name = active_items[i]->name;
         } else {
             name = m_voxels[i].second->name;
         }
@@ -176,7 +293,7 @@ CreativeResult CreativeMenu::draw(glm::vec2 cursor, bool lmb_pressed,
         // Click
         if (lmb_pressed && hov) {
             if (m_tab == 0) {
-                result.give_item = m_items[i];
+                result.give_item = active_items[i];
             } else {
                 result.place_voxel = m_voxels[i].first;
             }
@@ -199,8 +316,12 @@ CreativeResult CreativeMenu::draw(glm::vec2 cursor, bool lmb_pressed,
     // Row/count indicator
     {
         std::ostringstream ss;
-        ss << count << " entries";
-        m_ui.text(panel_tl + glm::vec2(panel_w - 90.f, 12.f), ss.str(),
+        if (m_tab == 0 && m_item_category != ItemCategory::All) {
+            ss << count << " / " << static_cast<int>(m_items.size()) << " items";
+        } else {
+            ss << count << " entries";
+        }
+        m_ui.text(panel_tl + glm::vec2(panel_w - 100.f, 12.f), ss.str(),
                   {0.5f, 0.6f, 0.75f, 0.8f}, 10.f);
     }
 

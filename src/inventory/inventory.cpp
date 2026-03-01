@@ -211,18 +211,19 @@ InventorySlot* Inventory::find_empty_accepting(const ItemDef& def)
 std::optional<ItemStack> Inventory::auto_equip(ItemStack stack)
 {
     if (!stack.def) return std::nullopt;  // bogus item — silently discard
-    // 1. Try the designated equip slot
+    // 1. Try active hand — items should land in hand first so the player
+    //    can choose when/whether to equip them.
+    if (put(m_active_hand, stack)) return std::nullopt;
+    // 2. Try other hand
+    const std::string other = (m_active_hand == "r_hand") ? "l_hand" : "r_hand";
+    if (put(other, stack)) return std::nullopt;
+    // 3. Try pockets
+    if (put("l_pocket", stack)) return std::nullopt;
+    if (put("r_pocket", stack)) return std::nullopt;
+    // 4. Only fall back to designated equip slot when hands/pockets are full
     if (!stack.def->equip_slot.empty()) {
         if (put(stack.def->equip_slot, stack)) return std::nullopt;
     }
-    // 2. Try active hand
-    if (put(m_active_hand, stack)) return std::nullopt;
-    // 3. Try other hand
-    const std::string other = (m_active_hand == "r_hand") ? "l_hand" : "r_hand";
-    if (put(other, stack)) return std::nullopt;
-    // 4. Try pockets
-    if (put("l_pocket", stack)) return std::nullopt;
-    if (put("r_pocket", stack)) return std::nullopt;
     // 5. Any accepting empty slot
     InventorySlot* s = find_empty_accepting(*stack.def);
     if (s && put(s->id, stack)) return std::nullopt;
