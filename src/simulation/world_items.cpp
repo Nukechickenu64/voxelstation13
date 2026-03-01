@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>   // rand()
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -13,6 +14,20 @@ static glm::vec3 face_centre(glm::ivec3 voxel, FaceDir dir)
     glm::vec3 c = glm::vec3(voxel) + glm::vec3(0.5f);
     glm::vec3 n = glm::vec3(face_normal(dir)) * 0.5f;
     return c + n;
+}
+
+// Returns the world-space position on a face including a 2D tangent-plane offset.
+static glm::vec3 face_offset_pos(glm::ivec3 voxel, FaceDir dir, glm::vec2 off)
+{
+    glm::vec3 base = face_centre(voxel, dir);
+    FaceTangents tb = face_tangents(dir);
+    return base + tb.u * off.x + tb.v * off.y;
+}
+
+// Pseudo-random float in [-1, 1]
+static float rand_11()
+{
+    return (static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX)) * 2.f - 1.f;
 }
 
 // ── WorldItemSystem ───────────────────────────────────────────────────────────
@@ -25,7 +40,7 @@ WorldItemSystem::WorldItemSystem(World& world, EntityManager& entities)
 /*static*/ glm::vec3 WorldItemSystem::item_world_pos(const WorldItemComponent& wic)
 {
     if (wic.is_resting)
-        return face_centre(wic.rest_voxel, wic.rest_face);
+        return face_offset_pos(wic.rest_voxel, wic.rest_face, wic.face_offset);
     return {};  // caller should read TransformComponent::pos directly
 }
 
@@ -45,11 +60,12 @@ WorldItemSystem::WorldItemSystem(World& world, EntityManager& entities)
     return palette[h % N];
 }
 
-EntityID WorldItemSystem::spawn(glm::ivec3 face_voxel, FaceDir face, ItemStack item)
+EntityID WorldItemSystem::spawn(glm::ivec3 face_voxel, FaceDir face, ItemStack item,
+                               glm::vec2 face_offset)
 {
     EntityID id = m_entities.create();
 
-    glm::vec3 pos = face_centre(face_voxel, face);
+    glm::vec3 pos = face_offset_pos(face_voxel, face, face_offset);
 
     // TransformComponent so the entity participates in render queries
     auto& tr = m_entities.add_component<TransformComponent>(id);
@@ -58,14 +74,24 @@ EntityID WorldItemSystem::spawn(glm::ivec3 face_voxel, FaceDir face, ItemStack i
     tr.yaw = tr.pitch = 0.f;
 
     WorldItemComponent wic;
-    wic.item       = std::move(item);
-    wic.is_resting = true;
-    wic.rest_face  = face;
-    wic.rest_voxel = face_voxel;
-    wic.tint       = wic.item.def ? tint_for_item(wic.item.def->id)
-                                  : glm::vec4(1.f, 0.85f, 0.4f, 0.9f);
+    wic.item        = std::move(item);
+    wic.is_resting  = true;
+    wic.rest_face   = face;
+    wic.rest_voxel  = face_voxel;
+    wic.face_offset = face_offset;
+    wic.tint        = wic.item.def ? tint_for_item(wic.item.def->id)
+                                   : glm::vec4(1.f, 0.85f, 0.4f, 0.9f);
     m_entities.add_component<WorldItemComponent>(id, std::move(wic));
     return id;
+}
+
+EntityID WorldItemSystem::spawn_scattered(glm::ivec3 face_voxel, FaceDir face,
+                                           ItemStack item, float scatter_radius)
+{
+    constexpr float MAX_OFF = 0.38f;
+    float r = std::min(scatter_radius, MAX_OFF);
+    glm::vec2 off { rand_11() * r, rand_11() * r };
+    return spawn(face_voxel, face, std::move(item), off);
 }
 
 EntityID WorldItemSystem::spawn_floating(glm::vec3 pos, ItemStack item,
@@ -137,12 +163,24 @@ void WorldItemSystem::tick(double /*dt*/)
         }
         if (!found) return;
 
-        // Snap to the top face of the floor voxel and mark as resting
+        // Snap to the top face of the floor voxel and mark as resting.
+        // Preserve the item's current XZ fractional position within the voxel
+        // (clamped to ±0.38) so thrown / falling items land wherever they were,
+        // not all piled at the turf centre.
         vel->linear   = {};
         wic.is_resting = true;
         wic.rest_face  = FaceDir::PosY;
         wic.rest_voxel = floor_voxel;
-        glm::vec3 settled = face_centre(floor_voxel, FaceDir::PosY);
+
+        // Compute face-plane offset from the centre of the floor voxel.
+        // face_tangents(PosY).u = X-axis, .v = Z-axis
+        glm::vec2 off {
+            glm::clamp(tr->pos.x - (floor_voxel.x + 0.5f), -0.38f, 0.38f),
+            glm::clamp(tr->pos.z - (floor_voxel.z + 0.5f), -0.38f, 0.38f)
+        };
+        wic.face_offset = off;
+
+        glm::vec3 settled = face_offset_pos(floor_voxel, FaceDir::PosY, off);
         tr->pos      = settled;
         tr->prev_pos = settled;
     });

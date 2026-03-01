@@ -1,4 +1,5 @@
 #include "inventory/inventory.h"
+#include "core/object_types.h"
 #include <algorithm>
 #include <numeric>
 #include <cmath>
@@ -11,6 +12,17 @@ const char* condition_label(float integrity)
     if (integrity >= 0.4f) return "damaged";
     if (integrity >= 0.1f) return "badly damaged";
     return "destroyed";
+}
+
+bool istype(const ItemDef& def, std::string_view ancestor_path)
+{
+    return ::istype(def.type_path, ancestor_path);
+}
+
+bool istype(const ItemStack& stack, std::string_view ancestor_path)
+{
+    if (!stack.def) return false;
+    return ::istype(stack.def->type_path, ancestor_path);
 }
 
 // ── InventorySlot ─────────────────────────────────────────────────────────────

@@ -8,11 +8,14 @@
 //   - Door links rebuilt on rebuild_zones(); conductance checked each tick.
 //
 // Entity effects (requires EntityManager*):
-//   - Entities consume O2 and produce CO2 each tick.
-//   - Rapid decompression applies a wind impulse toward the nearest vent.
+//   - Mobs (MobPlayerTag) consume O2 and produce CO2 each tick.
+//   - Pressure loss pushes all velocity-bearing entities toward the vent.
+//     Force scales with pressure_loss_rate; grounded entities resist via
+//     WIND_GROUND_RESIST; velocity is capped per-entity along wind direction.
 // ─────────────────────────────────────────────────────────────────────────────
 #include "simulation/atmos.h"
 #include "simulation/physics.h"
+#include "simulation/mob_system.h"
 #include "simulation/model_objects.h"
 #include <SDL3/SDL.h>
 #include <queue>
@@ -538,33 +541,76 @@ void AtmosSimulator::apply_entity_effects(double dt)
 {
     float fdt = static_cast<float>(dt);
 
-    m_entities->each<TransformComponent>([&](EntityID eid, TransformComponent& tr) {
+    // ── Breathing: O2 consumption / CO2 production (mobs/players only) ───
+    // Only entities tagged MobPlayerTag are alive and breathing; world items
+    // and decorative entities are excluded.
+    m_entities->each<MobPlayerTag>([&](EntityID eid, MobPlayerTag&) {
+        auto* tr = m_entities->get_component<TransformComponent>(eid);
+        if (!tr) return;
         glm::ivec3 feet = {
-            static_cast<int>(std::floor(tr.pos.x)),
-            static_cast<int>(std::floor(tr.pos.y)),
-            static_cast<int>(std::floor(tr.pos.z))
+            static_cast<int>(std::floor(tr->pos.x)),
+            static_cast<int>(std::floor(tr->pos.y)),
+            static_cast<int>(std::floor(tr->pos.z))
         };
         AtmosZoneID zid = zone_at(feet);
         if (zid == ATMOS_ZONE_NULL || zid == ATMOS_ZONE_SPACE) return;
         AtmosZone* z = zone_at_id(zid);
         if (!z) return;
 
-        // O2 consumption / CO2 production (per entity, scaled by volume).
         float V      = std::max(1.f, static_cast<float>(z->cell_count));
-        z->gas.o2   -= O2_CONSUMPTION_RATE  * fdt / V;
-        z->gas.co2  += CO2_PRODUCTION_RATE  * fdt / V;
+        z->gas.o2   -= O2_CONSUMPTION_RATE * fdt / V;
+        z->gas.co2  += CO2_PRODUCTION_RATE * fdt / V;
         if (z->gas.o2 < 0.f) z->gas.o2 = 0.f;
+    });
 
-        // Wind impulse during decompression.
-        if (z->pressure_loss_rate > 2.f) {
-            auto* vel = m_entities->get_component<VelocityComponent>(eid);
-            if (!vel) return;
-            glm::vec3 to_vent = z->vent_direction - tr.pos;
-            float dist = glm::length(to_vent);
-            if (dist < 0.01f) return;
-            float mag = std::min(z->pressure_loss_rate * WIND_ACCEL_PER_KPA_S * fdt, 4.f * fdt);
-            vel->linear += (to_vent / dist) * mag;
-        }
+    // ── Wind: push entities by pressure flow ─────────────────────────────
+    // Applied to every entity with a VelocityComponent (players, mobs, and
+    // loose world items) whose zone is experiencing net gas loss.
+    //
+    // Force model:
+    //   impulse  = pressure_loss_rate * WIND_ACCEL_PER_KPA_S * dt  (m/s added)
+    //   vel_cap  = clamp(pressure_loss_rate * 0.5 + 1, 0, WIND_VEL_CAP)  (m/s)
+    //
+    // Grounded entities receive WIND_GROUND_RESIST fraction of the impulse;
+    // floor contact provides real friction that resists small differentials.
+    // Velocity capping is directional: the component along wind_dir is
+    // compared to vel_cap — no wind is added once the cap is reached.
+    m_entities->each<VelocityComponent>([&](EntityID eid, VelocityComponent& vel) {
+        auto* tr = m_entities->get_component<TransformComponent>(eid);
+        if (!tr) return;
+
+        glm::ivec3 feet = {
+            static_cast<int>(std::floor(tr->pos.x)),
+            static_cast<int>(std::floor(tr->pos.y)),
+            static_cast<int>(std::floor(tr->pos.z))
+        };
+        AtmosZoneID zid = zone_at(feet);
+        if (zid == ATMOS_ZONE_NULL || zid == ATMOS_ZONE_SPACE) return;
+        AtmosZone* z = zone_at_id(zid);
+        if (!z || z->pressure_loss_rate < WIND_THRESHOLD) return;
+
+        // Direction from entity toward the vent/breach draining this zone.
+        glm::vec3 to_vent = z->vent_direction - tr->pos;
+        float dist = glm::length(to_vent);
+        if (dist < 0.01f) return;
+        glm::vec3 wind_dir = to_vent / dist;
+
+        // Raw impulse this atmos tick.
+        float impulse = z->pressure_loss_rate * WIND_ACCEL_PER_KPA_S * fdt;
+
+        // Grounded players / mobs resist wind via floor contact.
+        auto* cc = m_entities->get_component<CharacterControllerComponent>(eid);
+        if (cc && cc->on_ground)
+            impulse *= WIND_GROUND_RESIST;
+
+        // Directional velocity cap — scales with severity so gentle breezes
+        // top out around 1 m/s while explosive decomp can reach WIND_VEL_CAP.
+        float vel_cap  = std::min(z->pressure_loss_rate * 0.5f + 1.f, WIND_VEL_CAP);
+        float vel_along = glm::dot(vel.linear, wind_dir);
+        float add = std::min(impulse, std::max(0.f, vel_cap - vel_along));
+        if (add <= 0.f) return;
+
+        vel.linear += wind_dir * add;
     });
 }
 

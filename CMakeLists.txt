@@ -58,6 +58,7 @@ set(SRC_CORE
     src/core/game_loop.cpp
     src/core/world.cpp
     src/core/entity_manager.cpp
+    src/core/object_types.cpp
 )
 
 set(SRC_RENDER

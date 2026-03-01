@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <string_view>
 #include <vector>
 #include <optional>
 #include <memory>
@@ -13,6 +14,17 @@ struct ItemVerb {
 };
 
 struct ItemDef {
+    // ── Type-path prototype system (TG SS13-style) ───────────────────────────
+    // Full type path in the object hierarchy, e.g. "/obj/item/tool/wrench".
+    // Used by istype() for classification checks.
+    // Defaults to "/obj/item/<id>" when not specified in JSON.
+    std::string              type_path;
+
+    // Pointer to the parent ItemDef that acts as this type's prototype.
+    // Resolved by ItemRegistry after all defs are loaded.
+    // nullptr if no parent ItemDef exists (only a PrototypeDef may exist).
+    const ItemDef*           prototype_parent = nullptr;
+
     std::string              id;
     std::string              name;
     std::string              icon;       // path in textures/items/
@@ -49,6 +61,13 @@ struct ItemStack {
 // Returns a human-readable description of an item's condition based on integrity.
 // integrity is clamped to [0, 1]: 1.0 = pristine, 0.0 = destroyed.
 const char* condition_label(float integrity);
+
+// ── Type-path helpers for ItemDef ─────────────────────────────────────────────
+// Convenience wrappers around the global istype() from object_types.h.
+// istype(def, "/obj/item/tool")     → true for wrench, screwdriver, etc.
+// istype(stack, "/obj/item/medical") → true for bandages, syringes, etc.
+bool istype(const ItemDef&   def,   std::string_view ancestor_path);
+bool istype(const ItemStack& stack, std::string_view ancestor_path);
 
 // ── Inventory slot ────────────────────────────────────────────────────────────
 enum class SlotCategory {

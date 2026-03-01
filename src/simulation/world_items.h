@@ -20,6 +20,11 @@ struct WorldItemComponent {
     FaceDir    rest_face   = FaceDir::PosY;   // face the item rests ON
     glm::ivec3 rest_voxel{};                  // voxel owning that face
 
+    // Scatter offset within the face plane (in face-tangent space, metres).
+    // Applied by item_world_pos() so items don't all pile at the turf centre.
+    // Range is typically ±0.35 so the item stays inside the 1×1 face boundary.
+    glm::vec2  face_offset{};
+
     // Visual tint (RGBA); set from a deterministic hash of the item id at spawn
     glm::vec4  tint{ 1.f, 0.85f, 0.4f, 0.9f };
 };
@@ -42,7 +47,15 @@ public:
 
     // Spawn an item resting on a voxel face.
     // Returns the new entity ID.
-    EntityID spawn(glm::ivec3 face_voxel, FaceDir face, ItemStack item);
+    // face_offset is in the face's tangent plane (metres, ±0.5 max = inside face).
+    EntityID spawn(glm::ivec3 face_voxel, FaceDir face, ItemStack item,
+                   glm::vec2 face_offset = {});
+
+    // Spawn with a random scatter offset (uniform within ±scatter_radius on
+    // each face-tangent axis, clamped to ±0.38 so the item stays on the face).
+    // Used by item-drop and container-spill code.
+    EntityID spawn_scattered(glm::ivec3 face_voxel, FaceDir face, ItemStack item,
+                             float scatter_radius = 0.35f);
 
     // Spawn a floating (non-resting) item at a world position.
     // An initial velocity can be supplied (e.g. for thrown items).

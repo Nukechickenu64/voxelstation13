@@ -129,7 +129,18 @@ private:
     static constexpr float CONDUCTANCE_CLOSED       = 0.003f;
     static constexpr float CONDUCTANCE_SPACE        = 0.20f;
     static constexpr float CONDUCTANCE_SPACE_SEALED = 0.00f;   // closed door to space = perfectly airtight
-    static constexpr float WIND_ACCEL_PER_KPA_S     = 0.6f;
+    // ── Wind force constants ───────────────────────────────────────────────
+    // WIND_THRESHOLD    : minimum pressure_loss_rate (kPa/s) before wind fires.
+    //                     ~0.25 kPa/s ≈ 1–2 kPa room differential through an
+    //                     open door — enough for a noticeable gentle push.
+    // WIND_ACCEL_PER_KPA_S: impulse added per (kPa/s * atmos_dt) in m/s.
+    // WIND_GROUND_RESIST: fraction of impulse applied when on_ground; simulates
+    //                     the friction advantage of being in contact with the floor.
+    // WIND_VEL_CAP       : absolute maximum m/s wind can push an entity.
+    static constexpr float WIND_THRESHOLD        = 0.25f;
+    static constexpr float WIND_ACCEL_PER_KPA_S  = 1.2f;
+    static constexpr float WIND_GROUND_RESIST    = 0.35f;
+    static constexpr float WIND_VEL_CAP          = 12.f;
     static constexpr float O2_CONSUMPTION_RATE      = 0.018f;
     static constexpr float CO2_PRODUCTION_RATE      = 0.014f;
     static constexpr float IGNITION_TEMPERATURE     = 360.f;

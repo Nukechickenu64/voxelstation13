@@ -119,3 +119,27 @@ struct RayHit {
 // ── Entity ID ─────────────────────────────────────────────────────────────────
 using EntityID = uint32_t;
 constexpr EntityID NULL_ENTITY = 0;
+
+// ── Face tangent basis ────────────────────────────────────────────────────────
+// Returns two orthogonal unit vectors that together span the plane of a face.
+// Useful for computing scatter offsets: world_point = face_centre
+//   + tangent.u * offset.x + tangent.v * offset.y
+struct FaceTangents {
+    glm::vec3 u;  // first tangent  (right)
+    glm::vec3 v;  // second tangent (up/forward in-plane)
+};
+
+constexpr FaceTangents face_tangents(FaceDir d)
+{
+    // For each face: u points "right" across the face, v points "up" across it.
+    // Consistent winding: u × v = inward face normal (into the cell).
+    switch (d) {
+        case FaceDir::PosX:  return {{ 0, 0, -1}, { 0, 1, 0}};
+        case FaceDir::NegX:  return {{ 0, 0,  1}, { 0, 1, 0}};
+        case FaceDir::PosY:  return {{ 1, 0,  0}, { 0, 0, 1}};
+        case FaceDir::NegY:  return {{ 1, 0,  0}, { 0, 0, 1}};
+        case FaceDir::PosZ:  return {{ 1, 0,  0}, { 0, 1, 0}};
+        case FaceDir::NegZ:  return {{-1, 0,  0}, { 0, 1, 0}};
+        default:             return {{ 1, 0,  0}, { 0, 1, 0}};
+    }
+}

@@ -33,6 +33,7 @@
 #include "simulation/model_objects.h"
 #include "ui/map_editor.h"
 #include "ui/admin_menu.h"
+#include "core/object_types.h"
 #include "network/server.h"
 #include "network/client.h"
 
@@ -57,6 +58,9 @@ int main(int /*argc*/, char* /*argv*/[])
     // ── 2. Registry loading ───────────────────────────────────────────────────
     VoxelRegistry voxel_reg;
     voxel_reg.load_directory("data/voxel_types");
+
+    // Initialise the global prototype/type-path registry before item loading.
+    init_prototype_registry();
 
     ItemRegistry item_reg;
     item_reg.load_directory("data/item_types");
@@ -337,12 +341,13 @@ int main(int /*argc*/, char* /*argv*/[])
         for (Chunk* c : server.world().dirty_chunks())
             mesher.enqueue(c->chunk_pos(), server.world());
 
-        // Spawn a couple of test items on the floor for M1 testing
+        // Spawn a couple of test items on the floor for M1 testing.
+        // Use spawn_scattered() so items land at random offsets on the turf.
         auto spawn_test_item = [&](const char* item_id, int x, int z) {
             const ItemDef* def = item_reg.get(item_id);
             if (!def) return;
             ItemStack stack; stack.def = def; stack.count = 1;
-            world_items.spawn({x, 0, z}, FaceDir::PosY, std::move(stack));
+            world_items.spawn_scattered({x, 0, z}, FaceDir::PosY, std::move(stack));
         };
         spawn_test_item("wrench",      2,  0);
         spawn_test_item("screwdriver", 2,  2);
@@ -753,7 +758,8 @@ int main(int /*argc*/, char* /*argv*/[])
                     // Cast downward from player feet to find a floor face
                     RayHit down = server.world().raycast(cam_pos, {0,-1,0}, 3.f);
                     if (down.valid) {
-                        world_items.spawn(down.voxel, down.face, std::move(*maybe_item));
+                        // Drop with scatter so items don't all pile at turf centre
+                        world_items.spawn_scattered(down.voxel, down.face, std::move(*maybe_item));
                     } else {
                         // No floor nearby – spawn floating at player feet
                         world_items.spawn_floating(
@@ -1479,7 +1485,35 @@ int main(int /*argc*/, char* /*argv*/[])
             }
 
             // Always-on HUD
-            hud.draw(hud_state, player_inv);
+            {
+                // ── Intent keyboard shortcuts: 1=Help 2=Disarm 3=Grab 4=Harm ──
+                {
+                    const bool* ks_hud = SDL_GetKeyboardState(nullptr);
+                    static bool s_1p = false, s_2p = false, s_3p = false, s_4p = false;
+                    bool k1 = ks_hud[SDL_SCANCODE_1], k2 = ks_hud[SDL_SCANCODE_2];
+                    bool k3 = ks_hud[SDL_SCANCODE_3], k4 = ks_hud[SDL_SCANCODE_4];
+                    if (k1 && !s_1p) hud_state.intent = Intent::Help;
+                    if (k2 && !s_2p) hud_state.intent = Intent::Disarm;
+                    if (k3 && !s_3p) hud_state.intent = Intent::Grab;
+                    if (k4 && !s_4p) hud_state.intent = Intent::Harm;
+                    s_1p = k1; s_2p = k2; s_3p = k3; s_4p = k4;
+                }
+
+                // HUD button clicks only work when cursor is free (alt-mode / menus)
+                bool cursor_free = alt_mode.active()
+                                || creative_menu.is_open()
+                                || map_editor.is_open()
+                                || admin_menu.is_open();
+                glm::vec2 hud_mouse = cursor_free
+                    ? (alt_mode.active() ? alt_mode.cursor_pos() : input.mouse_pos())
+                    : glm::vec2{-9999.f, -9999.f};
+                bool hud_click = cursor_free && input.is_pressed(Action::PrimaryInteract);
+                {
+                    std::string hud_clicked = hud.draw(hud_state, player_inv, hud_mouse, hud_click);
+                    if (!hud_clicked.empty())
+                        player_inv.swap(hud_clicked, player_inv.active_hand_id());
+                }
+            }
 
             // ── Crosshair ─────────────────────────────────────────────────
             if (!creative_menu.is_open() && !map_editor.is_open()) {
@@ -1643,136 +1677,13 @@ int main(int /*argc*/, char* /*argv*/[])
             // Alt-mode overlay
             float ov_alpha = alt_mode.overlay_alpha();
             if (ov_alpha > 0.01f) {
-                glm::vec2 cursor = alt_mode.cursor_pos();
-                // detect mouse state from input
-                bool lmb_down     = input.is_held    (Action::PrimaryInteract);
-                bool lmb_released = input.is_released(Action::PrimaryInteract);
                 bool rmb_pressed  = input.is_pressed (Action::SecondaryInteract);
-
-                bool shift_held = input.is_held(Action::Sprint);
-                auto interaction = inv_panel.draw(
-                    player_inv, cursor, lmb_down, lmb_released, shift_held, rmb_pressed, ov_alpha);
-
-                // ── SlotClicked: short click on a slot → swap with active hand ─
-                if (interaction.type == PanelInteraction::Type::SlotClicked) {
-                    player_inv.swap(interaction.slot_id, player_inv.active_hand_id());
-                }
-
-                // ── ContainerClose: × button on the container sub-panel ──────
-                if (interaction.type == PanelInteraction::Type::ContainerClose) {
-                    player_inv.close_container(interaction.slot_id);
-                }
-
-                // ── DropToWorld: item dragged out of the panel → spawn world ──
-                if (interaction.type == PanelInteraction::Type::DropToWorld) {
-                    auto dropped = player_inv.take(interaction.slot_id);
-                    if (dropped) {
-                        // Spawn at approximately player feet position
-                        world_items.spawn_floating(
-                            cam_pos - glm::vec3(0.f, 0.5f, 0.f), std::move(*dropped));
-                    }
-                }
-
                 // ── World drag completion / cancellation ──────────────────────
-                // The panel drag has just ended (active → inactive this frame).
-                if (alt_drag_entity != NULL_ENTITY && !inv_panel.is_dragging()) {
-                    if (interaction.type == PanelInteraction::Type::DragDrop
-                        && interaction.slot_id.empty()) {
-                        // Successful world-to-slot drop: panel already placed a
-                        // copy — now remove the original world entity.
-                        world_items.pick_up(alt_drag_entity);
-                    }
-                    // If drag was cancelled (no drop), entity stays in the world.
+                if (alt_drag_entity != NULL_ENTITY) {
                     alt_drag_entity = NULL_ENTITY;
                 }
 
-                if (interaction.type == PanelInteraction::Type::RightClick) {
-                    // Build verb list for the item in that slot
-                    const auto* slot = player_inv.find_slot_deep(interaction.slot_id);
-                    if (slot && slot->item && slot->item->def) {
-                        std::vector<ContextEntry> entries;
-                        std::string clicked_slot = interaction.slot_id;
-                        for (const auto& verb : slot->item->def->verbs) {
-                            // ── Open / Close container ──────────────────────
-                            if (verb.handler == "verb_open" || verb.name == "Open") {
-                                entries.push_back({verb.name, true, false,
-                                    [&player_inv, clicked_slot]() {
-                                        player_inv.open_container(clicked_slot);
-                                    }});
-                            } else if (verb.handler == "verb_close" || verb.name == "Close") {
-                                entries.push_back({verb.name, true, false,
-                                    [&player_inv, clicked_slot]() {
-                                        player_inv.close_container(clicked_slot);
-                                    }});
-                            // ── Wear: move item to its designated equip slot ─
-                            } else if (verb.handler == "verb_wear" || verb.name == "Wear") {
-                                entries.push_back({verb.name, true, false,
-                                    [&player_inv, clicked_slot]() {
-                                        auto item = player_inv.take(clicked_slot);
-                                        if (!item || !item->def || item->def->equip_slot.empty()) {
-                                            if (item) player_inv.put(clicked_slot, std::move(*item));
-                                            return;
-                                        }
-                                        const std::string& equip_sl = item->def->equip_slot;
-                                        // Pull out whatever is already in that slot
-                                        auto displaced = player_inv.take(equip_sl);
-                                        if (player_inv.put(equip_sl, std::move(*item))) {
-                                            // Return any displaced item to the source slot
-                                            if (displaced) {
-                                                if (!player_inv.put(clicked_slot, std::move(*displaced)))
-                                                    player_inv.auto_equip(std::move(*displaced));
-                                            }
-                                        } else {
-                                            // Couldn't equip — restore everything
-                                            player_inv.put(clicked_slot, std::move(*item));
-                                            if (displaced) player_inv.put(equip_sl, std::move(*displaced));
-                                        }
-                                    }});
-                            // ── Remove: take item out of equip slot → active hand
-                            } else if (verb.handler == "verb_remove" || verb.name == "Remove") {
-                                entries.push_back({verb.name, true, false,
-                                    [&player_inv, clicked_slot]() {
-                                        // Swap equipment slot contents with active hand
-                                        player_inv.swap(clicked_slot, player_inv.active_hand_id());
-                                    }});
-                            // ── Examine: print description to radio log ────────
-                            } else if (verb.handler == "verb_examine" || verb.name == "Examine") {
-                                // Snapshot item info at menu-open time
-                                const ItemDef* idef = slot->item->def;
-                                std::string item_name  = idef->name;
-                                float       item_w     = idef->weight;
-                                float       item_v     = idef->volume;
-                                int         item_cnt   = slot->item->count;
-                                float       item_integ = slot->item->integrity;
-                                std::string cust_name  = slot->item->custom_name;
-                                entries.push_back({verb.name, true, false,
-                                    [&hud_state, item_name, item_w, item_v,
-                                     item_cnt, item_integ, cust_name]() {
-                                        char buf[160];
-                                        std::string display = cust_name.empty()
-                                            ? item_name
-                                            : item_name + " (\"" + cust_name + "\")"; 
-                                        if (item_cnt > 1)
-                                            display += " x" + std::to_string(item_cnt);
-                                        std::snprintf(buf, sizeof(buf),
-                                            "[Examine] %s — %.2f kg / %.1f L — %s",
-                                            display.c_str(), item_w, item_v,
-                                            condition_label(item_integ));
-                                        if (hud_state.radio_log.size() >= 30)
-                                            hud_state.radio_log.pop_front();
-                                        hud_state.radio_log.push_back(buf);
-                                    }});
-                            } else {
-                                entries.push_back({verb.name, true, false,
-                                    [name = verb.name]() {
-                                        SDL_Log("Verb: %s", name.c_str());
-                                    }});
-                            }
-                        }
-                        ctx_menu.open(cursor, std::move(entries));
-                        fps_ctx_just_opened = true; // suppress same-frame dismiss
-                    }
-                }
+                // TODO: RMB on HUD inventory slot → item verb context menu
 
                 // Also open ctx menu on right-click on a world face in alt-mode
                 if (rmb_pressed && alt_mode.active() && hit.valid) {
