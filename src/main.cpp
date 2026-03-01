@@ -106,6 +106,7 @@ int main(int /*argc*/, char* /*argv*/[])
     LightingSystem lighting(server.world());
     lighting.set_registry(&voxel_reg);  // must be set before rebuild()
     mesher.set_lighting(&lighting);     // enables colored smooth lighting
+    renderer.set_lighting(&server.world(), &lighting.light_map());  // entity/model lighting
 
     // ── 8. Audio ─────────────────────────────────────────────────────────────
     AudioManager audio;
@@ -1434,7 +1435,6 @@ int main(int /*argc*/, char* /*argv*/[])
             }
 
             renderer.draw_world(server.world(), cam_pos, cam_yaw, cam_pitch);
-            renderer.draw_face_highlight(hit);
             renderer.draw_world_items();
             renderer.draw_mobs();
             renderer.draw_models();
@@ -1480,6 +1480,23 @@ int main(int /*argc*/, char* /*argv*/[])
 
             // Always-on HUD
             hud.draw(hud_state, player_inv);
+
+            // ── Crosshair ─────────────────────────────────────────────────
+            if (!creative_menu.is_open() && !map_editor.is_open()) {
+                const float cx = static_cast<float>(ui_renderer.fb_width())  * 0.5f;
+                const float cy = static_cast<float>(ui_renderer.fb_height()) * 0.5f;
+                constexpr float HALF = 6.f;   // half-size of the outer square
+                constexpr float T    = 2.f;   // border thickness
+                constexpr glm::vec4 CR_COL = {1.f, 1.f, 1.f, 0.5f};
+                // top
+                ui_renderer.rect({cx - HALF, cy - HALF},         {HALF * 2.f, T},    CR_COL, 0.f);
+                // bottom
+                ui_renderer.rect({cx - HALF, cy + HALF - T},     {HALF * 2.f, T},    CR_COL, 0.f);
+                // left
+                ui_renderer.rect({cx - HALF, cy - HALF},         {T, HALF * 2.f},    CR_COL, 0.f);
+                // right
+                ui_renderer.rect({cx + HALF - T, cy - HALF},     {T, HALF * 2.f},    CR_COL, 0.f);
+            }
 
             // ── Debug overlay (F5) ────────────────────────────────────────────
             if (debug_overlay_visible) {
@@ -1901,9 +1918,8 @@ int main(int /*argc*/, char* /*argv*/[])
                     st.def       = cr.give_item;
                     st.count     = 1;
                     st.integrity = 1.f;
-                    auto leftover = player_inv.auto_equip(std::move(st));
-                    if (leftover)
-                        world_items.spawn_floating(cam_pos, std::move(*leftover));
+                    if (!player_inv.put(player_inv.active_hand_id(), st))
+                        world_items.spawn_floating(cam_pos, std::move(st));
                 }
                 // Recapture cursor once the menu closes (escape, etc.)
                 if (!creative_menu.is_open() && !alt_mode.active())

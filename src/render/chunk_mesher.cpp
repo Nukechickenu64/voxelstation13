@@ -463,16 +463,33 @@ void ChunkMesher::worker_loop()
                 auto emit_quad = [&](const FaceGeo& fg, float tex_idx) {
                     uint32_t base_d =
                         static_cast<uint32_t>(mesh.vertices.size() / 13);
-                    // Sample light at the door cell itself for a uniform face color
+                    // Door cells are solid so the lighting system never floods light
+                    // into them — sampling at(x,y,z).light_level always yields 0
+                    // (pitch black).  Instead take the brightest neighbour cell so
+                    // the door inherits the ambient light of whichever side is lit.
                     glm::vec3 door_lc;
                     {
-                        glm::ivec3 wp = job.chunk_pos * CHUNK_SIZE + glm::ivec3(x, y, z);
-                        auto it = job.light_colors.find(wp);
-                        float lvl = at(x,y,z).light_level / 15.0f;
-                        if (it != job.light_colors.end())
-                            door_lc = glm::vec3(it->second.r/255.0f, it->second.g/255.0f, it->second.b/255.0f) * lvl;
-                        else
-                            door_lc = glm::vec3(lvl);
+                        static const glm::ivec3 k_nb6[6] = {
+                            {1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}
+                        };
+                        float best_lvl = 0.0f;
+                        glm::vec3 best_col(1.0f);
+                        glm::ivec3 cp3 = job.chunk_pos * CHUNK_SIZE;
+                        for (const auto& d : k_nb6) {
+                            float lvl = sample(x+d.x, y+d.y, z+d.z).light_level / 15.0f;
+                            if (lvl > best_lvl) {
+                                best_lvl = lvl;
+                                glm::ivec3 wp = cp3 + glm::ivec3(x+d.x, y+d.y, z+d.z);
+                                auto it = job.light_colors.find(wp);
+                                if (it != job.light_colors.end())
+                                    best_col = glm::vec3(it->second.r/255.0f,
+                                                         it->second.g/255.0f,
+                                                         it->second.b/255.0f);
+                                else
+                                    best_col = glm::vec3(1.0f);
+                            }
+                        }
+                        door_lc = best_col * best_lvl;
                     }
                     for (int vi = 0; vi < 4; ++vi) {
                         mesh.vertices.push_back(fx + fg.v[vi][0]);
@@ -509,11 +526,13 @@ void ChunkMesher::worker_loop()
                 int nx = x + k_offsets[f][0];
                 int ny = y + k_offsets[f][1];
                 int nz = z + k_offsets[f][2];
-                // Flat-plane and door neighbours don't occlude cube faces
-                bool neighbour_solid = in_bounds(nx, ny, nz)
-                                       && (at(nx, ny, nz).type_id != 0)
-                                       && (at(nx, ny, nz).flags & VFLAG_OPAQUE)         // transparent neighbours never cull
-                                       && !(at(nx, ny, nz).flags & (VFLAG_FLAT_PLANE | VFLAG_FLAT_TOP | VFLAG_VERT_PLANE_Z));
+                // Use sample() so cross-chunk boundary neighbours are checked
+                // correctly (fixes internal faces at chunk seams).
+                // Flat-plane and door neighbours don't occlude cube faces.
+                const Voxel& nb_vox = sample(nx, ny, nz);
+                bool neighbour_solid = (nb_vox.type_id != 0)
+                                       && (nb_vox.flags & VFLAG_OPAQUE)         // transparent neighbours never cull
+                                       && !(nb_vox.flags & (VFLAG_FLAT_PLANE | VFLAG_FLAT_TOP | VFLAG_VERT_PLANE_Z));
                 if (neighbour_solid) continue;  // face hidden
 
                 const FaceGeo& fg = k_faces[f];

@@ -6,6 +6,7 @@
 #include "simulation/world_items.h"
 #include "simulation/mob_system.h"
 #include "render/model_loader.h"
+#include "render/lighting.h"
 #include <SDL3/SDL.h>
 #include <glm/glm.hpp>
 #include <vector>
@@ -165,7 +166,16 @@ public:
     // Set minimum ambient light level (0-1, visible even in total darkness).
     void set_ambient(float a)   { m_ambient = a;   }
 
+    // Provide world + light map for per-entity lighting (call once after LightingSystem init).
+    void set_lighting(const World* world, const LightMap* light_map) {
+        m_world     = world;
+        m_light_map = light_map;
+    }
+
 private:
+    // Compute an RGB light tint for an entity at 'pos' from the voxel light grid.
+    // Returns {1,1,1} in fullbright mode or when no world is set.
+    glm::vec3 entity_light_tint(glm::vec3 pos) const;
     // ── Window / device ──────────────────────────────────────────────────────
     SDL_Window*    m_window = nullptr;
     SDL_GPUDevice* m_gpu    = nullptr;
@@ -179,6 +189,10 @@ private:
     bool  m_fullbright = false;
     float m_ao_mix     = 0.f;   // 0 = AO disabled, 1 = AO enabled
     float m_ambient    = 0.3f;  // ambient floor (visible in darkness)
+
+    // ── World/lightmap pointers for entity lighting ───────────────────────────
+    const World*    m_world      = nullptr;
+    const LightMap* m_light_map  = nullptr;
 
     // ── Pipeline ─────────────────────────────────────────────────────────────
     SDL_GPUGraphicsPipeline* m_world_pipeline     = nullptr;

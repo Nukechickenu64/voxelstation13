@@ -1222,6 +1222,49 @@ bool Renderer::create_item_pipeline()
     return true;
 }
 
+// ── entity_light_tint ────────────────────────────────────────────────────────
+// Sample the world light level and color at an entity's floor position.
+// Returns RGB tint [0..1] clamped to at least m_ambient.
+// Returns {1,1,1} in fullbright mode or when no world/lightmap is available.
+glm::vec3 Renderer::entity_light_tint(glm::vec3 pos) const
+{
+    if (m_fullbright || !m_world) return {1.f, 1.f, 1.f};
+    glm::ivec3 fp  = glm::ivec3(glm::floor(pos));
+    Voxel      vox = m_world->get_voxel(fp);
+
+    // If the sampled voxel is opaque (solid block — light never propagates
+    // into it so light_level==0), search the 6 neighbours for the brightest
+    // lit air cell.  This fixes items/entities resting on surfaces (e.g. an
+    // item lying on the floor samples the floor tile itself which is opaque).
+    if ((vox.flags & VFLAG_OPAQUE) || vox.light_level == 0) {
+        static const glm::ivec3 k_dirs[6] = {
+            {0,1,0},{0,-1,0},{1,0,0},{-1,0,0},{0,0,1},{0,0,-1}
+        };
+        uint8_t best = 0;
+        glm::ivec3 best_fp = fp;
+        for (const auto& d : k_dirs) {
+            glm::ivec3 np = fp + d;
+            Voxel nv = m_world->get_voxel(np);
+            if (!(nv.flags & VFLAG_OPAQUE) && nv.light_level > best) {
+                best    = nv.light_level;
+                best_fp = np;
+            }
+        }
+        fp  = best_fp;
+        vox = m_world->get_voxel(fp);
+    }
+
+    float brightness = static_cast<float>(vox.light_level) / 15.f;
+    brightness = std::max(m_ambient, brightness);
+    if (m_light_map) {
+        LightColor col = m_light_map->get(fp);
+        return { brightness * col.r / 255.f,
+                 brightness * col.g / 255.f,
+                 brightness * col.b / 255.f };
+    }
+    return { brightness, brightness, brightness };
+}
+
 // ── queue_world_items ─────────────────────────────────────────────────────────
 
 void Renderer::queue_world_items(EntityManager& entities, EntityID hovered_item,
@@ -1266,7 +1309,9 @@ void Renderer::queue_world_items(EntityManager& entities, EntityID hovered_item,
         glm::vec3 center = tr->pos;
 
         (void)hovered_item;
-        glm::vec4 col = glm::vec4(1.f, 1.f, 1.f, 1.f);  // no tint, texture provides color
+        // Tint by world light at item position.
+        glm::vec3 lt = entity_light_tint(center);
+        glm::vec4 col = glm::vec4(lt.r, lt.g, lt.b, 1.f);
 
         glm::vec3 corners[4];
         if (wic.is_resting) {
@@ -2065,7 +2110,8 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
                          glm::vec3 feet,
                          float half_w, float height,
                          uint32_t tex_layer,
-                         float uv_y_top = 0.0f)
+                         float uv_y_top = 0.0f,
+                         glm::vec3 tint = {1.f, 1.f, 1.f})
     {
         glm::vec3 to_cam_xz = { cam_pos.x - feet.x, 0.f, cam_pos.z - feet.z };
         float xz_len = glm::length(to_cam_xz);
@@ -2084,7 +2130,7 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
         auto base = static_cast<uint32_t>(verts.size());
         for (int i = 0; i < 4; ++i)
             verts.push_back({ c[i].x, c[i].y, c[i].z,
-                              1.f, 1.f, 1.f, 1.f,
+                              tint.r, tint.g, tint.b, 1.f,
                               k_uv[i][0], k_uv[i][1],
                               static_cast<float>(tex_layer) });
         indices.push_back(base+0); indices.push_back(base+1);
@@ -2113,12 +2159,14 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
             int dir = mob_sprite_dir(feet, tr->yaw, cam_pos);
             uint32_t layer = get_or_assemble_human(app, dir);
 
+            glm::vec3 mob_tint = entity_light_tint(feet + glm::vec3(0.f, 0.5f, 0.f));
             if (eid == local_player_eid) {
                 // First-person: render body only (no head), skip back-face cull
                 push_quad(m_asm_verts, m_asm_indices, feet, MOB_HALF_W,
-                          k_body_height, layer, k_body_uv_top);
+                          k_body_height, layer, k_body_uv_top, mob_tint);
             } else {
-                push_quad(m_asm_verts, m_asm_indices, feet, MOB_HALF_W, MOB_HEIGHT, layer);
+                push_quad(m_asm_verts, m_asm_indices, feet, MOB_HALF_W, MOB_HEIGHT, layer,
+                          0.0f, mob_tint);
             }
         });
         m_asm_pending = !m_asm_verts.empty();
@@ -2145,7 +2193,9 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
                 tex_layer = it->second.layer[dir];
             }
 
-            push_quad(m_mob_verts, m_mob_indices, feet, MOB_HALF_W, MOB_HEIGHT, tex_layer);
+            glm::vec3 mob_tint = entity_light_tint(feet + glm::vec3(0.f, 0.5f, 0.f));
+            push_quad(m_mob_verts, m_mob_indices, feet, MOB_HALF_W, MOB_HEIGHT, tex_layer,
+                      0.0f, mob_tint);
         });
         m_mob_pending = !m_mob_verts.empty();
     }
@@ -3110,8 +3160,29 @@ bool Renderer::load_model(const char* name,
     LoadedMesh lm;
     if (!load_mesh_file(mesh_path, lm)) return false;
 
+    // ── Expand ModelVertex (36 B) to the chunk pipeline layout (52 B) ──────────
+    // The chunk pipeline expects: pos(3f) + normal(3f) + uv(2f) + texIdx(1f)
+    //                             + lightRGB(3f) + ao(1f)  = 13 floats = 52 bytes.
+    // Set lightRGB = {0,0,0} so the per-draw LightingUBO ambient value controls
+    // the model brightness (effColor = max({0,0,0}, ambV) = ambV in the shader).
+    struct ExpandedModelVert {
+        float x, y, z;     // pos
+        float nx, ny, nz;  // normal
+        float u, v;        // uv
+        float tex_idx;     // always 0 for single-tex models
+        float lr, lg, lb;  // lightRGB — 0 means fully ambient-controlled
+        float ao;          // AO factor (1 = no occlusion)
+    };
+    static_assert(sizeof(ExpandedModelVert) == 52, "ExpandedModelVert must be 52 bytes");
+
+    std::vector<ExpandedModelVert> exp_verts;
+    exp_verts.reserve(lm.vertices.size());
+    for (const auto& mv : lm.vertices)
+        exp_verts.push_back({mv.x, mv.y, mv.z, mv.nx, mv.ny, mv.nz,
+                             mv.u, mv.v, mv.tex_idx, 0.f, 0.f, 0.f, 1.f});
+
     ModelGPU gm;
-    const Uint32 vsize = (Uint32)(lm.vertices.size() * sizeof(ModelVertex));
+    const Uint32 vsize = (Uint32)(exp_verts.size() * sizeof(ExpandedModelVert));
     const Uint32 isize = (Uint32)(lm.indices.size()  * sizeof(uint32_t));
 
     {
@@ -3141,7 +3212,7 @@ bool Renderer::load_model(const char* name,
         }
 
         auto* ptr = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(m_gpu, tbuf, false));
-        std::memcpy(ptr,         lm.vertices.data(), vsize);
+        std::memcpy(ptr,         exp_verts.data(), vsize);
         std::memcpy(ptr + vsize, lm.indices.data(),  isize);
         SDL_UnmapGPUTransferBuffer(m_gpu, tbuf);
 
@@ -3264,6 +3335,36 @@ void Renderer::draw_models()
         model = glm::scale(model, glm::vec3(inst.scale));
         glm::mat4 mvp = m_current_mvp * model;
         SDL_PushGPUVertexUniformData(m_cmd_buf, 0, &mvp[0][0], sizeof(glm::mat4));
+
+        // Per-model lighting UBO: sample brightness at model position.
+        // Since model vertices carry lightRGB={0,0,0}, the shader computes
+        //   effColor = max({0,0,0}, vec3(ambient)) = vec3(ambient)
+        // So we set ambient to the world light level (clamped to m_ambient).
+        {
+            struct ModelLightUBO { float fullbright, ao_mix, ambient, pad; };
+            ModelLightUBO mubo{ m_fullbright ? 1.f : 0.f, 0.f, m_ambient, 0.f };
+            if (!m_fullbright && m_world) {
+                glm::ivec3 fp  = glm::ivec3(glm::floor(inst.pos));
+                Voxel      vox = m_world->get_voxel(fp);
+                // If the base position is inside an opaque voxel, search neighbours.
+                if ((vox.flags & VFLAG_OPAQUE) || vox.light_level == 0) {
+                    static const glm::ivec3 k_mdirs[6] = {
+                        {0,1,0},{0,-1,0},{1,0,0},{-1,0,0},{0,0,1},{0,0,-1}
+                    };
+                    uint8_t best = 0;
+                    for (const auto& d : k_mdirs) {
+                        Voxel nv = m_world->get_voxel(fp + d);
+                        if (!(nv.flags & VFLAG_OPAQUE) && nv.light_level > best) {
+                            best = nv.light_level;
+                            vox  = nv;
+                        }
+                    }
+                }
+                float brightness = static_cast<float>(vox.light_level) / 15.f;
+                mubo.ambient = std::max(m_ambient, brightness);
+            }
+            SDL_PushGPUFragmentUniformData(m_cmd_buf, 0, &mubo, sizeof(mubo));
+        }
 
         SDL_GPUBufferBinding vb{ gm.vbuf, 0 };
         SDL_GPUBufferBinding ib{ gm.ibuf, 0 };
