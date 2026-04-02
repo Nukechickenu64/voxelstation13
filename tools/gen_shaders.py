@@ -529,6 +529,17 @@ def build_fragment():
     ID_DIFF_DOT     = s.new()
     ID_DIFF_SCALED  = s.new()
     ID_BIASED       = s.new()
+    # Per-axis diffuse shading (Minecraft-style)
+    ID_NRM_X        = s.new()
+    ID_NRM_Y        = s.new()
+    ID_NRM_Z        = s.new()
+    ID_Y_SQ         = s.new()
+    ID_X_CONTRIB    = s.new()
+    ID_Z_CONTRIB    = s.new()
+    ID_Y_GT_ZERO    = s.new()
+    ID_Y_FACTOR     = s.new()
+    ID_Y_CONTRIB    = s.new()
+    ID_BIASED_TMP   = s.new()
     # Runtime – UBO
     ID_P_OPTS       = s.new()
     ID_OPTS_VEC4    = s.new()
@@ -683,25 +694,37 @@ def build_fragment():
 
     # Constants
     s.emit(OP_CONSTANT, ID_INT,   ID_CI0,  0)
-    s.emit(OP_CONSTANT, ID_FLOAT, ID_LC,   f2w(0.57735))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_LC,   f2w(0.8))   # kX: shade for ±X-axis wall faces
     s.emit(OP_CONSTANT, ID_FLOAT, ID_C0,   f2w(0.0))
-    s.emit(OP_CONSTANT, ID_FLOAT, ID_C045, f2w(0.45))
-    s.emit(OP_CONSTANT, ID_FLOAT, ID_C055, f2w(0.55))
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_C045, f2w(0.6))   # kZ: shade for ±Z-axis wall faces
+    s.emit(OP_CONSTANT, ID_FLOAT, ID_C055, f2w(0.55))  # (kept for SPIR-V ID validity)
     s.emit(OP_CONSTANT, ID_FLOAT, ID_C05,  f2w(0.5))
     s.emit(OP_CONSTANT, ID_FLOAT, ID_C1,   f2w(1.0))
     s.emit(OP_CONSTANT, ID_FLOAT, ID_ALPHA_THRESH, f2w(0.05))
-    s.emit(OP_CONSTANT_COMPOSITE, ID_VEC3, ID_LIGHT_VEC, ID_LC, ID_LC, ID_LC)
+    s.emit(OP_CONSTANT_COMPOSITE, ID_VEC3, ID_LIGHT_VEC, ID_LC, ID_LC, ID_LC)  # unused, kept for SPIR-V ID validity
     s.emit(OP_CONSTANT_COMPOSITE, ID_VEC3, ID_ONE_VEC,   ID_C1, ID_C1, ID_C1)
 
     # ── Function ──────────────────────────────────────────────────────────────
     s.emit(OP_FUNCTION, ID_VOID, ID_MAIN, FC_NONE, ID_FN_VT)
     s.emit(OP_LABEL, ID_ENTRY_LBL)
 
-    # ── Lambertian diffuse (scalar) ───────────────────────────────────────────
-    s.emit(OP_LOAD,  ID_VEC3,  ID_LNRM,        ID_FRAG_NRM)
-    s.emit(OP_DOT,   ID_FLOAT, ID_DIFF_DOT,    ID_LNRM, ID_LIGHT_VEC)
-    s.emit(OP_F_MUL, ID_FLOAT, ID_DIFF_SCALED, ID_DIFF_DOT, ID_C045)
-    s.emit(OP_F_ADD, ID_FLOAT, ID_BIASED,       ID_DIFF_SCALED, ID_C055)
+    # ── Per-axis diffuse shading (Minecraft-style) ──────────────────────────────
+    # ±X faces → 0.8, ±Z faces → 0.6, +Y → 1.0, -Y → 0.5
+    # Uses n² trick: for axis-aligned normals n.x²=1 on X faces only, etc.
+    s.emit(OP_LOAD,              ID_VEC3,  ID_LNRM,      ID_FRAG_NRM)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_NRM_X,     ID_LNRM, 0)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_NRM_Y,     ID_LNRM, 1)
+    s.emit(OP_COMPOSITE_EXTRACT, ID_FLOAT, ID_NRM_Z,     ID_LNRM, 2)
+    s.emit(OP_F_MUL, ID_FLOAT, ID_DIFF_DOT,    ID_NRM_X, ID_NRM_X)   # x² = 1 on X faces
+    s.emit(OP_F_MUL, ID_FLOAT, ID_DIFF_SCALED, ID_NRM_Z, ID_NRM_Z)   # z² = 1 on Z faces
+    s.emit(OP_F_MUL, ID_FLOAT, ID_Y_SQ,        ID_NRM_Y, ID_NRM_Y)   # y² = 1 on Y faces
+    s.emit(OP_F_MUL, ID_FLOAT, ID_X_CONTRIB,   ID_DIFF_DOT,    ID_LC)    # x² * 0.8
+    s.emit(OP_F_MUL, ID_FLOAT, ID_Z_CONTRIB,   ID_DIFF_SCALED, ID_C045)  # z² * 0.6
+    s.emit(OP_F_ORD_GREATER_THAN, ID_BOOL,  ID_Y_GT_ZERO, ID_NRM_Y, ID_C0)
+    s.emit(OP_SELECT,             ID_FLOAT, ID_Y_FACTOR,  ID_Y_GT_ZERO, ID_C1, ID_C05)  # 1.0 top, 0.5 bottom
+    s.emit(OP_F_MUL, ID_FLOAT, ID_Y_CONTRIB,  ID_Y_SQ, ID_Y_FACTOR)
+    s.emit(OP_F_ADD, ID_FLOAT, ID_BIASED_TMP, ID_X_CONTRIB, ID_Y_CONTRIB)
+    s.emit(OP_F_ADD, ID_FLOAT, ID_BIASED,     ID_BIASED_TMP, ID_Z_CONTRIB)
 
     # ── Load UBO opts ─────────────────────────────────────────────────────────
     s.emit(OP_ACCESS_CHAIN, ID_PTR_UNI_V4, ID_P_OPTS, ID_LIGHT_VAR, ID_CI0)

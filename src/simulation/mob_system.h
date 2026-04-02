@@ -27,54 +27,136 @@ struct MobComponent {
 };
 
 // ── HealthComponent ───────────────────────────────────────────────────────────
-// SS13-style damage tracking for mobs.  Health = health_max – total_damage().
-// Four independent damage buckets mirror the human.json damage_types list.
+// TG SS13-faithful damage tracking for mobs.
 //
+// Five independent damage buckets:
 //   brute — physical trauma (punching, explosions)
-//   burn  — heat / electrical damage
-//   tox   — toxin accumulation (plasma gas, drugs)
-//   oxy   — oxygen deprivation
+//   burn  — heat / electrical / laser damage
+//   tox   — toxin accumulation (plasma gas, drugs, poison)
+//   oxy   — oxygen deprivation / suffocation
+//   clone — radiation / mutagenic damage (persists through cloning)
 //
-// Each bucket accumulates damage points (0-health_max each).
-// total_damage() sums all four; effective health = health_max - total_damage().
-// The mob is considered dead when effective health <= 0.
+// health = health_max – (brute + burn + tox + oxy + clone)
+// This can go NEGATIVE (like TG: health ranges from +maxHealth to −maxHealth).
+//
+// TG thresholds (from /code/modules/mob/living/living.dm):
+//   HEALTH_THRESHOLD_CRIT     = 50  → softcrit when health ≤ 50 (out of 100)
+//   HEALTH_THRESHOLD_死       = 0   → dead when health ≤ 0
+//
+// Stamina is tracked separately from HP:
+//   stam_damage accumulates from stun-batons, flashes, etc.
+//   At stam_damage ≥ stamina_max the mob is Knocked Out (stam_ko).
+//   Stamina regenerates at ~3/s when not fully depleted (server tick).
+//   TG proc: /mob/living/proc/apply_stamina_loss(), stamRegenRate.
 
 struct HealthComponent {
-    float health_max = 100.f;
+    // ── TG-parity crit thresholds ─────────────────────────────────────────────
+    // HEALTH_THRESHOLD_CRIT in TG = 50  (softcrit below this value)
+    // HEALTH_THRESHOLD_死  in TG = 0   (dead at or below 0)
+    static constexpr float CRIT_THRESHOLD       = 50.f;
+    static constexpr float STAMINA_KO_THRESHOLD = 100.f;
 
-    float brute = 0.f;
-    float burn  = 0.f;
-    float tox   = 0.f;
-    float oxy   = 0.f;
+    float health_max  = 100.f;
 
-    bool  dead    = false;
-    bool  godmode = false;  // when true, no damage is accepted
+    // ── Damage buckets ────────────────────────────────────────────────────────
+    float brute = 0.f;   // physical / melee / explosion
+    float burn  = 0.f;   // heat / electrical / laser
+    float tox   = 0.f;   // toxin / plasma gas / poison
+    float oxy   = 0.f;   // oxygen deprivation / asphyxia
+    float clone = 0.f;   // radiation / mutagenic (TG: clone_damage)
 
-    // Current effective health [0, health_max]
+    // ── Stamina (separate KO track) ───────────────────────────────────────────
+    float stamina_max = 100.f;
+    float stam_damage = 0.f;   // 0 = rested; stamina_max = KO'd
+
+    // ── State flags ───────────────────────────────────────────────────────────
+    bool  dead    = false;   // current() <= 0
+    bool  crit    = false;   // 0 < current() <= CRIT_THRESHOLD (softcrit)
+    bool  stam_ko = false;   // stam_damage >= stamina_max
+    bool  godmode = false;   // absorbs all incoming damage
+
+    // ── Computed health ───────────────────────────────────────────────────────
+    // May be negative when total_damage() > health_max (TG allows this).
     float current() const {
-        return std::max(0.f, health_max - (brute + burn + tox + oxy));
+        return health_max - (brute + burn + tox + oxy + clone);
     }
 
-    // Apply damage of a named type.  Clamps each bucket to [0, health_max].
+    float total_damage() const { return brute + burn + tox + oxy + clone; }
+
+    // Stamina as 0..1 fraction (1 = fully rested).
+    float stamina_pct() const {
+        return 1.f - std::clamp(stam_damage / stamina_max, 0.f, 1.f);
+    }
+
+    // ── Apply damage ──────────────────────────────────────────────────────────
+    // Each bucket is clamped to [0, health_max].
+    // Negative amount is forwarded to heal_type() (TG negative-damage heal path).
     void apply(const std::string& type, float amount) {
-        if (godmode && amount > 0.f) return;  // absorb all incoming damage
-        auto clamp = [&](float& bucket) {
-            bucket = std::clamp(bucket + amount, 0.f, health_max);
+        if (godmode && amount > 0.f) return;
+        if (amount < 0.f) { heal_type(type, -amount); return; }
+        auto clamp_add = [&](float& bucket) {
+            bucket = std::min(bucket + amount, health_max);
         };
-        if      (type == "brute") clamp(brute);
-        else if (type == "burn")  clamp(burn);
-        else if (type == "tox")   clamp(tox);
-        else if (type == "oxy")   clamp(oxy);
-        if (current() <= 0.f) dead = true;
+        if      (type == "brute") clamp_add(brute);
+        else if (type == "burn")  clamp_add(burn);
+        else if (type == "tox")   clamp_add(tox);
+        else if (type == "oxy")   clamp_add(oxy);
+        else if (type == "clone") clamp_add(clone);
+        update_flags();
     }
 
-    // Heal all damage types by amount.
+    // ── Heal a specific damage type ───────────────────────────────────────────
+    // TG analogues: heal_bodypart_damage(), adjustBruteLoss(), adjustFireLoss() …
+    void heal_type(const std::string& type, float amount) {
+        if (amount <= 0.f) return;
+        if      (type == "brute") brute = std::max(0.f, brute - amount);
+        else if (type == "burn")  burn  = std::max(0.f, burn  - amount);
+        else if (type == "tox")   tox   = std::max(0.f, tox   - amount);
+        else if (type == "oxy")   oxy   = std::max(0.f, oxy   - amount);
+        else if (type == "clone") clone = std::max(0.f, clone - amount);
+        update_flags();
+    }
+
+    // ── Heal all damage types equally (universal heal / medkits) ─────────────
     void heal(float amount) {
+        if (amount <= 0.f) return;
         brute = std::max(0.f, brute - amount);
         burn  = std::max(0.f, burn  - amount);
         tox   = std::max(0.f, tox   - amount);
         oxy   = std::max(0.f, oxy   - amount);
-        if (current() > 0.f) dead = false;
+        clone = std::max(0.f, clone - amount);
+        update_flags();
+    }
+
+    // ── Stamina damage / regen ────────────────────────────────────────────────
+    // TG: /mob/living/proc/apply_stamina_loss()
+    void apply_stam(float amount) {
+        if (godmode) return;
+        stam_damage = std::min(stam_damage + amount, stamina_max);
+        stam_ko = (stam_damage >= stamina_max);
+    }
+
+    // TG: stamRegenRate ≈ 3/s when not fully depleted
+    void regen_stam(float amount) {
+        stam_damage = std::max(0.f, stam_damage - amount);
+        if (stam_damage < stamina_max) stam_ko = false;
+    }
+
+    // ── Explicit flag resync ──────────────────────────────────────────────────
+    // Call after directly writing damage fields (e.g. dev tools, network sync).
+    // Normal game code should go through apply() / heal() / heal_type() which
+    // call update_flags() automatically.
+    void recalculate() { update_flags(); }
+
+private:
+    // Recompute dead/crit flags after any damage or healing.
+    // Mirrors TG's /mob/living/proc/updatehealth() → update_stat().
+    void update_flags() {
+        float hp = current();
+        dead = (hp <= 0.f);
+        crit = (!dead && hp <= CRIT_THRESHOLD);
+        // Revive from dead if damage was healed back above zero
+        // (explicit revival via defibrillator/CPR also calls this path)
     }
 };
 

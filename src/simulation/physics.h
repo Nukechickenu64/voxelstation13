@@ -18,7 +18,8 @@ class ModelObjectManager;
 // Components used by physics
 struct TransformComponent {
     glm::vec3 pos{};
-    glm::vec3 prev_pos{};   // for interpolation
+    glm::vec3 prev_pos{};   // previous server-authoritative position (for interpolation)
+    glm::vec3 net_pos{};    // latest server-authoritative position (remote client only)
     float     yaw  = 0.f;
     float     pitch= 0.f;
 };
@@ -101,6 +102,15 @@ public:
     // Mirrors TG's Bump() proc — the game loop uses this to trigger attack_chain().
     void set_bump_callback(BumpCallback cb) { m_bump_cb = std::move(cb); }
 
+    // Auxiliary worlds (e.g. vehicle grids) whose solid voxels also block movement.
+    // world_offset is the world-space position of local-coord {0,0,0}.
+    // Call clear_aux_worlds() + add_aux_world() each frame before tick() to keep
+    // offsets in sync with a moving vehicle.
+    void clear_aux_worlds() { m_aux_worlds.clear(); }
+    void add_aux_world(const World* w, glm::vec3 world_offset) {
+        m_aux_worlds.push_back({w, world_offset});
+    }
+
 private:
     glm::vec3 resolve_collisions(glm::vec3 pos, glm::vec3 delta, float radius, float height) const;
 
@@ -114,6 +124,9 @@ private:
     EntityManager& m_entities;
     ModelObjectManager* m_model_objects = nullptr;
     BumpCallback        m_bump_cb;
+
+    struct AuxWorld { const World* world; glm::vec3 offset; };
+    std::vector<AuxWorld> m_aux_worlds;
 
     static constexpr float GRAVITY          = -9.8f;
     // Jetpack: acceleration (m/s²) and terminal speed (m/s) in zero-G

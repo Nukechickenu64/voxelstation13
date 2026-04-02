@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "core/world.h"
 #include "core/entity_manager.h"
 #include <unordered_map>
@@ -11,7 +11,7 @@ class ModelObjectManager;
 
 // ── Gas mixture ───────────────────────────────────────────────────────────────
 struct GasMixture {
-    float o2      = 0.f;   // kPa
+    float o2      = 0.f;
     float n2      = 0.f;
     float co2     = 0.f;
     float plasma  = 0.f;
@@ -29,16 +29,19 @@ struct GasMixture {
 // ── Atmosphere status bitmask ─────────────────────────────────────────────────
 enum AtmosStatus : uint8_t {
     ATMOS_OK        = 0,
-    ATMOS_LOW_O2    = 1 << 0,  // O2 < 16 kPa
-    ATMOS_LOW_PRESS = 1 << 1,  // total < 50 kPa
-    ATMOS_HIGH_CO2  = 1 << 2,  // CO2 > 5 kPa
-    ATMOS_TOXIC     = 1 << 3,  // plasma/BZ/N2O above trace levels
-    ATMOS_FIRE      = 1 << 4,  // active hotspot
-    ATMOS_DECOMP    = 1 << 5,  // losing pressure to space
-    ATMOS_HIGH_TEMP = 1 << 6,  // temperature > 360 K (dangerously hot)
+    ATMOS_LOW_O2    = 1 << 0,
+    ATMOS_LOW_PRESS = 1 << 1,
+    ATMOS_HIGH_CO2  = 1 << 2,
+    ATMOS_TOXIC     = 1 << 3,
+    ATMOS_FIRE      = 1 << 4,
+    ATMOS_DECOMP    = 1 << 5,
+    ATMOS_HIGH_TEMP = 1 << 6,
 };
 
-// ── Atmosphere zone ───────────────────────────────────────────────────────────
+// ── Per-cell atmosphere zone ──────────────────────────────────────────────────
+// In the TG-style per-cell model every enclosed passable voxel is its own zone.
+// cell_count is always 1.  adjacent_zones lists the zone IDs of orthogonal
+// passable neighbours (used for the debug adj-count display).
 using AtmosZoneID = uint32_t;
 constexpr AtmosZoneID ATMOS_ZONE_NULL  = 0;
 constexpr AtmosZoneID ATMOS_ZONE_SPACE = 1;
@@ -47,24 +50,39 @@ struct AtmosZone {
     AtmosZoneID id         = ATMOS_ZONE_NULL;
     GasMixture  gas{};
     bool        is_space   = false;
-    int         cell_count = 0;
+    int         cell_count = 1;          // always 1; kept for API compat
     uint8_t     status     = ATMOS_OK;
-    float       pressure_loss_rate = 0.f;   // kPa/s lost to space this tick
-    glm::vec3   vent_direction{};           // toward nearest space vent
+    float       pressure_loss_rate = 0.f;
+    glm::vec3   vent_direction{};
     std::vector<AtmosZoneID> adjacent_zones;
-    bool  has_hotspot  = false;
-    float hotspot_temp = 0.f;
+    bool        has_hotspot  = false;
+    float       hotspot_temp = 0.f;
+    glm::ivec3  cell_pos{};              // world position of this cell (cell_count==1)
 };
 
-// ── Door link — which physical door voxels bridge two zones ───────────────────
+// ── Direct cell-to-cell edge ──────────────────────────────────────────────────
+struct CellEdge {
+    AtmosZoneID za;
+    AtmosZoneID zb;
+};
+
+// ── Door link — a face bounded by a door voxel or open space ─────────────────
 struct DoorLink {
     AtmosZoneID             zone_a;
     AtmosZoneID             zone_b;
     std::vector<glm::ivec3> door_voxels;
-    glm::vec3               midpoint{};   // average world pos (for wind direction)
+    glm::vec3               midpoint{};
+    glm::vec3               eject_dir{};
 };
 
 // ── Atmospheric simulator ─────────────────────────────────────────────────────
+// TG-station13-inspired per-cell model:
+//   * Every enclosed passable voxel stores its own GasMixture.
+//   * Gas flows between adjacent cells each tick at CONDUCTANCE_CELL.
+//   * Cells adjacent to open space drain via process_space_drain().
+//   * Door voxels create DoorLinks that seep at CONDUCTANCE_CLOSED when shut
+//     or flow at CONDUCTANCE_CELL when open.
+//   * No full BFS on voxel change — only the affected cell+neighbours update.
 class AtmosSimulator {
 public:
     AtmosSimulator(World& world, EntityManager* entities = nullptr);
@@ -75,85 +93,113 @@ public:
     void on_voxel_changed(glm::ivec3 pos);
     void on_door_changed (glm::ivec3 pos);
 
-    AtmosZone*  zone(AtmosZoneID id);
-    AtmosZoneID zone_at(glm::ivec3 pos) const;
-    GasMixture  mix_at (glm::ivec3 pos) const;
-    int         total_rooms() const;
+    AtmosZone*       zone(AtmosZoneID id);
+    const AtmosZone* zone(AtmosZoneID id) const;
+    AtmosZoneID      zone_at(glm::ivec3 pos) const;
+    GasMixture       mix_at (glm::ivec3 pos) const;
+    int              total_rooms() const;
 
     void try_ignite (AtmosZoneID id);
     void inject_gas (AtmosZoneID id, GasMixture delta);
 
-    // Register a ModelObjectManager so that gas-blocking model objects are
-    // treated as solid walls by the atmos zone builder.
-    // The pointer must remain valid for the lifetime of this AtmosSimulator.
     void set_model_objects(ModelObjectManager* mgr) { m_model_objects = mgr; }
 
-    // ── Overlay / visualisation accessors ─────────────────────────────────
-    // Returns every tracked air cell and the zone it belongs to.
     const std::unordered_map<glm::ivec3, AtmosZoneID>& all_cells() const { return m_cell_zone; }
-    // Returns all door-link records (zone boundaries with midpoints).
     const std::vector<DoorLink>& door_links() const { return m_door_links; }
-    // Const zone lookup.
-    const AtmosZone* zone(AtmosZoneID id) const;
 
 private:
-    void process_door_links   (double dt);
-    void process_space_drain  (AtmosZone& zone, const DoorLink& lnk,
-                               float conductance, double dt);
-    void equalise_zones       (AtmosZone& a, AtmosZone& b, double dt,
-                               float conductance, glm::vec3 midpoint);
-    void partial_rebuild      (std::unordered_set<AtmosZoneID> zone_ids);
-    void move_gas_component   (float& pa, float& pb, float Va, float Vb,
-                               float conductance, double dt);
-    void mix_temperature      (AtmosZone& dst, float added_moles, float src_temp);
-    void process_hotspot      (AtmosZone& zone, double dt);
-    void apply_entity_effects (double dt);
-    void update_status        (AtmosZone& zone);
-    AtmosZone* zone_at_id(AtmosZoneID id);
+    void flow_cells          (AtmosZone& a, AtmosZone& b, double dt, float conductance);
+    void process_space_drain (AtmosZone& zone, const DoorLink& lnk, float conductance, double dt);
+    void move_gas_component  (float& pa, float& pb, float Va, float Vb, float conductance, double dt);
+    void mix_temperature     (AtmosZone& dst, float added_moles, float src_temp);
+    void diffuse_temperature (AtmosZone& a, AtmosZone& b, double dt);
+    void process_hotspot     (AtmosZone& zone, double dt);
+    void apply_entity_effects(double dt);
+    void update_status       (AtmosZone& zone);
+    AtmosZone* zone_at_id    (AtmosZoneID id);
+
+    bool check_is_space    (glm::ivec3 pos) const;
+    void remove_cell       (glm::ivec3 pos);
+    void rebuild_cell_edges(glm::ivec3 pos);
 
     bool voxel_is_passable   (glm::ivec3 pos) const;
     bool voxel_is_closed_door(glm::ivec3 pos) const;
 
-    World&          m_world;
-    EntityManager*  m_entities;
+    World&              m_world;
+    EntityManager*      m_entities;
     ModelObjectManager* m_model_objects = nullptr;
+
     std::unordered_map<AtmosZoneID, AtmosZone>  m_zones;
     std::unordered_map<glm::ivec3, AtmosZoneID> m_cell_zone;
-    std::vector<DoorLink>                       m_door_links;
+    std::vector<CellEdge>  m_open_edges;
+    std::vector<DoorLink>  m_door_links;
+
     AtmosZoneID m_next_zone_id = 2;
-    bool        m_rebuild_pending = false;
+    int         m_num_regions  = 0;
 
     static constexpr int   SPACE_THRESHOLD          = 8192;
     static constexpr float PRESSURE_THRESHOLD       = 0.25f;
-    static constexpr float CONDUCTANCE_OPEN         = 0.6f;
+    static constexpr float CONDUCTANCE_CELL         = 3.0f;
     static constexpr float CONDUCTANCE_CLOSED       = 0.003f;
-    static constexpr float CONDUCTANCE_SPACE        = 0.20f;
-    static constexpr float CONDUCTANCE_SPACE_SEALED = 0.00f;   // closed door to space = perfectly airtight
-    // ── Wind force constants ───────────────────────────────────────────────
-    // WIND_THRESHOLD    : minimum pressure_loss_rate (kPa/s) before wind fires.
-    //                     ~0.25 kPa/s ≈ 1–2 kPa room differential through an
-    //                     open door — enough for a noticeable gentle push.
-    // WIND_ACCEL_PER_KPA_S: impulse added per (kPa/s * atmos_dt) in m/s.
-    // WIND_GROUND_RESIST: fraction of impulse applied when on_ground; simulates
-    //                     the friction advantage of being in contact with the floor.
-    // WIND_VEL_CAP       : absolute maximum m/s wind can push an entity.
-    static constexpr float WIND_THRESHOLD        = 0.25f;
-    static constexpr float WIND_ACCEL_PER_KPA_S  = 1.2f;
-    static constexpr float WIND_GROUND_RESIST    = 0.35f;
-    static constexpr float WIND_VEL_CAP          = 12.f;
-    // ── Pressure-differential status effect thresholds ─────────────────────
-    // WIND_JITTER_THRESHOLD   : kPa/s at which mild jitter begins (0.5 kPa/s).
-    // WIND_DIZZY_THRESHOLD    : kPa/s at which dizzy overlay appears (1.5 kPa/s).
-    // WIND_KNOCKDOWN_THRESHOLD: kPa/s causing outright knockdown (4.0 kPa/s).
-    // WIND_KNOCKDOWN_DUR_BASE : base knockdown duration in seconds.
-    // WIND_KNOCKDOWN_DUR_MAX  : cap on knockdown duration regardless of rate.
-    static constexpr float WIND_JITTER_THRESHOLD    = 0.5f;
-    static constexpr float WIND_DIZZY_THRESHOLD     = 1.5f;
-    static constexpr float WIND_KNOCKDOWN_THRESHOLD = 4.0f;
+    static constexpr float CONDUCTANCE_SPACE        = 2.0f;
+    static constexpr float CONDUCTANCE_SPACE_SEALED = 0.00f;
+    // Wind thresholds — kPa pressure differential between adjacent cells (TG-style)
+    static constexpr float WIND_EFFECT_THRESHOLD    = 2.0f;   // min diff to start pushing entities
+    static constexpr float WIND_SPEED_FACTOR        = 0.08f;  // coefficient: factor * diff^EXP = m/s²
+    static constexpr float WIND_POWER_EXP           = 1.7f;   // exponent — makes large diffs exponentially stronger
+    static constexpr float WIND_GROUND_RESIST       = 0.20f;  // on-ground friction multiplier
+    static constexpr float WIND_VEL_CAP             = 20.f;   // max wind-induced speed (m/s)
+    static constexpr float WIND_JITTER_THRESHOLD    = 2.0f;   // kPa diff → Jitter
+    static constexpr float WIND_DIZZY_THRESHOLD     = 15.0f;  // kPa diff → Dizzy
+    static constexpr float WIND_KNOCKDOWN_THRESHOLD = 30.0f;  // kPa diff → Knockdown / airborne
     static constexpr float WIND_KNOCKDOWN_DUR_BASE  = 1.0f;
     static constexpr float WIND_KNOCKDOWN_DUR_MAX   = 4.0f;
     static constexpr float O2_CONSUMPTION_RATE      = 0.018f;
     static constexpr float CO2_PRODUCTION_RATE      = 0.014f;
     static constexpr float IGNITION_TEMPERATURE     = 360.f;
     static constexpr float PLASMA_FIRE_O2_MIN       = 16.f;
+
+    // Temperature diffusion (independent of pressure)
+    static constexpr float TEMP_DIFFUSION_RATE      = 0.08f;
+
+    // Fire spreading thresholds
+    static constexpr float FIRE_SPREAD_TEMP_THRESH  = 410.f;  // hotspot temp to spread
+    static constexpr float FIRE_SPREAD_PLASMA_MIN   = 8.f;    // min plasma in neighbor
+
+    // Tritium fire
+    static constexpr float TRITIUM_FIRE_O2_MIN      = 2.f;
+    static constexpr float TRITIUM_BURN_HEAT        = 80.f;   // heat per unit burned
+
+    // Atmospheric damage rates (per second)
+    static constexpr float LOW_O2_THRESHOLD         = 16.f;   // kPa
+    static constexpr float LOW_PRESSURE_THRESHOLD   = 50.f;   // kPa total
+    static constexpr float HIGH_CO2_THRESHOLD       = 5.f;    // kPa
+    static constexpr float HIGH_TEMP_THRESHOLD      = 360.f;  // K
+    static constexpr float OXY_DAMAGE_RATE          = 0.5f;   // damage/s at full severity
+    static constexpr float DECOMP_DAMAGE_RATE       = 0.8f;   // damage/s at full severity
+    static constexpr float CO2_TOX_RATE             = 0.25f;
+    static constexpr float PLASMA_TOX_RATE          = 1.5f;
+    static constexpr float TRITIUM_TOX_RATE         = 0.8f;
+    static constexpr float BZ_TOX_RATE              = 0.5f;
+    static constexpr float N2O_TOX_RATE             = 0.1f;
+    static constexpr float HEAT_BURN_RATE           = 0.002f; // damage/s per excess K
+
+    // N2O thresholds for status effects
+    static constexpr float N2O_DROWSY_THRESHOLD     = 5.f;    // kPa
+    static constexpr float N2O_CONFUSION_THRESHOLD  = 25.f;   // kPa
+    static constexpr float SPACE_OXY_DAMAGE_RATE    = 4.0f;  // open vacuum is instant death
+
+    // Oxy healing — breathing fresh air clears oxy damage gradually
+    static constexpr float OXY_HEAL_RATE             = 0.5f;
+    static constexpr float OXY_HEAL_O2_MIN           = 16.f;
+    static constexpr float OXY_HEAL_PRESSURE_MIN     = 50.f;
+
+    // High-pressure barotrauma (> 550 kPa total environment pressure)
+    static constexpr float BARO_PRESSURE_THRESHOLD   = 550.f;
+    static constexpr float BARO_BASE_RATE            = 0.5f;  // brute/s at threshold
+    static constexpr float BARO_EXCESS_SCALE         = 0.3f;  // brute/s per 100 kPa over
+    static constexpr float BARO_MAX_RATE             = 3.0f;  // cap
+    // Low pressure (1–10 kPa, not full vacuum): decompression sickness
+    static constexpr float DECOMP_BARO_MAX_P         = 10.f;  // kPa — threshold
+    static constexpr float DECOMP_BARO_RATE          = 0.25f; // brute/s at 1 kPa
 };

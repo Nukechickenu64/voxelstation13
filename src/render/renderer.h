@@ -47,8 +47,12 @@ public:
     // Collect world-item quads into CPU buffer.  Call before begin_frame().
     // Flat-resting items are laid along their face; floating items billboard
     // toward the camera.  hovered_item gets a bright outline tint.
+    // world_offset is added to all item positions (use for vehicle-local items).
+    // Set clear_first=false to append vehicle items after the main world call.
     void queue_world_items(EntityManager& entities, EntityID hovered_item,
-                           glm::vec3 cam_pos, float yaw, float pitch);
+                           glm::vec3 cam_pos, float yaw, float pitch,
+                           glm::vec3 world_offset = {0.f, 0.f, 0.f},
+                           bool clear_first = true);
 
     // Draw the queued world-item quads (call inside render pass).
     void draw_world_items();
@@ -121,8 +125,12 @@ public:
     // Call BEFORE begin_frame().
     // local_player_eid: the local player's entity ID; its head will be hidden (body-only)
     //   and it will not be back-face culled (always visible when looking down).
+    // world_offset: added to all mob positions (use for vehicle-local entities).
+    // Set clear_first=false to append vehicle mobs after the main world call.
     void queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_yaw,
-                    EntityID local_player_eid = NULL_ENTITY);
+                    EntityID local_player_eid = NULL_ENTITY,
+                    glm::vec3 world_offset = {0.f, 0.f, 0.f},
+                    bool clear_first = true);
 
     // Draw the queued mob sprites (call inside the render pass, after draw_world()).
     void draw_mobs();
@@ -172,6 +180,18 @@ public:
     void       clear_all_meshes();
     // Upload all finished meshes in a single GPU command buffer (call once per frame).
     void       upload_meshes_batch(std::vector<ChunkMesh>& meshes);
+
+    // ── Vehicle voxel-grid rendering ──────────────────────────────────────────
+    // Each vehicle has its own CPU/GPU chunk-mesh storage keyed by vehicle_id.
+    // Typical usage:
+    //   1. vehicle_mesher.collect_finished() → pass to upload_vehicle_meshes_batch
+    //   2. draw_vehicle(id, vehicle->world_pos_f()) inside the render pass
+    ChunkMesh& get_or_create_vehicle_mesh(uint32_t vehicle_id, glm::ivec3 chunk_pos);
+    void       upload_vehicle_meshes_batch(uint32_t vehicle_id, std::vector<ChunkMesh>& meshes);
+    // Draw vehicle chunks offset by world_offset (call after draw_world).
+    // m_current_mvp must be valid (i.e. draw_world must have been called this frame).
+    void       draw_vehicle(uint32_t vehicle_id, glm::vec3 world_offset);
+    void       clear_vehicle_meshes(uint32_t vehicle_id);
 
     SDL_Window*          window()       const { return m_window; }
     SDL_GPUDevice*        gpu()          const { return m_gpu; }
@@ -376,6 +396,12 @@ private:
     };
     std::unordered_map<glm::ivec3, GPUMesh> m_gpu_meshes;
 
+    // ── Vehicle chunk mesh storage ────────────────────────────────────────────
+    // Separate CPU + GPU mesh maps per vehicle_id.  Populated by
+    // upload_vehicle_meshes_batch(); rendered by draw_vehicle().
+    std::unordered_map<uint32_t, std::unordered_map<glm::ivec3, ChunkMesh>> m_vehicle_cpu_meshes;
+    std::unordered_map<uint32_t, std::unordered_map<glm::ivec3, GPUMesh>>   m_vehicle_gpu_meshes;
+
     // ── Helpers ───────────────────────────────────────────────────────────────
     bool create_depth_texture();
     bool create_pipeline();
@@ -395,6 +421,18 @@ private:
     void upload_sky_geometry();         // copy pass before render pass (earth verts only)
     void release_gpu_mesh(GPUMesh& gm);
     static bool aabb_in_frustum(const glm::mat4& mvp, glm::vec3 mn, glm::vec3 mx);
+
+    // Shared upload helper: transfers a batch of CPU ChunkMesh objects into
+    // an arbitrary GPU mesh map.  Used by both upload_meshes_batch (→ m_gpu_meshes)
+    // and upload_vehicle_meshes_batch (→ m_vehicle_gpu_meshes[id]).
+    void upload_meshes_to(std::vector<ChunkMesh>& meshes,
+                          std::unordered_map<glm::ivec3, GPUMesh>& gpu_map);
+
+    // Shared draw helper: renders a GPU mesh set with an additional world-space
+    // offset baked into the per-chunk model matrix.  Used by draw_world (offset=0)
+    // and draw_vehicle (offset=vehicle world position).
+    void draw_gpu_mesh_set(std::unordered_map<glm::ivec3, GPUMesh>& gpu_meshes,
+                           const glm::mat4& view_proj, glm::vec3 world_offset);
 
     // Upload one 32×32 RGBA image into m_assembly_tex at the given layer index.
     // Submits a one-shot copy command (safe outside a render pass).

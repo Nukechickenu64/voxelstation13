@@ -66,6 +66,20 @@ public:
     // Read-only access to the color map (used by the chunk mesher snapshot).
     const LightMap& light_map() const { return m_light_map; }
 
+    // Flood sky/ambient light inward from all cells that are adjacent to an
+    // unloaded chunk position.  Call after rebuild() on isolated worlds
+    // (e.g. vehicle grids) so exterior faces are bright instead of black.
+    // Does NOT overwrite cells that already have higher light levels.
+    void flood_border_sky(uint8_t level = 15);
+
+    // When true, flood_border_sky() is called automatically at the end of
+    // every rebuild() and rebuild_dynamic().  Set this on vehicle lighting
+    // systems so exterior faces are always sky-lit.
+    void set_auto_border_sky(bool on, uint8_t level = 15) {
+        m_auto_border_sky       = on;
+        m_auto_border_sky_level = level;
+    }
+
     // ── Dynamic point lights (e.g. held flashlight) ──────────────────────
     // color defaults to warm white (255,220,180).
     void add_dynamic_light(glm::ivec3 pos, uint8_t level, EntityID source,
@@ -87,4 +101,6 @@ private:
     struct PointLight { glm::ivec3 pos; uint8_t level; LightColor color; EntityID source; };
     std::vector<PointLight> m_dynamic_lights;
     const VoxelRegistry* m_registry = nullptr;
+    bool    m_auto_border_sky       = false;
+    uint8_t m_auto_border_sky_level = 15;
 };

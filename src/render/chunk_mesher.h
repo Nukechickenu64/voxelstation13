@@ -47,7 +47,12 @@ public:
     // distributes it to all chunk jobs.  Use this whenever multiple dirty
     // chunks need meshing in the same frame (e.g. after a voxel edit + lighting
     // update) to avoid N redundant copies of the light map.
-    void enqueue_batch(const std::vector<Chunk*>& chunks, const World& world);
+    // isolated_world=true enables the vehicle exterior-face lighting fix:
+    // unlit in-chunk air is treated as void and reflects inward to read
+    // the interior light, so hull faces not adjacent to a loaded neighbour
+    // pick up interior illumination rather than showing solid black.
+    void enqueue_batch(const std::vector<Chunk*>& chunks, const World& world,
+                       bool isolated_world = false);
 
     // Collect finished meshes this frame; caller uploads them to the GPU.
     // Only meshes from the current generation are returned — stale results
@@ -75,6 +80,7 @@ private:
     struct Job {
         glm::ivec3 chunk_pos;
         uint64_t   generation = 0;
+        bool       isolated_world = false;
         std::array<Voxel, CHUNK_VOL> voxels;
         // Shared across all jobs in the same batch — pointer copy only.
         std::shared_ptr<const AtlasTable>        type_atlas;

@@ -19,6 +19,7 @@ void PhysicsSystem::tick(double dt)
     //   k=0.4 in air:   barely damps so you keep momentum while airborne
     constexpr float GROUND_FRICTION_K = 10.f;
     constexpr float AIR_FRICTION_K    =  0.4f;
+    constexpr float ITEM_FRICTION_K   =  1.5f;  // items slide freely; lower = slides further
     // Quake-style additive acceleration (m/s²) toward wish_move
     constexpr float GROUND_ACCEL = 30.f;  // reach full speed in ~2 ticks on ground
     constexpr float AIR_ACCEL    =  6.f;  // gentle air-steering
@@ -274,7 +275,7 @@ void PhysicsSystem::tick(double dt)
                 tr.pos + glm::vec3(-ITEM_RADIUS, -0.05f, -ITEM_RADIUS),
                 tr.pos + glm::vec3( ITEM_RADIUS,  0.0f,   ITEM_RADIUS));
             if (on_ground) {
-                float f2 = std::exp(-GROUND_FRICTION_K * fdt);
+                float f2 = std::exp(-ITEM_FRICTION_K * fdt);
                 vel->linear.x *= f2;
                 vel->linear.z *= f2;
             }
@@ -355,6 +356,20 @@ bool PhysicsSystem::overlaps_solid(glm::vec3 min, glm::vec3 max) const
         if (v.flags & VFLAG_SOLID) return true;
         // Static 3-D model objects block movement when blocks_mobs = true
         if (m_model_objects && m_model_objects->blocks_mob_at({x, y, z})) return true;
+    }
+    // Also check auxiliary worlds (e.g. floating vehicle grids).
+    // Convert each world-space AABB corner to vehicle-local coords and query.
+    for (const auto& aw : m_aux_worlds) {
+        glm::vec3 lmin = min - aw.offset;
+        glm::vec3 lmax = max - aw.offset;
+        glm::ivec3 limin{ (int)floor(lmin.x), (int)floor(lmin.y), (int)floor(lmin.z) };
+        glm::ivec3 limax{ (int)floor(lmax.x), (int)floor(lmax.y), (int)floor(lmax.z) };
+        for (int z = limin.z; z <= limax.z; ++z)
+        for (int y = limin.y; y <= limax.y; ++y)
+        for (int x = limin.x; x <= limax.x; ++x) {
+            Voxel v = aw.world->get_voxel({x, y, z});
+            if (v.flags & VFLAG_SOLID) return true;
+        }
     }
     return false;
 }

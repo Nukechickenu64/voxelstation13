@@ -758,6 +758,113 @@ void Renderer::clear_all_meshes()
 
 void Renderer::upload_meshes_batch(std::vector<ChunkMesh>& meshes)
 {
+    upload_meshes_to(meshes, m_gpu_meshes);
+}
+
+void Renderer::upload_vehicle_meshes_batch(uint32_t vehicle_id, std::vector<ChunkMesh>& meshes)
+{
+    upload_meshes_to(meshes, m_vehicle_gpu_meshes[vehicle_id]);
+}
+
+ChunkMesh& Renderer::get_or_create_vehicle_mesh(uint32_t vehicle_id, glm::ivec3 chunk_pos)
+{
+    return m_vehicle_cpu_meshes[vehicle_id][chunk_pos];
+}
+
+void Renderer::clear_vehicle_meshes(uint32_t vehicle_id)
+{
+    auto it = m_vehicle_gpu_meshes.find(vehicle_id);
+    if (it != m_vehicle_gpu_meshes.end()) {
+        for (auto& [pos, gm] : it->second)
+            release_gpu_mesh(gm);
+        m_vehicle_gpu_meshes.erase(it);
+    }
+    m_vehicle_cpu_meshes.erase(vehicle_id);
+}
+
+// ── Vehicle rendering helper: draw a GPU mesh set with a world-space offset ───
+
+void Renderer::draw_gpu_mesh_set(
+    std::unordered_map<glm::ivec3, GPUMesh>& gpu_meshes,
+    const glm::mat4& view_proj, glm::vec3 world_offset)
+{
+    if (!m_render_pass) return;
+    for (auto& [chunk_pos, gm] : gpu_meshes) {
+        if (!gm.vbuf || !gm.ibuf || gm.num_indices == 0) continue;
+        glm::vec3 mn = world_offset + glm::vec3(chunk_pos)     * float(CHUNK_SIZE);
+        glm::vec3 mx = world_offset + glm::vec3(chunk_pos + 1) * float(CHUNK_SIZE);
+        if (!aabb_in_frustum(view_proj, mn, mx)) continue;
+        glm::mat4 model     = glm::translate(glm::mat4(1.f), mn);
+        glm::mat4 chunk_mvp = view_proj * model;
+        struct VertexUBO { float mvp[16]; float snap_res, y_shear, _pad1, _pad2; };
+        VertexUBO vert_ubo{};
+        std::memcpy(vert_ubo.mvp, &chunk_mvp[0][0], sizeof(float) * 16);
+        vert_ubo.snap_res = m_psx_wobble ? m_psx_snap_res : 0.f;
+        vert_ubo.y_shear  = m_psx_yshear;
+        SDL_PushGPUVertexUniformData(m_cmd_buf, 0, &vert_ubo, sizeof(vert_ubo));
+        SDL_GPUBufferBinding vb{ gm.vbuf, 0 };
+        SDL_GPUBufferBinding ib{ gm.ibuf, 0 };
+        SDL_BindGPUVertexBuffers(m_render_pass, 0, &vb, 1);
+        SDL_BindGPUIndexBuffer(m_render_pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        SDL_DrawGPUIndexedPrimitives(m_render_pass, gm.num_indices, 1, 0, 0, 0);
+    }
+}
+
+// ── Draw one vehicle's voxel grid at its float world-space offset ─────────────
+// Call after draw_world() so that m_current_mvp and the render pass are valid.
+
+void Renderer::draw_vehicle(uint32_t vehicle_id, glm::vec3 world_offset)
+{
+    if (!m_render_pass || !m_world_pipeline) return;
+    auto it = m_vehicle_gpu_meshes.find(vehicle_id);
+    if (it == m_vehicle_gpu_meshes.end() || it->second.empty()) return;
+
+    // (Re)bind the opaque world pipeline — draw_world may have left overlay pipeline bound
+    SDL_BindGPUGraphicsPipeline(m_render_pass,
+        m_wireframe ? m_wireframe_pipeline : m_world_pipeline);
+
+    // Push lighting UBO (same settings as main world pass)
+    struct LightingUBO { float fullbright, ao_mix, ambient, affine_mix; };
+    LightingUBO light_ubo{ m_fullbright ? 1.0f : 0.0f, m_ao_mix, m_ambient, m_affine_mix };
+    SDL_PushGPUFragmentUniformData(m_cmd_buf, 0, &light_ubo, sizeof(light_ubo));
+
+    // Rebind tile texture array
+    if (m_tile_array && m_tile_sampler) {
+        SDL_GPUTextureSamplerBinding tsb{ m_tile_array, m_tile_sampler };
+        SDL_BindGPUFragmentSamplers(m_render_pass, 0, &tsb, 1);
+    }
+
+    // Draw opaque chunks with the vehicle world offset
+    draw_gpu_mesh_set(it->second, m_current_mvp, world_offset);
+
+    // Overlay pass (for vehicles that have glass/overlay voxels)
+    if (m_world_overlay_pipeline) {
+        SDL_BindGPUGraphicsPipeline(m_render_pass, m_world_overlay_pipeline);
+        for (auto& [chunk_pos, gm] : it->second) {
+            if (!gm.ov_vbuf || !gm.ov_ibuf || gm.ov_num_indices == 0) continue;
+            glm::vec3 mn = world_offset + glm::vec3(chunk_pos)     * float(CHUNK_SIZE);
+            glm::vec3 mx = world_offset + glm::vec3(chunk_pos + 1) * float(CHUNK_SIZE);
+            if (!aabb_in_frustum(m_current_mvp, mn, mx)) continue;
+            glm::mat4 model     = glm::translate(glm::mat4(1.f), mn);
+            glm::mat4 chunk_mvp = m_current_mvp * model;
+            struct VertexUBO { float mvp[16]; float snap_res, y_shear, _pad1, _pad2; };
+            VertexUBO vert_ubo{};
+            std::memcpy(vert_ubo.mvp, &chunk_mvp[0][0], sizeof(float) * 16);
+            vert_ubo.snap_res = m_psx_wobble ? m_psx_snap_res : 0.f;
+            vert_ubo.y_shear  = m_psx_yshear;
+            SDL_PushGPUVertexUniformData(m_cmd_buf, 0, &vert_ubo, sizeof(vert_ubo));
+            SDL_GPUBufferBinding vb{ gm.ov_vbuf, 0 };
+            SDL_GPUBufferBinding ib{ gm.ov_ibuf, 0 };
+            SDL_BindGPUVertexBuffers(m_render_pass, 0, &vb, 1);
+            SDL_BindGPUIndexBuffer(m_render_pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+            SDL_DrawGPUIndexedPrimitives(m_render_pass, gm.ov_num_indices, 1, 0, 0, 0);
+        }
+    }
+}
+
+void Renderer::upload_meshes_to(std::vector<ChunkMesh>& meshes,
+                                 std::unordered_map<glm::ivec3, GPUMesh>& gpu_map)
+{
     if (meshes.empty()) return;
 
     // ── Phase 1: ensure GPU buffers exist / are large enough ─────────────────
@@ -778,14 +885,14 @@ void Renderer::upload_meshes_batch(std::vector<ChunkMesh>& meshes)
     for (auto& mesh : meshes) {
         if (mesh.vertices.empty() || mesh.indices.empty()) {
             // Release any old GPU buffers for this chunk
-            auto it = m_gpu_meshes.find(mesh.chunk_pos);
-            if (it != m_gpu_meshes.end())
+            auto it = gpu_map.find(mesh.chunk_pos);
+            if (it != gpu_map.end())
                 release_gpu_mesh(it->second);
             mesh.dirty = false;
             continue;
         }
 
-        auto& gm = m_gpu_meshes[mesh.chunk_pos];
+        auto& gm = gpu_map[mesh.chunk_pos];
 
         const Uint32 vsize = (Uint32)(mesh.vertices.size() * sizeof(float));
         const Uint32 isize = (Uint32)(mesh.indices.size()  * sizeof(uint32_t));
@@ -1636,11 +1743,14 @@ glm::vec3 Renderer::entity_light_tint(glm::vec3 pos) const
 // ── queue_world_items ─────────────────────────────────────────────────────────
 
 void Renderer::queue_world_items(EntityManager& entities, EntityID hovered_item,
-                                  glm::vec3 cam_pos, float yaw, float pitch)
+                                  glm::vec3 cam_pos, float yaw, float pitch,
+                                  glm::vec3 world_offset, bool clear_first)
 {
-    m_item_verts.clear();
-    m_item_indices.clear();
-    m_item_pending = false;
+    if (clear_first) {
+        m_item_verts.clear();
+        m_item_indices.clear();
+        m_item_pending = false;
+    }
 
     // Camera basis for billboard items
     float yaw_r   = glm::radians(yaw);
@@ -1674,7 +1784,7 @@ void Renderer::queue_world_items(EntityManager& entities, EntityID hovered_item,
         auto* tr = entities.get_component<TransformComponent>(eid);
         if (!tr) return;
 
-        glm::vec3 center = tr->pos;
+        glm::vec3 center = tr->pos + world_offset;
 
         (void)hovered_item;
         // Tint by world light at item position.
@@ -2525,16 +2635,20 @@ static int mob_sprite_dir(glm::vec3 mob_pos, float mob_yaw_deg, glm::vec3 cam_po
 }
 
 void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_yaw,
-                          EntityID local_player_eid)
+                          EntityID local_player_eid,
+                          glm::vec3 world_offset,
+                          bool clear_first)
 {
-    // Clear both staging buffers
-    m_mob_verts.clear();
-    m_mob_indices.clear();
-    m_mob_pending = false;
+    // Clear both staging buffers (skip when appending vehicle mobs)
+    if (clear_first) {
+        m_mob_verts.clear();
+        m_mob_indices.clear();
+        m_mob_pending = false;
 
-    m_asm_verts.clear();
-    m_asm_indices.clear();
-    m_asm_pending = false;
+        m_asm_verts.clear();
+        m_asm_indices.clear();
+        m_asm_pending = false;
+    }
 
     // Camera forward (XZ only) for back-face culling
     float yaw_r = glm::radians(cam_yaw);
@@ -2632,7 +2746,7 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
             auto* tr = entities.get_component<TransformComponent>(eid);
             if (!tr) return;
 
-            glm::vec3 feet = tr->pos;
+            glm::vec3 feet = tr->pos + world_offset;
             // Back-face cull
             if (glm::dot(feet - cam_pos, cam_fwd) < -0.5f) return;
 
@@ -2682,7 +2796,7 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
             auto* tr = entities.get_component<TransformComponent>(eid);
             if (!tr) return;
 
-            glm::vec3 feet = tr->pos;
+            glm::vec3 feet = tr->pos + world_offset;
             if (glm::dot(feet - cam_pos, cam_fwd) < -0.5f) return;
 
             std::string key = mob.species + "/" + mob.variant;

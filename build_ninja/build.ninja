@@ -176,48 +176,16 @@ build CMakeFiles/vs13.dir/src/render/model_loader.cpp.obj: CXX_COMPILER__vs13_un
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\render
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
-build CMakeFiles/vs13.dir/src/simulation/atmos.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/atmos.cpp || cmake_object_order_depends_target_vs13
-  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\atmos.cpp.obj.d
+build CMakeFiles/vs13.dir/src/simulation/status_effects.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/status_effects.cpp || cmake_object_order_depends_target_vs13
+  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\status_effects.cpp.obj.d
   FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
-build CMakeFiles/vs13.dir/src/simulation/enclosure.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/enclosure.cpp || cmake_object_order_depends_target_vs13
-  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\enclosure.cpp.obj.d
-  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
-  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
-  OBJECT_DIR = CMakeFiles\vs13.dir
-  OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
-  TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
-
-build CMakeFiles/vs13.dir/src/simulation/liquids.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/liquids.cpp || cmake_object_order_depends_target_vs13
-  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\liquids.cpp.obj.d
-  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
-  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
-  OBJECT_DIR = CMakeFiles\vs13.dir
-  OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
-  TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
-
-build CMakeFiles/vs13.dir/src/simulation/power.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/power.cpp || cmake_object_order_depends_target_vs13
-  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\power.cpp.obj.d
-  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
-  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
-  OBJECT_DIR = CMakeFiles\vs13.dir
-  OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
-  TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
-
-build CMakeFiles/vs13.dir/src/simulation/pipes.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/pipes.cpp || cmake_object_order_depends_target_vs13
-  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\pipes.cpp.obj.d
-  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
-  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
-  OBJECT_DIR = CMakeFiles\vs13.dir
-  OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
-  TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
-
-build CMakeFiles/vs13.dir/src/simulation/physics.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/physics.cpp || cmake_object_order_depends_target_vs13
-  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\physics.cpp.obj.d
+build CMakeFiles/vs13.dir/src/simulation/attack_chain.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/attack_chain.cpp || cmake_object_order_depends_target_vs13
+  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\attack_chain.cpp.obj.d
   FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
@@ -240,48 +208,16 @@ build CMakeFiles/vs13.dir/src/simulation/model_objects.cpp.obj: CXX_COMPILER__vs
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
-build CMakeFiles/vs13.dir/src/simulation/status_effects.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/status_effects.cpp || cmake_object_order_depends_target_vs13
-  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\status_effects.cpp.obj.d
+build CMakeFiles/vs13.dir/src/simulation/atmos.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/atmos.cpp || cmake_object_order_depends_target_vs13
+  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\atmos.cpp.obj.d
   FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
-build CMakeFiles/vs13.dir/src/simulation/attack_chain.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/attack_chain.cpp || cmake_object_order_depends_target_vs13
-  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\attack_chain.cpp.obj.d
-  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
-  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
-  OBJECT_DIR = CMakeFiles\vs13.dir
-  OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
-  TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
-
-build CMakeFiles/vs13.dir/src/simulation/npc_ai.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/npc_ai.cpp || cmake_object_order_depends_target_vs13
-  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\npc_ai.cpp.obj.d
-  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
-  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
-  OBJECT_DIR = CMakeFiles\vs13.dir
-  OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
-  TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
-
-build CMakeFiles/vs13.dir/src/simulation/reagents.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/reagents.cpp || cmake_object_order_depends_target_vs13
-  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\reagents.cpp.obj.d
-  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
-  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
-  OBJECT_DIR = CMakeFiles\vs13.dir
-  OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
-  TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
-
-build CMakeFiles/vs13.dir/src/simulation/vehicle.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/vehicle.cpp || cmake_object_order_depends_target_vs13
-  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\vehicle.cpp.obj.d
-  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
-  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
-  OBJECT_DIR = CMakeFiles\vs13.dir
-  OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\simulation
-  TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
-
-build CMakeFiles/vs13.dir/src/simulation/vehicle_manager.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/vehicle_manager.cpp || cmake_object_order_depends_target_vs13
-  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\vehicle_manager.cpp.obj.d
+build CMakeFiles/vs13.dir/src/simulation/enclosure.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/enclosure.cpp || cmake_object_order_depends_target_vs13
+  DEP_FILE = CMakeFiles\vs13.dir\src\simulation\enclosure.cpp.obj.d
   FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
@@ -318,14 +254,6 @@ build CMakeFiles/vs13.dir/src/inventory/item_registry.cpp.obj: CXX_COMPILER__vs1
   INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
   OBJECT_DIR = CMakeFiles\vs13.dir
   OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\inventory
-  TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
-
-build CMakeFiles/vs13.dir/src/network/server.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/network/server.cpp || cmake_object_order_depends_target_vs13
-  DEP_FILE = CMakeFiles\vs13.dir\src\network\server.cpp.obj.d
-  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
-  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
-  OBJECT_DIR = CMakeFiles\vs13.dir
-  OBJECT_FILE_DIR = CMakeFiles\vs13.dir\src\network
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
 
 build CMakeFiles/vs13.dir/src/network/client.cpp.obj: CXX_COMPILER__vs13_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/network/client.cpp || cmake_object_order_depends_target_vs13
@@ -480,8 +408,8 @@ build CMakeFiles/vs13.dir/src/ui/character_creator.cpp.obj: CXX_COMPILER__vs13_u
 #############################################
 # Link the executable vs13.exe
 
-build vs13.exe: CXX_EXECUTABLE_LINKER__vs13_ CMakeFiles/vs13.dir/src/main.cpp.obj CMakeFiles/vs13.dir/src/stb_impl.cpp.obj CMakeFiles/vs13.dir/src/core/game_loop.cpp.obj CMakeFiles/vs13.dir/src/core/world.cpp.obj CMakeFiles/vs13.dir/src/core/entity_manager.cpp.obj CMakeFiles/vs13.dir/src/core/object_types.cpp.obj CMakeFiles/vs13.dir/src/core/verb_dispatch.cpp.obj CMakeFiles/vs13.dir/src/core/signals.cpp.obj CMakeFiles/vs13.dir/src/core/master_controller.cpp.obj CMakeFiles/vs13.dir/src/render/renderer.cpp.obj CMakeFiles/vs13.dir/src/render/chunk_mesher.cpp.obj CMakeFiles/vs13.dir/src/render/lighting.cpp.obj CMakeFiles/vs13.dir/src/render/ui_renderer.cpp.obj CMakeFiles/vs13.dir/src/render/ui_item_icons.cpp.obj CMakeFiles/vs13.dir/src/render/model_loader.cpp.obj CMakeFiles/vs13.dir/src/simulation/atmos.cpp.obj CMakeFiles/vs13.dir/src/simulation/enclosure.cpp.obj CMakeFiles/vs13.dir/src/simulation/liquids.cpp.obj CMakeFiles/vs13.dir/src/simulation/power.cpp.obj CMakeFiles/vs13.dir/src/simulation/pipes.cpp.obj CMakeFiles/vs13.dir/src/simulation/physics.cpp.obj CMakeFiles/vs13.dir/src/simulation/world_items.cpp.obj CMakeFiles/vs13.dir/src/simulation/model_objects.cpp.obj CMakeFiles/vs13.dir/src/simulation/status_effects.cpp.obj CMakeFiles/vs13.dir/src/simulation/attack_chain.cpp.obj CMakeFiles/vs13.dir/src/simulation/npc_ai.cpp.obj CMakeFiles/vs13.dir/src/simulation/reagents.cpp.obj CMakeFiles/vs13.dir/src/simulation/vehicle.cpp.obj CMakeFiles/vs13.dir/src/simulation/vehicle_manager.cpp.obj CMakeFiles/vs13.dir/src/input/input_manager.cpp.obj CMakeFiles/vs13.dir/src/input/alt_mode.cpp.obj CMakeFiles/vs13.dir/src/inventory/inventory.cpp.obj CMakeFiles/vs13.dir/src/inventory/item_registry.cpp.obj CMakeFiles/vs13.dir/src/network/server.cpp.obj CMakeFiles/vs13.dir/src/network/client.cpp.obj CMakeFiles/vs13.dir/src/audio/audio_manager.cpp.obj CMakeFiles/vs13.dir/src/data/voxel_registry.cpp.obj CMakeFiles/vs13.dir/src/data/data_validator.cpp.obj CMakeFiles/vs13.dir/src/data/mob_species_registry.cpp.obj CMakeFiles/vs13.dir/src/data/map_io.cpp.obj CMakeFiles/vs13.dir/src/ui/hud.cpp.obj CMakeFiles/vs13.dir/src/ui/debug_overlay.cpp.obj CMakeFiles/vs13.dir/src/ui/inventory_panel.cpp.obj CMakeFiles/vs13.dir/src/ui/context_menu.cpp.obj CMakeFiles/vs13.dir/src/ui/creative_menu.cpp.obj CMakeFiles/vs13.dir/src/ui/gas_overlay.cpp.obj CMakeFiles/vs13.dir/src/ui/player_stats_overlay.cpp.obj CMakeFiles/vs13.dir/src/ui/map_editor.cpp.obj CMakeFiles/vs13.dir/src/ui/admin_menu.cpp.obj CMakeFiles/vs13.dir/src/ui/main_menu.cpp.obj CMakeFiles/vs13.dir/src/ui/pause_menu.cpp.obj CMakeFiles/vs13.dir/src/ui/character_creator.cpp.obj | C$:/Program$ Files/SDL3/lib/libSDL3.dll.a _deps/glm-build/glm/libglm.a || _deps/glm-build/glm/libglm.a gen_font_data gen_shaders
-  LINK_LIBRARIES = "C:/Program Files/SDL3/lib/libSDL3.dll.a"  _deps/glm-build/glm/libglm.a  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+build vs13.exe: CXX_EXECUTABLE_LINKER__vs13_ CMakeFiles/vs13.dir/src/main.cpp.obj CMakeFiles/vs13.dir/src/stb_impl.cpp.obj CMakeFiles/vs13.dir/src/core/game_loop.cpp.obj CMakeFiles/vs13.dir/src/core/world.cpp.obj CMakeFiles/vs13.dir/src/core/entity_manager.cpp.obj CMakeFiles/vs13.dir/src/core/object_types.cpp.obj CMakeFiles/vs13.dir/src/core/verb_dispatch.cpp.obj CMakeFiles/vs13.dir/src/core/signals.cpp.obj CMakeFiles/vs13.dir/src/core/master_controller.cpp.obj CMakeFiles/vs13.dir/src/render/renderer.cpp.obj CMakeFiles/vs13.dir/src/render/chunk_mesher.cpp.obj CMakeFiles/vs13.dir/src/render/lighting.cpp.obj CMakeFiles/vs13.dir/src/render/ui_renderer.cpp.obj CMakeFiles/vs13.dir/src/render/ui_item_icons.cpp.obj CMakeFiles/vs13.dir/src/render/model_loader.cpp.obj CMakeFiles/vs13.dir/src/simulation/status_effects.cpp.obj CMakeFiles/vs13.dir/src/simulation/attack_chain.cpp.obj CMakeFiles/vs13.dir/src/simulation/world_items.cpp.obj CMakeFiles/vs13.dir/src/simulation/model_objects.cpp.obj CMakeFiles/vs13.dir/src/simulation/atmos.cpp.obj CMakeFiles/vs13.dir/src/simulation/enclosure.cpp.obj CMakeFiles/vs13.dir/src/input/input_manager.cpp.obj CMakeFiles/vs13.dir/src/input/alt_mode.cpp.obj CMakeFiles/vs13.dir/src/inventory/inventory.cpp.obj CMakeFiles/vs13.dir/src/inventory/item_registry.cpp.obj CMakeFiles/vs13.dir/src/network/client.cpp.obj CMakeFiles/vs13.dir/src/audio/audio_manager.cpp.obj CMakeFiles/vs13.dir/src/data/voxel_registry.cpp.obj CMakeFiles/vs13.dir/src/data/data_validator.cpp.obj CMakeFiles/vs13.dir/src/data/mob_species_registry.cpp.obj CMakeFiles/vs13.dir/src/data/map_io.cpp.obj CMakeFiles/vs13.dir/src/ui/hud.cpp.obj CMakeFiles/vs13.dir/src/ui/debug_overlay.cpp.obj CMakeFiles/vs13.dir/src/ui/inventory_panel.cpp.obj CMakeFiles/vs13.dir/src/ui/context_menu.cpp.obj CMakeFiles/vs13.dir/src/ui/creative_menu.cpp.obj CMakeFiles/vs13.dir/src/ui/gas_overlay.cpp.obj CMakeFiles/vs13.dir/src/ui/player_stats_overlay.cpp.obj CMakeFiles/vs13.dir/src/ui/map_editor.cpp.obj CMakeFiles/vs13.dir/src/ui/admin_menu.cpp.obj CMakeFiles/vs13.dir/src/ui/main_menu.cpp.obj CMakeFiles/vs13.dir/src/ui/pause_menu.cpp.obj CMakeFiles/vs13.dir/src/ui/character_creator.cpp.obj | C$:/Program$ Files/SDL3/lib/libSDL3.dll.a _deps/glm-build/glm/libglm.a || _deps/glm-build/glm/libglm.a gen_font_data gen_shaders
+  LINK_LIBRARIES = "C:/Program Files/SDL3/lib/libSDL3.dll.a"  _deps/glm-build/glm/libglm.a  -lws2_32  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
   OBJECT_DIR = CMakeFiles\vs13.dir
   POST_BUILD = cd .
   PRE_LINK = cd .
@@ -489,6 +417,281 @@ build vs13.exe: CXX_EXECUTABLE_LINKER__vs13_ CMakeFiles/vs13.dir/src/main.cpp.ob
   TARGET_IMPLIB = libvs13.dll.a
   TARGET_PDB = vs13.exe.dbg
   TARGET_SUPPORT_DIR = CMakeFiles\vs13.dir
+
+# =============================================================================
+# Object build statements for EXECUTABLE target vs13_server
+
+
+#############################################
+# Order-only phony target for vs13_server
+
+build cmake_object_order_depends_target_vs13_server: phony || cmake_object_order_depends_target_glm
+
+build CMakeFiles/vs13_server.dir/src/server_main.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/server_main.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\server_main.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/core/game_loop.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/core/game_loop.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\core\game_loop.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\core
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/core/world.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/core/world.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\core\world.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\core
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/core/entity_manager.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/core/entity_manager.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\core\entity_manager.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\core
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/core/object_types.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/core/object_types.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\core\object_types.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\core
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/core/verb_dispatch.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/core/verb_dispatch.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\core\verb_dispatch.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\core
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/core/signals.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/core/signals.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\core\signals.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\core
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/core/master_controller.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/core/master_controller.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\core\master_controller.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\core
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/simulation/atmos.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/atmos.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\simulation\atmos.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/simulation/enclosure.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/enclosure.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\simulation\enclosure.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/simulation/liquids.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/liquids.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\simulation\liquids.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/simulation/power.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/power.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\simulation\power.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/simulation/pipes.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/pipes.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\simulation\pipes.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/simulation/physics.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/physics.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\simulation\physics.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/simulation/world_items.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/world_items.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\simulation\world_items.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/simulation/model_objects.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/model_objects.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\simulation\model_objects.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/simulation/status_effects.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/status_effects.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\simulation\status_effects.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/simulation/attack_chain.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/attack_chain.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\simulation\attack_chain.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/simulation/npc_ai.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/npc_ai.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\simulation\npc_ai.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/simulation/reagents.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/reagents.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\simulation\reagents.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/simulation/vehicle.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/vehicle.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\simulation\vehicle.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/simulation/vehicle_manager.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/simulation/vehicle_manager.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\simulation\vehicle_manager.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\simulation
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/inventory/inventory.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/inventory/inventory.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\inventory\inventory.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\inventory
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/inventory/item_registry.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/inventory/item_registry.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\inventory\item_registry.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\inventory
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/network/server.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/network/server.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\network\server.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\network
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/network/client.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/network/client.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\network\client.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\network
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/data/voxel_registry.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/data/voxel_registry.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\data\voxel_registry.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\data
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/data/data_validator.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/data/data_validator.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\data\data_validator.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\data
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/data/mob_species_registry.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/data/mob_species_registry.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\data\mob_species_registry.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\data
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/data/map_io.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/data/map_io.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\data\map_io.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\data
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+build CMakeFiles/vs13_server.dir/src/render/lighting.cpp.obj: CXX_COMPILER__vs13_server_unscanned_ C$:/Users/nukec/Documents/GitHub/voxelstation13/src/render/lighting.cpp || cmake_object_order_depends_target_vs13_server
+  DEP_FILE = CMakeFiles\vs13_server.dir\src\render\lighting.cpp.obj.d
+  FLAGS = -std=gnu++20 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/nukec/Documents/GitHub/voxelstation13/src -IC:/Users/nukec/Documents/GitHub/voxelstation13/includes -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/stb-src -I"C:/Program Files/SDL3/include" -IC:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja/_deps/glm-src
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  OBJECT_FILE_DIR = CMakeFiles\vs13_server.dir\src\render
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target vs13_server
+
+
+#############################################
+# Link the executable vs13_server.exe
+
+build vs13_server.exe: CXX_EXECUTABLE_LINKER__vs13_server_ CMakeFiles/vs13_server.dir/src/server_main.cpp.obj CMakeFiles/vs13_server.dir/src/core/game_loop.cpp.obj CMakeFiles/vs13_server.dir/src/core/world.cpp.obj CMakeFiles/vs13_server.dir/src/core/entity_manager.cpp.obj CMakeFiles/vs13_server.dir/src/core/object_types.cpp.obj CMakeFiles/vs13_server.dir/src/core/verb_dispatch.cpp.obj CMakeFiles/vs13_server.dir/src/core/signals.cpp.obj CMakeFiles/vs13_server.dir/src/core/master_controller.cpp.obj CMakeFiles/vs13_server.dir/src/simulation/atmos.cpp.obj CMakeFiles/vs13_server.dir/src/simulation/enclosure.cpp.obj CMakeFiles/vs13_server.dir/src/simulation/liquids.cpp.obj CMakeFiles/vs13_server.dir/src/simulation/power.cpp.obj CMakeFiles/vs13_server.dir/src/simulation/pipes.cpp.obj CMakeFiles/vs13_server.dir/src/simulation/physics.cpp.obj CMakeFiles/vs13_server.dir/src/simulation/world_items.cpp.obj CMakeFiles/vs13_server.dir/src/simulation/model_objects.cpp.obj CMakeFiles/vs13_server.dir/src/simulation/status_effects.cpp.obj CMakeFiles/vs13_server.dir/src/simulation/attack_chain.cpp.obj CMakeFiles/vs13_server.dir/src/simulation/npc_ai.cpp.obj CMakeFiles/vs13_server.dir/src/simulation/reagents.cpp.obj CMakeFiles/vs13_server.dir/src/simulation/vehicle.cpp.obj CMakeFiles/vs13_server.dir/src/simulation/vehicle_manager.cpp.obj CMakeFiles/vs13_server.dir/src/inventory/inventory.cpp.obj CMakeFiles/vs13_server.dir/src/inventory/item_registry.cpp.obj CMakeFiles/vs13_server.dir/src/network/server.cpp.obj CMakeFiles/vs13_server.dir/src/network/client.cpp.obj CMakeFiles/vs13_server.dir/src/data/voxel_registry.cpp.obj CMakeFiles/vs13_server.dir/src/data/data_validator.cpp.obj CMakeFiles/vs13_server.dir/src/data/mob_species_registry.cpp.obj CMakeFiles/vs13_server.dir/src/data/map_io.cpp.obj CMakeFiles/vs13_server.dir/src/render/lighting.cpp.obj | C$:/Program$ Files/SDL3/lib/libSDL3.dll.a _deps/glm-build/glm/libglm.a || _deps/glm-build/glm/libglm.a
+  LINK_LIBRARIES = "C:/Program Files/SDL3/lib/libSDL3.dll.a"  _deps/glm-build/glm/libglm.a  -lws2_32  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\vs13_server.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = vs13_server.exe
+  TARGET_IMPLIB = libvs13_server.dll.a
+  TARGET_PDB = vs13_server.exe.dbg
+  TARGET_SUPPORT_DIR = CMakeFiles\vs13_server.dir
 
 
 #############################################
@@ -770,6 +973,8 @@ build libglm.a: phony _deps/glm-build/glm/libglm.a
 
 build vs13: phony vs13.exe
 
+build vs13_server: phony vs13_server.exe
+
 # =============================================================================
 # Folder targets.
 
@@ -778,7 +983,7 @@ build vs13: phony vs13.exe
 #############################################
 # Folder: C:/Users/nukec/Documents/GitHub/voxelstation13/build_ninja
 
-build all: phony vs13.exe _deps/glm-build/all
+build all: phony vs13.exe vs13_server.exe _deps/glm-build/all
 
 # =============================================================================
 

@@ -132,15 +132,25 @@ set(SRC_UI
 )
 
 # ── Executable ────────────────────────────────────────────────────────────────
+# Simulation files safe to keep in client: pure component logic, no system deps
+set(SRC_SIM_CLIENT
+    src/simulation/status_effects.cpp   # StatusEffectsComponent query helpers
+    src/simulation/attack_chain.cpp     # melee hit/grab state machine
+    src/simulation/world_items.cpp      # world-item entity management
+    src/simulation/model_objects.cpp    # static model collision geometry
+    src/simulation/atmos.cpp            # AtmosSimulator (client reads zone info)
+    src/simulation/enclosure.cpp        # EnclosureDetector (client reads enclosure)
+)
+
 add_executable(vs13
     src/main.cpp
     src/stb_impl.cpp
     ${SRC_CORE}
     ${SRC_RENDER}
-    ${SRC_SIM}
+    ${SRC_SIM_CLIENT}
     ${SRC_INPUT}
     ${SRC_INVENTORY}
-    ${SRC_NETWORK}
+    src/network/client.cpp              # server.cpp excluded: depends on full SRC_SIM
     ${SRC_AUDIO}
     ${SRC_DATA}
     ${SRC_UI}
@@ -161,15 +171,45 @@ target_link_libraries(vs13 PRIVATE
     glm::glm
 )
 
+# ── Dedicated server (headless — no render/ui/audio/input) ───────────────────
+add_executable(vs13_server
+    src/server_main.cpp
+    ${SRC_CORE}
+    ${SRC_SIM}
+    ${SRC_INVENTORY}
+    ${SRC_NETWORK}
+    ${SRC_DATA}
+    src/render/lighting.cpp   # vehicle simulation uses LightingSystem
+)
+
+target_include_directories(vs13_server PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/includes
+    ${stb_SOURCE_DIR}
+)
+
+target_link_libraries(vs13_server PRIVATE
+    SDL3::SDL3
+    glm::glm
+)
+
+# ── WinSock2 for raw UDP sockets on Windows ───────────────────────────────────
+if(WIN32)
+    target_link_libraries(vs13     PRIVATE ws2_32)
+    target_link_libraries(vs13_server PRIVATE ws2_32)
+endif()
+
 # ── Compiler warnings ─────────────────────────────────────────────────────────
 if(MSVC)
-    target_compile_options(vs13 PRIVATE /W4 /WX-)
+    target_compile_options(vs13        PRIVATE /W4 /WX-)
+    target_compile_options(vs13_server PRIVATE /W4 /WX-)
 else()
-    target_compile_options(vs13 PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(vs13        PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(vs13_server PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 # ── Install ───────────────────────────────────────────────────────────────────
-install(TARGETS vs13 RUNTIME DESTINATION bin)
+install(TARGETS vs13 vs13_server RUNTIME DESTINATION bin)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/data    DESTINATION share/vs13)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/textures DESTINATION share/vs13)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/sounds  DESTINATION share/vs13)

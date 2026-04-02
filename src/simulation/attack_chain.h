@@ -116,5 +116,9 @@ void release_grab(EntityID grabber, EntityID grabbed,
 // Base unarmed damage (matches TG: 5 brute per punch, rounded per species)
 constexpr float BASE_UNARMED_DAMAGE = 5.f;
 
+// Base stamina loss per unarmed hit.
+// TG: unarmed punches deal ~5 stamina loss; blunt weapons deal more.
+constexpr float BASE_UNARMED_STAM_DAMAGE = 5.f;
+
 // Distance within which a melee attack can connect (same as TG ~1.5 tiles ≈ 1.8 m)
 constexpr float MELEE_REACH = 1.8f;

@@ -24,6 +24,9 @@
 #include "simulation/pipes.h"
 #include "simulation/physics.h"
 #include "simulation/model_objects.h"
+#include "simulation/world_items.h"
+#include "simulation/liquids.h"
+#include "render/lighting.h"
 #include <cstdint>
 #include <string>
 #include <memory>
@@ -69,7 +72,26 @@ public:
 
     // ── World anchor (vehicle[0,0,0] in map world coords) ─────────────────────
     glm::ivec3 anchor()                  const { return m_anchor; }
-    void       set_anchor(glm::ivec3 a)        { m_anchor = a; }
+    void       set_anchor(glm::ivec3 a)        { m_anchor = a; m_world_pos_f = glm::vec3(a); }
+
+    // ── Float world-space position (for smooth physics-gun rendering) ─────────
+    // set_world_pos_f updates both the float position and the integer anchor.
+    glm::vec3  world_pos_f()                   const { return m_world_pos_f; }
+    void       set_world_pos_f(glm::vec3 p)          {
+        m_world_pos_f = p;
+        m_anchor = glm::ivec3(
+            static_cast<int>(std::floor(p.x)),
+            static_cast<int>(std::floor(p.y)),
+            static_cast<int>(std::floor(p.z)));
+    }
+
+    // ── Rigid-body velocity (m/s, world space) ────────────────────────────────
+    glm::vec3  world_vel()                     const { return m_world_vel; }
+    void       set_world_vel(glm::vec3 v)            { m_world_vel = v; }
+
+    // Integrate velocity into world position each tick (applies linear friction,
+    // floor clamp at y=0, and syncs m_anchor to floor(m_world_pos_f)).
+    void       tick_world_pos(double dt);
 
     // Coordinate space conversion
     glm::ivec3 to_map_pos  (glm::ivec3 local_pos) const { return local_pos + m_anchor; }
@@ -82,13 +104,19 @@ public:
     void            clear_dock_port()                   { m_has_dock_port = false; }
 
     // ── Subsystem accessors (mirrors Server's public interface) ───────────────
-    World&          world()    { return *m_world; }
-    const World&    world()    const { return *m_world; }
-    EntityManager&  entities() { return *m_entities; }
-    AtmosSimulator& atmos()    { return *m_atmos; }
-    PowerGrid&      power()    { return *m_power; }
-    PipeNetwork&    pipes()    { return *m_pipes; }
-    PhysicsSystem&  physics()  { return *m_physics; }
+    World&           world()      { return *m_world; }
+    const World&     world()      const { return *m_world; }
+    EntityManager&   entities()   { return *m_entities; }
+    AtmosSimulator&  atmos()      { return *m_atmos; }
+    PowerGrid&       power()      { return *m_power; }
+    PipeNetwork&     pipes()      { return *m_pipes; }
+    PhysicsSystem&   physics()    { return *m_physics; }
+    LightingSystem&  lighting()   { return *m_lighting; }
+    WorldItemSystem& world_items(){ return *m_world_items; }
+    LiquidSimulator& liquids()    { return *m_liquids; }
+
+    // Forward registry to the lighting system (call before first rebuild).
+    void set_registry(const VoxelRegistry* reg) { m_lighting->set_registry(reg); }
 
     // Pass a ModelObjectManager through to collision / atmos systems.
     // Pointer must outlive this VehicleGrid.
@@ -113,15 +141,20 @@ private:
     std::string  m_name;
     VehicleState m_state      = VehicleState::InSpace;
     glm::ivec3   m_anchor{};
+    glm::vec3    m_world_pos_f{};  // float world position for smooth rendering
+    glm::vec3    m_world_vel{};    // rigid-body velocity (m/s, world space)
     bool         m_has_dock_port = false;
     DockPort     m_dock_port{};
 
-    std::unique_ptr<World>          m_world;
-    std::unique_ptr<EntityManager>  m_entities;
-    std::unique_ptr<AtmosSimulator> m_atmos;
-    std::unique_ptr<PowerGrid>      m_power;
-    std::unique_ptr<PipeNetwork>    m_pipes;
-    std::unique_ptr<PhysicsSystem>  m_physics;
+    std::unique_ptr<World>           m_world;
+    std::unique_ptr<EntityManager>   m_entities;
+    std::unique_ptr<AtmosSimulator>  m_atmos;
+    std::unique_ptr<PowerGrid>       m_power;
+    std::unique_ptr<PipeNetwork>     m_pipes;
+    std::unique_ptr<PhysicsSystem>   m_physics;
+    std::unique_ptr<LightingSystem>  m_lighting;
+    std::unique_ptr<WorldItemSystem> m_world_items;
+    std::unique_ptr<LiquidSimulator> m_liquids;
 
     // Atmos runs at a fixed 20 Hz independent of the main tick rate.
     double m_atmos_acc = 0.0;

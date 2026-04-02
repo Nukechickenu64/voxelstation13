@@ -10,16 +10,14 @@
 #include "render/chunk_mesher.h"
 #include "render/lighting.h"
 #include "render/ui_renderer.h"
-#include "simulation/atmos.h"
-#include "simulation/power.h"
-#include "simulation/pipes.h"
 #include "simulation/physics.h"
 #include "simulation/world_items.h"
 #include "simulation/mob_system.h"
-#include "simulation/enclosure.h"
 #include "simulation/status_effects.h"
 #include "simulation/attack_chain.h"
-#include "simulation/reagents.h"
+#include "simulation/enclosure.h"
+#include "simulation/vehicle.h"
+#include "simulation/vehicle_manager.h"
 #include "input/input_manager.h"
 #include "input/alt_mode.h"
 #include "inventory/inventory.h"
@@ -43,8 +41,15 @@
 #include "ui/character_creator.h"
 #include "core/object_types.h"
 #include "core/verb_dispatch.h"
-#include "network/server.h"
 #include "network/client.h"
+#include "network/input_snapshot.h"
+
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#endif
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -54,7 +59,7 @@
 // Player inventory is now built by make_player_inventory() in inventory.cpp
 
 // ────────────────────────────────────────────────────────────────────────────
-int main(int /*argc*/, char* /*argv*/[])
+int main(int argc, char* argv[])
 {
     // ── 1. Renderer + window (must come first to show the loading screen) ────
     Renderer renderer;
@@ -129,12 +134,10 @@ int main(int /*argc*/, char* /*argv*/[])
     init_verb_dispatch();
 
     // ── TG SS13 systems ───────────────────────────────────────────────────────
-    // Signal bus:  must come first (server's spawn_player registers signals)
+    // Signal bus:  must come first
     init_signals();
     // Master Controller: processing list subsystem
     init_master_controller();
-    // Reagent registry: built-in reagent defs
-    init_reagents();
 
     ItemRegistry item_reg;
     item_reg.load_directory("data/item_types");
@@ -166,25 +169,94 @@ int main(int /*argc*/, char* /*argv*/[])
     mesher.start(4);
     mesher.set_registry(&voxel_reg);  // enables per-face texture selection
 
-    // ── 5. Server (local single-player) ──────────────────────────────────────
-    Server server;
-    server.start(0); // port 0 = loopback / no networking
-    server.set_species_registry(&mob_species_reg);
+    // ── 5. Networking mode ────────────────────────────────────────────────────
+    // --server host[:port]  → connect to a specific remote dedicated server
+    // (default)             → auto-launch vs13_server.exe and connect to localhost
+    std::string remote_host = "127.0.0.1";
+    uint16_t    remote_port = 7778;
+    bool        need_launch_server = true;
+    for (int i = 1; i < argc; ++i) {
+        if (SDL_strcmp(argv[i], "--server") == 0 && i + 1 < argc) {
+            need_launch_server = false;
+            std::string addr = argv[++i];
+            auto colon = addr.rfind(':');
+            if (colon != std::string::npos) {
+                remote_host = addr.substr(0, colon);
+                remote_port = static_cast<uint16_t>(std::stol(addr.substr(colon + 1)));
+            } else {
+                remote_host = std::move(addr);
+            }
+        }
+    }
+
+    if (need_launch_server) {
+        render_loading_frame("Starting local server...");
+#ifdef _WIN32
+        // Try the current directory first, then build_ninja/ (dev builds)
+        const char* search[] = { "vs13_server.exe", "build_ninja\\vs13_server.exe" };
+        bool launched = false;
+        for (const char* path : search) {
+            STARTUPINFOA si{};
+            PROCESS_INFORMATION pi{};
+            si.cb = sizeof(si);
+            char cmd[256];
+            SDL_snprintf(cmd, sizeof(cmd), "%s", path);
+            if (CreateProcessA(path, cmd, nullptr, nullptr, FALSE,
+                               CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+                CloseHandle(pi.hThread);
+                CloseHandle(pi.hProcess);
+                launched = true;
+                break;
+            }
+        }
+        if (!launched) {
+            SDL_Log("Failed to launch vs13_server.exe — is it in the same directory?");
+            SDL_Quit();
+            return 1;
+        }
+#else
+        SDL_Log("Auto-server launch not yet implemented on this platform. "
+                "Please start vs13_server manually and use --server 127.0.0.1:7778.");
+        SDL_Quit();
+        return 1;
+#endif
+        SDL_Delay(400); // give the server time to bind its port
+    }
 
     // ── 6. Client ─────────────────────────────────────────────────────────────
     Client client;
-    client.connect_local(server);
+    client.set_registry(&voxel_reg);
+    client.set_item_registry(&item_reg);
+    render_loading_frame("Connecting to server...");
+    if (!client.connect(remote_host.c_str(), remote_port)) {
+        SDL_Log("Failed to connect to %s:%u",
+                remote_host.c_str(), static_cast<unsigned>(remote_port));
+        SDL_Quit();
+        return 1;
+    }
 
-    // ── 6b. Enclosure detector ────────────────────────────────────────────────
-    EnclosureDetector enclosure_detector(server.world());
+    // World / entity accessors — always the client's replicated copies.
+    World&         g_world    = client.world();
+    EntityManager& g_entities = client.entities();
+
+    // ── Server-side simulation stubs (not available in remote-client mode) ────
+    // These are set to nullptr so client-only code compiles cleanly.
+    // Any code that checks these will gracefully skip server-side features.
+    AtmosSimulator*    g_atmos         = nullptr;
+    EnclosureDetector  enclosure_detector{g_world};  // needs World reference
+    // Vehicle / vehicle mesher stubs (server-side only)
+    VehicleGrid*       test_vehicle    = nullptr;
+    ChunkMesher        vehicle_mesher;
+    // Melee reach constant (was missing)
+    static constexpr float MELEE_REACH = 2.5f;
 
     // ── 7. Lighting ───────────────────────────────────────────────────────────
-    LightingSystem lighting(server.world());
+    LightingSystem lighting(g_world);
     lighting.set_registry(&voxel_reg);  // must be set before rebuild()
     mesher.set_lighting(&lighting);     // enables colored smooth lighting
-    renderer.set_lighting(&server.world(), &lighting.light_map());  // entity/model lighting
+    renderer.set_lighting(&g_world, &lighting.light_map());  // entity/model lighting
     // When any entity is destroyed, clean up its dynamic light (if any).
-    server.entities().on_destroy([&](EntityID id) { lighting.remove_dynamic_light(id); });
+    g_entities.on_destroy([&](EntityID id) { lighting.remove_dynamic_light(id); });
 
     // ── 8. Audio ─────────────────────────────────────────────────────────────
     AudioManager audio;
@@ -226,7 +298,7 @@ int main(int /*argc*/, char* /*argv*/[])
     Inventory player_inv = make_player_inventory();
 
     // ── 11b. World item system ────────────────────────────────────────────────
-    WorldItemSystem world_items(server.world(), server.entities());
+    WorldItemSystem world_items(g_world, g_entities);
 
     // ── 11c. Static model objects ─────────────────────────────────────────────
     ModelObjectManager model_objs;
@@ -235,248 +307,15 @@ int main(int /*argc*/, char* /*argv*/[])
         if (renderer.model_local_aabb("smes", mn, mx))
             model_objs.register_extents("smes", mn, mx);
     }
-    server.set_model_objects(&model_objs);
 
     // ── 11d. Map editor ───────────────────────────────────────────────────────
     std::vector<std::string> model_names{"smes"};
-    MapEditor map_editor(ui_renderer, server.world(), voxel_reg,
-                         server.entities(), world_items, item_reg,
+    MapEditor map_editor(ui_renderer, g_world, voxel_reg,
+                         g_entities, world_items, item_reg,
                          mob_species_reg, model_objs, model_names);
 
-    // ── 12. Test world geometry — placeholder room ────────────────────────────
-    {
-        // Resolve voxel type IDs (fall back to 1/2 when data not loaded)
-        uint16_t floor_id = voxel_reg.id_of("floor");
-        if (floor_id == 0) floor_id = 1;
-        uint16_t wall_id = voxel_reg.id_of("reinforced_wall");
-        if (wall_id == 0) wall_id = voxel_reg.id_of("wall");
-        if (wall_id == 0) wall_id = 2;
-
-        Voxel floor_voxel;
-        floor_voxel.type_id = floor_id;
-        floor_voxel.flags   = VFLAG_SOLID | VFLAG_OPAQUE;
-
-        Voxel wall_voxel;
-        wall_voxel.type_id = wall_id;
-        wall_voxel.flags   = VFLAG_SOLID | VFLAG_OPAQUE;
-
-        // Room extents: x/z = [-8, 8], y = 0 (floor) .. 5 (ceiling)
-        constexpr int ROOM_MIN  = -8;
-        constexpr int ROOM_MAX  =  8;
-        constexpr int WALL_TOP  =  4;  // walls fill y = 1 .. WALL_TOP
-        constexpr int CEILING_Y =  5;
-
-        // Airlock + space constants
-        constexpr int LOCK_X_LO  = -1;  // inner door gap: x = -1..1
-        constexpr int LOCK_X_HI  =  1;
-        constexpr int LOCK_DOOR_TOP = 3; // door opening height y=1..3
-        constexpr int LOCK_Z_IN  =  ROOM_MAX;      // z=8  – inner wall (station side)
-        constexpr int LOCK_Z_OUT = ROOM_MAX + 4;   // z=12 – outer wall (space side)
-        constexpr int LOCK_WALL_LO = LOCK_X_LO - 1;  // x=-2
-        constexpr int LOCK_WALL_HI = LOCK_X_HI + 1;  // x=2
-        constexpr int SPACE_FAR  = ROOM_MAX + 22;  // z=30 – end of space platform
-
-        uint16_t plating_id = voxel_reg.id_of("floor_plating");
-        if (plating_id == 0) plating_id = floor_id;
-        Voxel plating_voxel;
-        plating_voxel.type_id = plating_id;
-        plating_voxel.flags   = VFLAG_SOLID | VFLAG_OPAQUE;
-
-        // Floor (y = 0)
-        for (int x = ROOM_MIN; x <= ROOM_MAX; ++x)
-            for (int z = ROOM_MIN; z <= ROOM_MAX; ++z)
-                server.world().set_voxel({x, 0, z}, floor_voxel);
-
-        // Perimeter walls (y = 1 .. WALL_TOP) — with airlock gap in +Z wall
-        for (int i = ROOM_MIN; i <= ROOM_MAX; ++i) {
-            for (int y = 1; y <= WALL_TOP; ++y) {
-                server.world().set_voxel({ i,       y, ROOM_MIN}, wall_voxel);
-                // +Z wall: leave gap at x=LOCK_X_LO..LOCK_X_HI, y=1..LOCK_DOOR_TOP
-                if (i < LOCK_X_LO || i > LOCK_X_HI || y > LOCK_DOOR_TOP)
-                    server.world().set_voxel({ i, y, ROOM_MAX}, wall_voxel);
-                server.world().set_voxel({ROOM_MIN, y,  i      }, wall_voxel);
-                server.world().set_voxel({ROOM_MAX, y,  i      }, wall_voxel);
-            }
-        }
-
-        // Ceiling (y = CEILING_Y)
-        for (int x = ROOM_MIN; x <= ROOM_MAX; ++x)
-            for (int z = ROOM_MIN; z <= ROOM_MAX; ++z)
-                server.world().set_voxel({x, CEILING_Y, z}, wall_voxel);
-
-        // Four interior pillars at (±5, 1..WALL_TOP, ±5)
-        constexpr int PIL = 5;
-        for (int y = 1; y <= WALL_TOP; ++y) {
-            server.world().set_voxel({ PIL, y,  PIL}, wall_voxel);
-            server.world().set_voxel({-PIL, y,  PIL}, wall_voxel);
-            server.world().set_voxel({ PIL, y, -PIL}, wall_voxel);
-            server.world().set_voxel({-PIL, y, -PIL}, wall_voxel);
-        }
-
-        // ── Airlock vestibule (z = ROOM_MAX+1 .. LOCK_Z_OUT-1) ────────────────
-        // Floor
-        for (int x = LOCK_WALL_LO; x <= LOCK_WALL_HI; ++x)
-            for (int z = LOCK_Z_IN + 1; z < LOCK_Z_OUT; ++z)
-                server.world().set_voxel({x, 0, z}, plating_voxel);
-
-        // Side walls x=LOCK_WALL_LO and x=LOCK_WALL_HI
-        for (int z = LOCK_Z_IN + 1; z <= LOCK_Z_OUT; ++z)
-            for (int y = 1; y <= WALL_TOP; ++y) {
-                server.world().set_voxel({LOCK_WALL_LO, y, z}, wall_voxel);
-                server.world().set_voxel({LOCK_WALL_HI, y, z}, wall_voxel);
-            }
-
-        // Outer wall at LOCK_Z_OUT — with matching door gap at center
-        for (int x = LOCK_WALL_LO; x <= LOCK_WALL_HI; ++x)
-            for (int y = 1; y <= WALL_TOP; ++y)
-                if (x < LOCK_X_LO || x > LOCK_X_HI || y > LOCK_DOOR_TOP)
-                    server.world().set_voxel({x, y, LOCK_Z_OUT}, wall_voxel);
-
-        // ── Airlock doors ──────────────────────────────────────────────────────
-        // Close off both wall gaps with double-sided planar door voxels.
-        uint16_t door_id = voxel_reg.id_of("door");
-        if (door_id != 0) {
-            Voxel door_voxel;
-            door_voxel.type_id = door_id;
-            door_voxel.flags   = VFLAG_SOLID | VFLAG_VERT_PLANE_Z;
-
-            // Inner door (station side at z=LOCK_Z_IN)
-            for (int x = LOCK_X_LO; x <= LOCK_X_HI; ++x)
-                for (int y = 1; y <= LOCK_DOOR_TOP; ++y)
-                    server.world().set_voxel({x, y, LOCK_Z_IN}, door_voxel);
-
-            // Outer door (space side at z=LOCK_Z_OUT)
-            for (int x = LOCK_X_LO; x <= LOCK_X_HI; ++x)
-                for (int y = 1; y <= LOCK_DOOR_TOP; ++y)
-                    server.world().set_voxel({x, y, LOCK_Z_OUT}, door_voxel);
-        }
-
-        // Ceiling over airlock
-        for (int x = LOCK_WALL_LO; x <= LOCK_WALL_HI; ++x)
-            for (int z = LOCK_Z_IN + 1; z <= LOCK_Z_OUT; ++z)
-                server.world().set_voxel({x, CEILING_Y, z}, wall_voxel);
-
-        // ── Space platform (z = LOCK_Z_OUT+1 .. SPACE_FAR) ───────────────────
-        // Open to the void — no ceiling, no side walls
-        for (int x = LOCK_WALL_LO; x <= LOCK_WALL_HI; ++x)
-            for (int z = LOCK_Z_OUT + 1; z <= SPACE_FAR; ++z)
-                server.world().set_voxel({x, 0, z}, plating_voxel);
-
-        // Handrail stubs at the start of the space platform (first 2 blocks)
-        for (int y = 1; y <= 2; ++y) {
-            server.world().set_voxel({LOCK_WALL_LO, y, LOCK_Z_OUT + 1}, wall_voxel);
-            server.world().set_voxel({LOCK_WALL_HI, y, LOCK_Z_OUT + 1}, wall_voxel);
-        }
-
-        // ── Space platform: catwalk_floor grating replaces solid plating ─────
-        // catwalk_floor renders as a thin plane at the TOP of the voxel cell
-        // and is solid (player walks on it) but see-through (no opaque fill).
-        uint16_t catwalk_id = voxel_reg.id_of("catwalk_floor");
-        if (catwalk_id != 0) {
-            Voxel catwalk_voxel;
-            catwalk_voxel.type_id = catwalk_id;
-            catwalk_voxel.flags   = VFLAG_SOLID | VFLAG_FLAT_TOP;
-
-            for (int cx = LOCK_WALL_LO; cx <= LOCK_WALL_HI; ++cx)
-                for (int cz = LOCK_Z_OUT + 1; cz <= SPACE_FAR; ++cz)
-                    server.world().set_voxel({cx, 0, cz}, catwalk_voxel);
-        }
-
-        // Place the player above the floor so they aren't embedded in it
-        EntityID player_ent = client.local_player();
-        if (player_ent != NULL_ENTITY) {
-            auto* tr = server.entities().get_component<TransformComponent>(player_ent);
-            if (tr) tr->pos = {0.f, 1.f, 0.f};
-        }
-
-        // Enqueue all dirty chunks for meshing
-        mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
-
-        // ── Lighting: place light tubes, then run full light propagation ─────
-        // Light tubes sit just below the ceiling (y=WALL_TOP-1 = 3), flush with
-        // the ceiling interior face, in a cross pattern inside the main room.
-        {
-            uint16_t lt_id = voxel_reg.id_of("light_tube");
-            if (lt_id != 0) {
-                const VoxelTypeDef* lt_def = voxel_reg.get(lt_id);
-                Voxel lt_voxel;
-                lt_voxel.type_id = lt_id;
-                lt_voxel.flags   = lt_def ? lt_def->default_flags : static_cast<uint16_t>(VFLAG_LIGHT_SRC);
-
-                // Five lights in a cross pattern on the ceiling interior face.
-                static const glm::ivec3 lt_pos[] = {
-                    { 0, WALL_TOP - 1,  0},   // centre
-                    {-4, WALL_TOP - 1, -4},   // NW corner
-                    { 4, WALL_TOP - 1, -4},   // NE corner
-                    {-4, WALL_TOP - 1,  4},   // SW corner
-                    { 4, WALL_TOP - 1,  4},   // SE corner
-                };
-                for (const auto& lp : lt_pos)
-                    server.world().set_voxel(lp, lt_voxel);
-            }
-        }
-
-        // Full lighting rebuild now that emissive voxels are in place.
-        lighting.rebuild();
-
-        // Re-enqueue chunks whose light_level values changed.
-        mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
-
-        // Spawn a couple of test items on the floor for M1 testing.
-        // Use spawn_scattered() so items land at random offsets on the turf.
-        auto spawn_test_item = [&](const char* item_id, int x, int z) {
-            const ItemDef* def = item_reg.get(item_id);
-            if (!def) return;
-            ItemStack stack; stack.def = def; stack.count = 1;
-            world_items.spawn_scattered({x, 0, z}, FaceDir::PosY, std::move(stack));
-        };
-        spawn_test_item("wrench",      2,  0);
-        spawn_test_item("screwdriver", 2,  2);
-        spawn_test_item("crowbar",    -2,  2);
-
-        // Spawn a mob dummy for Doom-style sprite testing.
-        // Stand at (4, 1, -2): visible from the player start at (0,1,0).
-        // Walk around it to see all four rotation sprites change.
-        {
-            EntityID dummy = server.entities().create();
-            TransformComponent tr{};
-            tr.pos = { 4.f, 1.f, -2.f };
-            tr.yaw = 0.f;   // faces -Z (same default as the camera)
-            server.entities().add_component<TransformComponent>(dummy, tr);
-            HumanAppearance app{};
-            HumanOverlay base{};
-            base.sprite_dir = "bodyparts_greyscale";
-            base.prefix     = "human";
-            base.gender     = "_m";   // masculine greyscale sprites
-            base.tint       = {255, 200, 160, 255};  // default light skin tone
-            app.layers.push_back(base);
-            app.dirty = true;
-            server.entities().add_component<HumanAppearance>(dummy, app);
-            // Give the dummy a wrench in-hand so inhand overlays are exercised.
-            {
-                InventoryComponent ic{};
-                const ItemDef* wd = item_reg.get("wrench");
-                if (wd) {
-                    ItemStack ws; ws.def = wd; ws.count = 1;
-                    ic.inv.put("l_hand", std::move(ws));
-                }
-                server.entities().add_component<InventoryComponent>(dummy, std::move(ic));
-            }
-        }
-
-        // ── Spawn test NPC mobs ───────────────────────────────────────────────────────
-        // Three AI mobs that wander the test room.  Right-click any to examine,
-        // grab, drag, or attempt CPR after killing them.
-        server.spawn_npc("human",  { 3.f, 1.f,  3.f},   0.f, "Security Officer");
-        server.spawn_npc("human",  {-4.f, 1.f, -2.f}, 180.f, "Scientist");
-        server.spawn_npc("mouse",  { 2.f, 1.f,  5.f},  90.f, "Space Rat");
-        server.spawn_npc("drone",  {-5.f, 1.f,  0.f}, 270.f, "Maintenance Drone");
-
-        // ── Atmospherics bootstrap ──────────────────────────────────────────
-        // Build the initial room graph.  Must happen AFTER all voxels are
-        // placed so the BFS sees the completed geometry.
-        server.atmos().rebuild_zones();
-    }
+    // ── 12. World geometry received from server via ChunkData packets ─────────
+    // (No local world setup — the server owns and broadcasts the authoritative world.)
 
     // ── 13. HUD state ─────────────────────────────────────────────────────────
     HUDState hud_state;
@@ -484,6 +323,9 @@ int main(int /*argc*/, char* /*argv*/[])
     // to sensible defaults in case the component isn't ready yet.
     hud_state.health     = 100.f;
     hud_state.health_max = 100.f;
+    // ── Physics-gun hold state
+    bool  phy_holding   = false;
+    float phy_hold_dist = 5.0f;
 
     // ── 14. Camera state ──────────────────────────────────────────────────────
     float cam_yaw   = 0.f;
@@ -550,18 +392,22 @@ int main(int /*argc*/, char* /*argv*/[])
         int   frame    = 0;
         float accum_ms = 0.f;
         bool  closing  = false;  // true = playing frames in reverse toward door state
+        // Context: if null, uses main server world.  Set for vehicle doors.
+        World*           ctx_world  = nullptr;
+        AtmosSimulator*  ctx_atmos  = nullptr;
+        ChunkMesher*     ctx_mesher = nullptr;
     };
     std::vector<DoorGroup> animating_doors;
 
     // Flood-fill: find all adjacent voxels of target_type in the same Z-plane.
-    auto flood_fill_door = [&](glm::ivec3 seed, uint16_t target_type) {
+    auto flood_fill_door = [&](World& w, glm::ivec3 seed, uint16_t target_type) {
         std::vector<glm::ivec3>             group;
         std::unordered_set<glm::ivec3> visited;
         std::vector<glm::ivec3>             queue;
         auto try_push = [&](glm::ivec3 p) {
             if (p.z != seed.z) return;
             if (!visited.insert(p).second) return;
-            if (server.world().get_voxel(p).type_id == target_type)
+            if (w.get_voxel(p).type_id == target_type)
                 queue.push_back(p);
         };
         try_push(seed);
@@ -663,7 +509,7 @@ int main(int /*argc*/, char* /*argv*/[])
         EntityID player_ent = client.local_player();
         if (player_ent != NULL_ENTITY) {
             // Patch the Bodypart layer with chosen gender + skin tone
-            auto* app = server.entities().get_component<HumanAppearance>(player_ent);
+            auto* app = g_entities.get_component<HumanAppearance>(player_ent);
             if (app) {
                 for (auto& layer : app->layers) {
                     if (layer.kind == HumanOverlayKind::Bodypart) {
@@ -723,15 +569,15 @@ int main(int /*argc*/, char* /*argv*/[])
                 app->dirty = true;
             }
             // Update display name shown in examine / context menu
-            auto* nc = server.entities().get_component<NameComponent>(player_ent);
+            auto* nc = g_entities.get_component<NameComponent>(player_ent);
             if (nc) nc->name = player_profile.name;
 
             // Re-apply species stats (player was spawned as human by default;
             // if a different species was chosen, overwrite with its stats now)
             const MobSpeciesDef* sp_def = mob_species_reg.get(player_profile.species);
             if (sp_def) {
-                auto* cc  = server.entities().get_component<CharacterControllerComponent>(player_ent);
-                auto* hpc = server.entities().get_component<HealthComponent>(player_ent);
+                auto* cc  = g_entities.get_component<CharacterControllerComponent>(player_ent);
+                auto* hpc = g_entities.get_component<HealthComponent>(player_ent);
                 if (cc) {
                     cc->move_speed  = sp_def->move_speed;
                     cc->sprint_mult = sp_def->sprint_mult;
@@ -741,12 +587,14 @@ int main(int /*argc*/, char* /*argv*/[])
                 }
                 if (hpc) {
                     hpc->health_max = sp_def->health_max;
-                    // Reset all damage buckets to full-health
-                    hpc->brute = hpc->burn = hpc->tox = hpc->oxy = 0.f;
+                    // Reset all damage buckets and stamina to full-health
+                    hpc->brute = hpc->burn = hpc->tox = hpc->oxy = hpc->clone = 0.f;
+                    hpc->stam_damage = 0.f;
+                    hpc->recalculate();
                 }
             }
             // Update species tag
-            auto* tag = server.entities().get_component<MobPlayerTag>(player_ent);
+            auto* tag = g_entities.get_component<MobPlayerTag>(player_ent);
             if (tag) tag->species = player_profile.species;
         }
     }
@@ -820,8 +668,6 @@ int main(int /*argc*/, char* /*argv*/[])
             // Poll SDL events
             SDL_Event e;
             input.begin_frame();
-            // Invalidate enclosure cache each tick so world changes are reflected
-            enclosure_detector.invalidate();
             while (SDL_PollEvent(&e)) {
                 if (e.type == SDL_EVENT_QUIT) { loop.stop(); return; }
                 if (e.type == SDL_EVENT_WINDOW_RESIZED) {
@@ -960,7 +806,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 // Z — toggle resting (lie down / stand up)
                 if (input.consume_press(Action::Rest)) {
                     if (player != NULL_ENTITY) {
-                        auto* cc_z = server.entities().get_component<CharacterControllerComponent>(player);
+                        auto* cc_z = g_entities.get_component<CharacterControllerComponent>(player);
                         if (cc_z) {
                             // Write base_mob_state so the state survives the per-frame reset.
                             cc_z->base_mob_state = (cc_z->base_mob_state == MobState::Normal)
@@ -987,7 +833,7 @@ int main(int /*argc*/, char* /*argv*/[])
             bool jetpack_present = false;
             MobState local_mob_state = MobState::Normal;
             if (player != NULL_ENTITY) {
-                auto* cc_r = server.entities().get_component<CharacterControllerComponent>(player);
+                auto* cc_r = g_entities.get_component<CharacterControllerComponent>(player);
                 if (cc_r) {
                     noclip_active   = cc_r->noclip;
                     zero_g_active   = cc_r->zero_g;
@@ -1040,11 +886,11 @@ int main(int /*argc*/, char* /*argv*/[])
 
             // Submit movement input to server
             if (player != NULL_ENTITY) {
-                server.queue_player_input(player, PlayerInput{
-                    wish,
-                    input.is_held(Action::Sprint),
-                    grab_wall_held,
-                });
+                InputSnapshot snap{};
+                snap.wish_dir = wish;
+                snap.yaw      = player_body_yaw;
+                snap.sprint   = input.is_held(Action::Sprint);
+                client.send_input(snap);
             }
 
             // Switch active hand (Space) — always available
@@ -1063,21 +909,53 @@ int main(int /*argc*/, char* /*argv*/[])
             // Advance simulation time for overlay animations
             sim_time += dt;
 
-            // Server tick (applies pending inputs, steps physics + simulations)
-            // Dev tools: freeze pauses tick entirely; slow-motion reduces dt.
+            // Client tick: process incoming network packets and update
+            // replicated world state.  Dev tools: freeze pauses tick entirely;
+            // slow-motion reduces dt.
             if (!freeze_sim && !pause_menu.is_open()) {
                 double eff_dt = slow_motion ? dt * 0.1 : dt;
-                server.tick(eff_dt);
                 client.tick(eff_dt);
-                world_items.tick(eff_dt);  // settle floating items that have come to rest
+
+                // Enqueue chunks dirtied by incoming network data and update
+                // lighting.  Full rebuild only on the first batch (initial
+                // world load); subsequent changes use the incremental path.
+                auto net_dirty = g_world.dirty_chunks();
+                if (!net_dirty.empty()) {
+                    static bool s_remote_lighting_built = false;
+                    if (!s_remote_lighting_built) {
+                        lighting.rebuild();
+                        s_remote_lighting_built = true;
+                    } else {
+                        // Incremental: re-propagate only from emissive voxels
+                        // inside the newly-arrived chunks.
+                        std::vector<glm::ivec3> emissive_pos;
+                        for (const Chunk* ch : net_dirty) {
+                            glm::ivec3 origin = ch->chunk_pos()
+                                              * static_cast<int>(CHUNK_SIZE);
+                            for (int lz = 0; lz < CHUNK_SIZE; ++lz)
+                            for (int ly = 0; ly < CHUNK_SIZE; ++ly)
+                            for (int lx = 0; lx < CHUNK_SIZE; ++lx) {
+                                const Voxel& v = ch->get(lx, ly, lz);
+                                if (v.flags & VFLAG_LIGHT_SRC)
+                                    emissive_pos.push_back(
+                                        origin + glm::ivec3(lx, ly, lz));
+                            }
+                        }
+                        if (!emissive_pos.empty())
+                            lighting.update(emissive_pos);
+                    }
+                    mesher.enqueue_batch(net_dirty, g_world);
+                    // Clear dirty flags so the same chunks aren't re-enqueued
+                    for (Chunk* c : net_dirty) c->clear_dirty();
+                }
             }
 
             // ── Zero-G: anywhere outside a pressurised room is zero-G ──────────
             // Untracked cells (null zone) = open space → zero-G ON.
             // Only cells inside an explicit non-space atmos zone have gravity.
             if (player != NULL_ENTITY) {
-                auto* cc2 = server.entities().get_component<CharacterControllerComponent>(player);
-                auto* tr2 = server.entities().get_component<TransformComponent>(player);
+                auto* cc2 = g_entities.get_component<CharacterControllerComponent>(player);
+                auto* tr2 = g_entities.get_component<TransformComponent>(player);
                 if (cc2 && tr2) {
                     bool in_space;
                     if (zerog_override) {
@@ -1088,8 +966,8 @@ int main(int /*argc*/, char* /*argv*/[])
                             static_cast<int>(std::floor(tr2->pos.y)),
                             static_cast<int>(std::floor(tr2->pos.z))
                         };
-                        AtmosZoneID az        = server.atmos().zone_at(cell);
-                        const AtmosZone* zptr = server.atmos().zone(az);
+                        AtmosZoneID az        = (g_atmos ? g_atmos->zone_at(cell) : AtmosZoneID{});
+                        const AtmosZone* zptr = (g_atmos ? g_atmos->zone(az) : nullptr);
                         // In space if: no tracked zone (open void) OR zone is explicitly space
                         in_space = !zptr || zptr->is_space;
                     }
@@ -1102,14 +980,17 @@ int main(int /*argc*/, char* /*argv*/[])
 
             // ── Dev-tool: auto-heal & infinite oxygen ────────────────────────────
             if ((auto_heal || infinite_oxy) && player != NULL_ENTITY) {
-                auto* hp = server.entities().get_component<HealthComponent>(player);
+                auto* hp = g_entities.get_component<HealthComponent>(player);
                 if (hp) {
                     if (auto_heal) {
-                        hp->brute = hp->burn = hp->tox = hp->oxy = 0.f;
-                        hp->dead  = false;
+                        // Clear all damage buckets + stamina, resync crit/dead flags
+                        hp->brute = hp->burn = hp->tox = hp->oxy = hp->clone = 0.f;
+                        hp->stam_damage = 0.f;
+                        hp->stam_ko = false;
+                        hp->recalculate();
                     } else if (infinite_oxy) {
-                        hp->oxy  = 0.f;
-                        if (hp->current() > 0.f) hp->dead = false;
+                        hp->oxy = 0.f;
+                        hp->recalculate(); // re-check dead/crit after oxy cleared
                     }
                 }
             }
@@ -1118,7 +999,7 @@ int main(int /*argc*/, char* /*argv*/[])
             // Also sync the player body yaw to the camera horizontal direction so
             // the body always faces where the player is looking.
             if (player != NULL_ENTITY) {
-                auto* tr = server.entities().get_component<TransformComponent>(player);
+                auto* tr = g_entities.get_component<TransformComponent>(player);
                 if (tr) {
                     float yaw_r      = glm::radians(cam_yaw);
                     float pitch_r    = glm::radians(cam_pitch);
@@ -1158,8 +1039,8 @@ int main(int /*argc*/, char* /*argv*/[])
                 float horiz_speed = 0.f;
                 bool  grounded    = false;
                 if (player != NULL_ENTITY) {
-                    auto* vc3  = server.entities().get_component<VelocityComponent>(player);
-                    auto* cc3  = server.entities().get_component<CharacterControllerComponent>(player);
+                    auto* vc3  = g_entities.get_component<VelocityComponent>(player);
+                    auto* cc3  = g_entities.get_component<CharacterControllerComponent>(player);
                     if (vc3)  horiz_speed = glm::length(glm::vec2(vc3->linear.x, vc3->linear.z));
                     if (cc3)  grounded    = cc3->on_ground;
                 }
@@ -1170,7 +1051,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 constexpr float BOB_SPRINT_CAP   = 0.2f;  // max blend while sprinting
                 bool is_sprinting = false;
                 if (player != NULL_ENTITY) {
-                    auto* cc3s = server.entities().get_component<CharacterControllerComponent>(player);
+                    auto* cc3s = g_entities.get_component<CharacterControllerComponent>(player);
                     if (cc3s) is_sprinting = cc3s->sprinting;
                 }
                 float blend_max    = is_sprinting ? BOB_SPRINT_CAP : 1.f;
@@ -1201,6 +1082,13 @@ int main(int /*argc*/, char* /*argv*/[])
             for (auto& mesh : finished_meshes)
                 renderer.get_or_create_mesh(mesh.chunk_pos) = std::move(mesh);
 
+            // Collect + upload finished vehicle chunk meshes
+            if (test_vehicle) {
+                auto vm = vehicle_mesher.collect_finished();
+                if (!vm.empty())
+                    renderer.upload_vehicle_meshes_batch(test_vehicle->id(), vm);
+            }
+
             // Lighting update for dirtied chunks
             // lighting.update(…)
 
@@ -1216,8 +1104,8 @@ int main(int /*argc*/, char* /*argv*/[])
                     static_cast<int>(std::floor(cam_pos.y)),
                     static_cast<int>(std::floor(cam_pos.z))
                 };
-                AtmosZoneID az = server.atmos().zone_at(atmos_cell);
-                AtmosZone* az_ptr = server.atmos().zone(az);
+                AtmosZoneID az = (g_atmos ? g_atmos->zone_at(atmos_cell) : AtmosZoneID{});
+                AtmosZone* az_ptr = (g_atmos ? g_atmos->zone(az) : nullptr);
                 float local_kpa = az_ptr ? az_ptr->gas.total_pressure() : 0.f;
                 audio.set_local_pressure(local_kpa > 0.f ? local_kpa : 101.325f);
             }
@@ -1239,7 +1127,7 @@ int main(int /*argc*/, char* /*argv*/[])
             {
                 bool is_prone = false;
                 if (player != NULL_ENTITY) {
-                    auto* cc_p = server.entities().get_component<CharacterControllerComponent>(player);
+                    auto* cc_p = g_entities.get_component<CharacterControllerComponent>(player);
                     if (cc_p && cc_p->mob_state != MobState::Normal)
                         is_prone = true;
                 }
@@ -1252,24 +1140,22 @@ int main(int /*argc*/, char* /*argv*/[])
 
             // ── Player health from HealthComponent ───────────────────────────
             if (player != NULL_ENTITY) {
-                auto* hp = server.entities().get_component<HealthComponent>(player);
+                auto* hp = g_entities.get_component<HealthComponent>(player);
                 if (hp) {
                     hud_state.health     = hp->current();
                     hud_state.health_max = hp->health_max;
 
-                    // Auto-transition mob_state based on health (never overrides
-                    // a voluntary Resting state when the player is healthy)
-                    auto* cc_hp = server.entities().get_component<CharacterControllerComponent>(player);
+                    // Use HealthComponent flags — thresholds match TG (HEALTH_THRESHOLD_CRIT=50)
+                    auto* cc_hp = g_entities.get_component<CharacterControllerComponent>(player);
                     if (cc_hp) {
-                        float pct = hp->current() / hp->health_max;
                         MobState cs = cc_hp->mob_state;
-                        if (pct <= 0.f || hp->dead) {
-                            // Knocked out / dead — hard crit
+                        if (hp->dead) {
+                            // Dead — fully incapacitated
                             cc_hp->mob_state = MobState::Hardcrit;
-                        } else if (pct < 0.30f && cs == MobState::Normal) {
-                            // Critically injured but still barely conscious
+                        } else if (hp->crit && cs == MobState::Normal) {
+                            // Softcrit: health <= 50 (TG: HEALTH_THRESHOLD_CRIT) — barely conscious
                             cc_hp->mob_state = MobState::Softcrit;
-                        } else if (pct >= 0.30f &&
+                        } else if (!hp->crit && !hp->dead &&
                                    (cs == MobState::Softcrit || cs == MobState::Hardcrit)) {
                             // Healed out of crit — restore to voluntary base state so that
                             // a player who was Resting doesn't snap to standing on recovery.
@@ -1286,8 +1172,8 @@ int main(int /*argc*/, char* /*argv*/[])
                     static_cast<int>(std::floor(cam_pos.y - 0.5f)),
                     static_cast<int>(std::floor(cam_pos.z))
                 };
-                AtmosZoneID   az      = server.atmos().zone_at(feet_cell);
-                const AtmosZone* zptr = server.atmos().zone(az);
+                AtmosZoneID   az      = (g_atmos ? g_atmos->zone_at(feet_cell) : AtmosZoneID{});
+                const AtmosZone* zptr = (g_atmos ? g_atmos->zone(az) : nullptr);
                 if (zptr && !zptr->is_space && zptr->gas.total_pressure() > 0.f) {
                     const GasMixture& g       = zptr->gas;
                     hud_state.oxy_sat          = std::clamp(g.o2 / 21.f, 0.f, 1.f);
@@ -1309,15 +1195,21 @@ int main(int /*argc*/, char* /*argv*/[])
             if (input.is_pressed(Action::DropItem)) {
                 auto maybe_item = player_inv.take(player_inv.active_hand_id());
                 if (maybe_item) {
+                    // Use player's actual world position (feet level) for drop position
+                    glm::vec3 drop_origin = cam_pos;
+                    if (player != NULL_ENTITY) {
+                        auto* tr = g_entities.get_component<TransformComponent>(player);
+                        if (tr) drop_origin = tr->pos;
+                    }
                     // Cast downward from player feet to find a floor face
-                    RayHit down = server.world().raycast(cam_pos, {0,-1,0}, 3.f);
+                    RayHit down = g_world.raycast(drop_origin, {0,-1,0}, 3.f);
                     if (down.valid) {
                         // Drop with scatter so items don't all pile at turf centre
                         world_items.spawn_scattered(down.voxel, down.face, std::move(*maybe_item));
                     } else {
                         // No floor nearby – spawn floating at player feet
                         world_items.spawn_floating(
-                            cam_pos - glm::vec3(0, 0.5f, 0), std::move(*maybe_item));
+                            drop_origin, std::move(*maybe_item));
                     }
                 }
             }
@@ -1358,6 +1250,10 @@ int main(int /*argc*/, char* /*argv*/[])
                 int last_frame = -1;
                 for (auto it = animating_doors.begin(); it != animating_doors.end(); ) {
                     DoorGroup& grp = *it;
+                    // Resolve per-group context (vehicle or main world)
+                    World&          grp_world  = grp.ctx_world  ? *grp.ctx_world  : g_world;
+                    AtmosSimulator* grp_atmos_p = grp.ctx_atmos ? grp.ctx_atmos : g_atmos;
+                    ChunkMesher&    grp_mesher = grp.ctx_mesher ? *grp.ctx_mesher : mesher;
                     grp.accum_ms += dt_ms;
 
                     if (!grp.closing) {
@@ -1380,12 +1276,12 @@ int main(int /*argc*/, char* /*argv*/[])
                                                        : static_cast<uint16_t>(VFLAG_VERT_PLANE_Z | VFLAG_GAS_PASSABLE);
                                 }
                                 for (auto& p : grp.voxels)
-                                    server.world().set_voxel(p, open_v);
-                                mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
+                                    grp_world.set_voxel(p, open_v);
+                                grp_mesher.enqueue_batch(grp_world.dirty_chunks(), grp_world);
                             }
                             // Door is now gas-passable — notify atmos so zones merge.
-                            if (!grp.voxels.empty())
-                                server.atmos().on_door_changed(grp.voxels.front());
+                            if (!grp.voxels.empty() && grp_atmos_p)
+                                grp_atmos_p->on_door_changed(grp.voxels.front());
                             it = animating_doors.erase(it);
                             continue;
                         }
@@ -1404,12 +1300,12 @@ int main(int /*argc*/, char* /*argv*/[])
                                 closed_v.type_id = door_type_id;
                                 closed_v.flags   = VFLAG_SOLID | VFLAG_VERT_PLANE_Z;
                                 for (auto& p : grp.voxels)
-                                    server.world().set_voxel(p, closed_v);
-                                mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
+                                    grp_world.set_voxel(p, closed_v);
+                                grp_mesher.enqueue_batch(grp_world.dirty_chunks(), grp_world);
                             }
                             // Door is now fully sealed — notify atmos to finalise zone split.
-                            if (!grp.voxels.empty())
-                                server.atmos().on_door_changed(grp.voxels.front());
+                            if (!grp.voxels.empty() && grp_atmos_p)
+                                grp_atmos_p->on_door_changed(grp.voxels.front());
                             it = animating_doors.erase(it);
                             continue;
                         }
@@ -1426,6 +1322,51 @@ int main(int /*argc*/, char* /*argv*/[])
                     // so the overlay is semi-transparent throughout the animation.
                     if (door_anim_overlay_idx != 0 && renderer.door_overlay_anim_loaded())
                         renderer.composite_door_overlay_frame(last_frame, door_anim_overlay_idx);
+                }
+            }
+
+            // -- Physics gun: grab / fling the test vehicle ------------------
+            {
+                auto* ps = player_inv.active_hand();
+                bool has_phy = ps && ps->item && ps->item->def
+                               && ps->item->def->id == "physics_tool";
+                if (!has_phy) phy_holding = false;
+
+                if (has_phy && test_vehicle) {
+                    float pyr = glm::radians(cam_yaw), ppr = glm::radians(cam_pitch);
+                    glm::vec3 prdir = {
+                        std::cos(ppr) * std::sin(pyr),
+                        std::sin(ppr),
+                       -std::cos(ppr) * std::cos(pyr)
+                    };
+                    if (phy_holding) {
+                        glm::vec3 centre = test_vehicle->world_pos_f() + glm::vec3{2.f,1.5f,4.f};
+                        test_vehicle->set_world_vel((cam_pos + prdir*phy_hold_dist - centre) * 8.f);
+                    }
+                    bool phy_lmb = !alt_mode.active() && !build_mode
+                                   && !ctx_menu.is_open() && !creative_menu.is_open()
+                                   && input.is_pressed(Action::PrimaryInteract);
+                    if (phy_lmb) {
+                        if (phy_holding) {
+                            test_vehicle->set_world_vel(prdir * 18.f);
+                            if (hud_state.radio_log.size() >= 30) hud_state.radio_log.pop_front();
+                            hud_state.radio_log.push_back("[Physics Gun] Flung!");
+                            phy_holding = false;
+                        } else {
+                            glm::vec3 centre = test_vehicle->world_pos_f() + glm::vec3{2.f,1.5f,4.f};
+                            glm::vec3 to_v   = centre - cam_pos;
+                            float     dist   = glm::length(to_v);
+                            if (dist > 0.f && dist <= 20.f &&
+                                glm::dot(glm::normalize(to_v), prdir) >= 0.4f) {
+                                phy_holding   = true;
+                                phy_hold_dist = glm::clamp(dist, 3.0f, 12.0f);
+                                test_vehicle->set_world_vel({0.f, 0.f, 0.f});
+                                if (hud_state.radio_log.size() >= 30) hud_state.radio_log.pop_front();
+                                hud_state.radio_log.push_back("[Physics Gun] Grabbed -- LMB to fling!");
+                            }
+                        }
+                        input.consume_press(Action::PrimaryInteract);
+                    }
                 }
             }
 
@@ -1450,11 +1391,43 @@ int main(int /*argc*/, char* /*argv*/[])
                     auto*  active_slot = player_inv.active_hand();
                     bool   hand_empty  = !active_slot || !active_slot->item;
 
-                    RayHit fhit = server.world().raycast(cam_pos, rdir, ITEM_REACH);
+                    RayHit fhit = g_world.raycast(cam_pos, rdir, ITEM_REACH);
                     float item_dist = 0.f;
                     EntityID item_ent = world_items.ray_cast_items(
                         cam_pos, rdir, ITEM_REACH,
                         fhit.valid ? fhit.distance : ITEM_REACH, item_dist);
+
+                    // ── Vehicle world dual-raycast ────────────────────────────
+                    // Determine which world (main or vehicle) the player is
+                    // targeting; all subsequent interaction code uses active_*.
+                    World*           active_world  = &g_world;
+                    AtmosSimulator*  active_atmos  = g_atmos;
+                    ChunkMesher*     active_mesher = &mesher;
+                    WorldItemSystem* active_wis    = &world_items;
+                    glm::vec3        active_offset {};
+                    if (test_vehicle) {
+                        glm::vec3 veh_off  = test_vehicle->world_pos_f();
+                        glm::vec3 local_cam = cam_pos - veh_off;
+                        RayHit v_fhit = test_vehicle->world().raycast(local_cam, rdir, ITEM_REACH);
+                        float v_item_dist = 0.f;
+                        EntityID v_item_ent = test_vehicle->world_items().ray_cast_items(
+                            local_cam, rdir, ITEM_REACH,
+                            v_fhit.valid ? v_fhit.distance : ITEM_REACH, v_item_dist);
+                        // Switch context if vehicle hit is closer
+                        bool veh_closer = v_fhit.valid && (!fhit.valid || v_fhit.distance < fhit.distance);
+                        bool veh_item_closer = (v_item_ent != NULL_ENTITY)
+                            && (item_ent == NULL_ENTITY || v_item_dist < item_dist);
+                        if (veh_closer || veh_item_closer) {
+                            active_world  = &test_vehicle->world();
+                            active_atmos  = &test_vehicle->atmos();
+                            active_mesher = &vehicle_mesher;
+                            active_wis    = &test_vehicle->world_items();
+                            active_offset = veh_off;
+                            if (veh_closer)      { fhit      = v_fhit;      }
+                            if (veh_item_closer) { item_ent  = v_item_ent;
+                                                   item_dist = v_item_dist; }
+                        }
+                    }
 
                     // ── Mob target detection (TG attack_chain) ────────────────
                     // Simple nearest-entity ray test: find any mob with MobTypeTag
@@ -1463,9 +1436,9 @@ int main(int /*argc*/, char* /*argv*/[])
                     EntityID mob_target = NULL_ENTITY;
                     float    mob_target_dist = MELEE_REACH;
                     if (player != NULL_ENTITY) {
-                        server.entities().each<MobTypeTag>([&](EntityID eid, MobTypeTag&) {
+                        g_entities.each<MobTypeTag>([&](EntityID eid, MobTypeTag&) {
                             if (eid == player) return;
-                            auto* tr = server.entities().get_component<TransformComponent>(eid);
+                            auto* tr = g_entities.get_component<TransformComponent>(eid);
                             if (!tr) return;
                             // Use mob centre (waist height ≈ +0.5)
                             glm::vec3 mob_centre = tr->pos + glm::vec3(0.f, 0.5f, 0.f);
@@ -1493,7 +1466,7 @@ int main(int /*argc*/, char* /*argv*/[])
                         if (!hand_empty && active_slot->item->def) {
                             ctx.weapon = &(*active_slot->item);
                         }
-                        AttackResult ar = attack_chain(ctx, server.entities(), signals());
+                        AttackResult ar = attack_chain(ctx, g_entities, signals());
                         (void)ar;
                         // Log + audio feedback
                         const char* result_str = [&]{
@@ -1513,7 +1486,7 @@ int main(int /*argc*/, char* /*argv*/[])
                     } else if (item_ent != NULL_ENTITY) {
                         if (hand_empty || e_press) {
                             // Pick up — auto_equip tries all slots; re-spawn if no room
-                            auto picked = world_items.pick_up(item_ent);
+                            auto picked = active_wis->pick_up(item_ent);
                             if (picked && picked->def) {
                                 auto leftover = player_inv.auto_equip(std::move(*picked));
                                 if (leftover)
@@ -1521,7 +1494,10 @@ int main(int /*argc*/, char* /*argv*/[])
                             }
                         } else {
                             // Use held item on world item
-                            auto* wic = server.entities().get_component<WorldItemComponent>(item_ent);
+                            // entity could be in either main or vehicle entity manager
+                            auto* wic = active_world == &g_world
+                                ? g_entities.get_component<WorldItemComponent>(item_ent)
+                                : (test_vehicle ? test_vehicle->entities().get_component<WorldItemComponent>(item_ent) : nullptr);
                             if (wic && wic->item.def) {
                                 SDL_Log("Interact: %s on %s",
                                         active_slot->item->def->name.c_str(),
@@ -1530,7 +1506,7 @@ int main(int /*argc*/, char* /*argv*/[])
                             }
                         }
                     } else if (fhit.valid) {
-                        Voxel hit_v = server.world().get_voxel(fhit.voxel);
+                        Voxel hit_v = active_world->get_voxel(fhit.voxel);
                         bool has_id = active_slot && active_slot->item && active_slot->item->def
                             && [&]{
                                 for (auto& t : active_slot->item->def->tags)
@@ -1541,16 +1517,21 @@ int main(int /*argc*/, char* /*argv*/[])
                         // ── Open door ───────────────────────────────────
                         if (door_type_id != 0 && hit_v.type_id == door_type_id
                             && (hand_empty || has_id)) {
-                            auto grp_voxels = flood_fill_door(fhit.voxel, door_type_id);
+                            auto grp_voxels = flood_fill_door(*active_world, fhit.voxel, door_type_id);
                             if (!grp_voxels.empty() && door_anim_type_id != 0) {
                                 Voxel anim_v;
                                 anim_v.type_id = door_anim_type_id;
                                 anim_v.flags   = VFLAG_SOLID | VFLAG_VERT_PLANE_Z;
                                 for (auto& p : grp_voxels)
-                                    server.world().set_voxel(p, anim_v);
-                                mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
+                                    active_world->set_voxel(p, anim_v);
+                                active_mesher->enqueue_batch(active_world->dirty_chunks(), *active_world);
                                 DoorGroup dg;
                                 dg.voxels = std::move(grp_voxels);
+                                if (active_world != &g_world) {
+                                    dg.ctx_world  = active_world;
+                                    dg.ctx_atmos  = active_atmos;
+                                    dg.ctx_mesher = active_mesher;
+                                }
                                 animating_doors.push_back(std::move(dg));
                                 audio.play("click", glm::vec3(fhit.voxel) + glm::vec3(0.5f));
                                 SDL_Log("Door: opening at (%d,%d,%d)",
@@ -1560,7 +1541,7 @@ int main(int /*argc*/, char* /*argv*/[])
                         } else if (door_open_type_id != 0
                                    && hit_v.type_id == door_open_type_id
                                    && (hand_empty || has_id)) {
-                            auto grp_voxels = flood_fill_door(fhit.voxel, door_open_type_id);
+                            auto grp_voxels = flood_fill_door(*active_world, fhit.voxel, door_open_type_id);
                             if (!grp_voxels.empty() && door_anim_type_id != 0) {
                                 // Player hitbox check: feet at cam_pos - (0,0.5,0),
                                 // AABB half-extents: radius=0.3 in XZ, height=0.9 in Y.
@@ -1589,16 +1570,21 @@ int main(int /*argc*/, char* /*argv*/[])
                                     anim_v.type_id = door_anim_type_id;
                                     anim_v.flags   = VFLAG_SOLID | VFLAG_VERT_PLANE_Z;
                                     for (auto& p : grp_voxels)
-                                        server.world().set_voxel(p, anim_v);
-                                    mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
+                                        active_world->set_voxel(p, anim_v);
+                                    active_mesher->enqueue_batch(active_world->dirty_chunks(), *active_world);
                                     // Door panels are now solid — trigger an immediate zone
                                     // split so the sealed side stops losing gas to space
                                     // even before the closing animation completes.
-                                    server.atmos().on_door_changed(fhit.voxel);
+                                    active_atmos->on_door_changed(fhit.voxel);
                                     DoorGroup dg;
                                     dg.voxels  = std::move(grp_voxels);
                                     dg.frame   = renderer.door_anim_frame_count() - 1;
                                     dg.closing = true;
+                                    if (active_world != &g_world) {
+                                        dg.ctx_world  = active_world;
+                                        dg.ctx_atmos  = active_atmos;
+                                        dg.ctx_mesher = active_mesher;
+                                    }
                                     animating_doors.push_back(std::move(dg));
                                     audio.play("click", glm::vec3(fhit.voxel) + glm::vec3(0.5f));
                                     SDL_Log("Door: closing at (%d,%d,%d)",
@@ -1629,7 +1615,7 @@ int main(int /*argc*/, char* /*argv*/[])
                     std::sin(pr2),
                    -std::cos(pr2) * std::cos(yr2)
                 };
-                RayHit fhit2 = server.world().raycast(cam_pos, rdir2, CTX_REACH);
+                RayHit fhit2 = g_world.raycast(cam_pos, rdir2, CTX_REACH);
                 float ict_dist = 0.f;
                 EntityID ctx_ent = world_items.ray_cast_items(
                     cam_pos, rdir2, CTX_REACH,
@@ -1644,9 +1630,9 @@ int main(int /*argc*/, char* /*argv*/[])
                 EntityID rmb_mob = NULL_ENTITY;
                 float    rmb_mob_dist = CTX_REACH;
                 if (player != NULL_ENTITY) {
-                    server.entities().each<MobTypeTag>([&](EntityID eid, MobTypeTag&) {
+                    g_entities.each<MobTypeTag>([&](EntityID eid, MobTypeTag&) {
                         if (eid == player) return;
-                        auto* tr = server.entities().get_component<TransformComponent>(eid);
+                        auto* tr = g_entities.get_component<TransformComponent>(eid);
                         if (!tr) return;
                         glm::vec3 to_mob = (tr->pos + glm::vec3(0.f, 0.5f, 0.f)) - cam_pos;
                         float dist = glm::length(to_mob);
@@ -1660,12 +1646,12 @@ int main(int /*argc*/, char* /*argv*/[])
                 if (rmb_mob != NULL_ENTITY
                     && (ctx_ent == NULL_ENTITY || rmb_mob_dist <= ict_dist)) {
                     // Collect data from components before entering lambdas
-                    auto* mob_nc = server.entities().get_component<NameComponent>(rmb_mob);
-                    auto* mob_hp = server.entities().get_component<HealthComponent>(rmb_mob);
-                    auto* mob_se = server.entities().get_component<StatusEffectsComponent>(rmb_mob);
-                    auto* mob_gc = server.entities().get_component<GrabbedComponent>(rmb_mob);
-                    auto* mob_co = server.entities().get_component<CorpseComponent>(rmb_mob);
-                    auto* mob_dg = server.entities().get_component<DragComponent>(rmb_mob);
+                    auto* mob_nc = g_entities.get_component<NameComponent>(rmb_mob);
+                    auto* mob_hp = g_entities.get_component<HealthComponent>(rmb_mob);
+                    auto* mob_se = g_entities.get_component<StatusEffectsComponent>(rmb_mob);
+                    auto* mob_gc = g_entities.get_component<GrabbedComponent>(rmb_mob);
+                    auto* mob_co = g_entities.get_component<CorpseComponent>(rmb_mob);
+                    auto* mob_dg = g_entities.get_component<DragComponent>(rmb_mob);
 
                     std::string mob_name = mob_nc ? mob_nc->name : "Unknown";
                     std::string mob_desc = mob_nc ? mob_nc->desc : "";
@@ -1720,9 +1706,9 @@ int main(int /*argc*/, char* /*argv*/[])
                     if (!is_dead) {
                         const char* grab_label = already_grabbed ? "Upgrade Grab" : "Grab";
                         entries.push_back({grab_label, true, false,
-                            [&server, rmb_mob_id, player, &hud_state]() {
+                            [&g_entities, rmb_mob_id, player, &hud_state]() {
                                 bool ok = upgrade_grab(player, rmb_mob_id,
-                                                       server.entities(), signals());
+                                                       g_entities, signals());
                                 if (hud_state.radio_log.size() >= 30)
                                     hud_state.radio_log.pop_front();
                                 hud_state.radio_log.push_back(
@@ -1732,13 +1718,13 @@ int main(int /*argc*/, char* /*argv*/[])
 
                     // ── Resist (player is being grabbed by this mob) ────────────
                     {
-                        auto* self_gc = server.entities().get_component<GrabbedComponent>(player);
+                        auto* self_gc = g_entities.get_component<GrabbedComponent>(player);
                         if (self_gc && self_gc->grabber == rmb_mob) {
                             EntityID mob_id2 = rmb_mob;
                             entries.push_back({"Resist", true, false,
-                                [&server, mob_id2, player, &hud_state]() {
+                                [&g_entities, mob_id2, player, &hud_state]() {
                                     release_grab(mob_id2, player,
-                                                 server.entities(), signals());
+                                                 g_entities, signals());
                                     if (hud_state.radio_log.size() >= 30)
                                         hud_state.radio_log.pop_front();
                                     hud_state.radio_log.push_back("[Resist] Broke free!");
@@ -1749,9 +1735,9 @@ int main(int /*argc*/, char* /*argv*/[])
                     // ── Release Grab (if we're grabbing the mob) ───────────────
                     if (already_grabbed) {
                         entries.push_back({"Release", true, false,
-                            [&server, rmb_mob_id, player, &hud_state]() {
+                            [&g_entities, rmb_mob_id, player, &hud_state]() {
                                 release_grab(player, rmb_mob_id,
-                                             server.entities(), signals());
+                                             g_entities, signals());
                                 if (hud_state.radio_log.size() >= 30)
                                     hud_state.radio_log.pop_front();
                                 hud_state.radio_log.push_back("[Grab] Released.");
@@ -1765,19 +1751,19 @@ int main(int /*argc*/, char* /*argv*/[])
                         // Drag / Drop body
                         if (!dragged_by_me) {
                             entries.push_back({"Drag Body", true, false,
-                                [&server, rmb_mob_id, player, &hud_state]() {
-                                    server.entities().remove_component<DragComponent>(rmb_mob_id);
+                                [&g_entities, rmb_mob_id, player, &hud_state]() {
+                                    g_entities.remove_component<DragComponent>(rmb_mob_id);
                                     DragComponent dc{};
                                     dc.dragger = player;
-                                    server.entities().add_component<DragComponent>(rmb_mob_id, dc);
+                                    g_entities.add_component<DragComponent>(rmb_mob_id, dc);
                                     if (hud_state.radio_log.size() >= 30)
                                         hud_state.radio_log.pop_front();
                                     hud_state.radio_log.push_back("[Drag] Dragging body.");
                                 }});
                         } else {
                             entries.push_back({"Drop Body", true, false,
-                                [&server, rmb_mob_id, &hud_state]() {
-                                    server.entities().remove_component<DragComponent>(rmb_mob_id);
+                                [&g_entities, rmb_mob_id, &hud_state]() {
+                                    g_entities.remove_component<DragComponent>(rmb_mob_id);
                                     if (hud_state.radio_log.size() >= 30)
                                         hud_state.radio_log.pop_front();
                                     hud_state.radio_log.push_back("[Drag] Body dropped.");
@@ -1787,8 +1773,8 @@ int main(int /*argc*/, char* /*argv*/[])
                         // CPR — only within 2 m and while still revivable
                         if (can_revive && rmb_mob_dist <= 2.f) {
                             entries.push_back({"Perform CPR", true, false,
-                                [&server, rmb_mob_id, &hud_state]() {
-                                    auto* hp_c = server.entities().get_component<HealthComponent>(rmb_mob_id);
+                                [&g_entities, rmb_mob_id, &hud_state]() {
+                                    auto* hp_c = g_entities.get_component<HealthComponent>(rmb_mob_id);
                                     if (!hp_c || !hp_c->dead) return;
                                     bool success = (std::rand() % 10) < 3;  // 30% chance
                                     if (success) {
@@ -1796,8 +1782,8 @@ int main(int /*argc*/, char* /*argv*/[])
                                         hp_c->brute = std::max(0.f, hp_c->brute -  5.f);
                                         if (hp_c->current() > 0.f) {
                                             hp_c->dead = false;
-                                            server.entities().remove_component<CorpseComponent>(rmb_mob_id);
-                                            auto* cc_r = server.entities().get_component<CharacterControllerComponent>(rmb_mob_id);
+                                            g_entities.remove_component<CorpseComponent>(rmb_mob_id);
+                                            auto* cc_r = g_entities.get_component<CharacterControllerComponent>(rmb_mob_id);
                                             if (cc_r) cc_r->mob_state = MobState::Softcrit;
                                             signals().send_signal(rmb_mob_id, COMSIG_MOB_LIVING_REVIVE, SigDeath{});
                                             if (hud_state.radio_log.size() >= 30)
@@ -1824,7 +1810,7 @@ int main(int /*argc*/, char* /*argv*/[])
                     }
 
                 } else if (ctx_ent != NULL_ENTITY) {
-                    auto* wic = server.entities().get_component<WorldItemComponent>(ctx_ent);
+                    auto* wic = g_entities.get_component<WorldItemComponent>(ctx_ent);
                     if (wic && wic->item.def) {
                         std::vector<ContextEntry> entries;
                         EntityID eid = ctx_ent;
@@ -1873,10 +1859,10 @@ int main(int /*argc*/, char* /*argv*/[])
                                 EntityID veid     = ctx_ent;
                                 std::string vhnd  = verb.handler;
                                 entries.push_back({verb.name, true, false,
-                                    [veid, vhnd, &server, &world_items,
+                                    [veid, vhnd, &g_entities, &world_items,
                                      &cam_pos, &cam_yaw, &cam_pitch,
                                      &client, &hud_state]() {
-                                        auto* wic2 = server.entities()
+                                        auto* wic2 = g_entities
                                             .get_component<WorldItemComponent>(veid);
                                         VerbContext vctx;
                                         vctx.actor      = client.local_player();
@@ -1911,7 +1897,7 @@ int main(int /*argc*/, char* /*argv*/[])
                     bool               hand_empty = !hand_slot || !hand_slot->item;
                     const ItemDef*     held_def   = (!hand_empty && hand_slot->item->def)
                                                         ? hand_slot->item->def : nullptr;
-                    Voxel              hv  = server.world().get_voxel(fhit2.voxel);
+                    Voxel              hv  = g_world.get_voxel(fhit2.voxel);
                     const VoxelTypeDef* hvd = voxel_reg.get(hv.type_id);
 
                     // Helper: does the held item have a given tag?
@@ -1934,9 +1920,9 @@ int main(int /*argc*/, char* /*argv*/[])
                         // Read old voxel before overwriting so we can skip
                         // unnecessary lighting BFS (the hot case: two non-emissive,
                         // same-opacity tiles swapped — e.g. floor_tile → plating).
-                        Voxel old_v = server.world().get_voxel(pos);
-                        server.world().set_voxel(pos, v);
-                        server.atmos().on_voxel_changed(pos);
+                        Voxel old_v = g_world.get_voxel(pos);
+                        g_world.set_voxel(pos, v);
+                        if (g_atmos) g_atmos->on_voxel_changed(pos);
 
                         // Only run the BFS when something light-relevant changed:
                         //   • old or new voxel emits light, OR
@@ -1948,7 +1934,7 @@ int main(int /*argc*/, char* /*argv*/[])
                         if (was_emitter || is_emitter || opacity_changed)
                             lighting.update({pos});
 
-                        mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
+                        mesher.enqueue_batch(g_world.dirty_chunks(), g_world);
                     };
 
                     bool is_plating = hvd && (hvd->id == "floor_plating"
@@ -2073,14 +2059,14 @@ int main(int /*argc*/, char* /*argv*/[])
                 if (hand_empty) {
                     // Start world drag: show ghost item following cursor;
                     // the panel will place it on drop.  Don't pick up yet.
-                    auto* wic = server.entities().get_component<WorldItemComponent>(hovered_item_entity);
+                    auto* wic = g_entities.get_component<WorldItemComponent>(hovered_item_entity);
                     if (wic && wic->item.def && !inv_panel.is_dragging()) {
                         inv_panel.begin_world_drag(wic->item, alt_mode.cursor_pos());
                         alt_drag_entity = hovered_item_entity;
                     }
                 } else {
                     // Use held item on hovered world item
-                    auto* wic = server.entities().get_component<WorldItemComponent>(hovered_item_entity);
+                    auto* wic = g_entities.get_component<WorldItemComponent>(hovered_item_entity);
                     if (wic && wic->item.def && active_slot->item->def) {
                         SDL_Log("Interact: %s on %s",
                                 active_slot->item->def->name.c_str(),
@@ -2100,38 +2086,38 @@ int main(int /*argc*/, char* /*argv*/[])
                 };
                 // LMB: destroy voxel
                 if (input.is_pressed(Action::PrimaryInteract)) {
-                    RayHit bhit = server.world().raycast(cam_pos, rdir, 8.f);
+                    RayHit bhit = g_world.raycast(cam_pos, rdir, 8.f);
                     if (bhit.valid) {
                         // Snapshot light level before clearing the voxel.
                         // set_voxel(Voxel{}) zeroes light_level, which makes
                         // bfs_remove_colored skip removal (lvl==0 early-exit).
                         // Restoring it here lets the BFS correctly flood-remove.
-                        uint8_t old_light = server.world().get_voxel(bhit.voxel).light_level;
-                        server.world().set_voxel(bhit.voxel, Voxel{});
+                        uint8_t old_light = g_world.get_voxel(bhit.voxel).light_level;
+                        g_world.set_voxel(bhit.voxel, Voxel{});
                         if (old_light > 0)
-                            server.world().set_light_level(bhit.voxel, old_light);
-                        server.atmos().on_voxel_changed(bhit.voxel);
+                            g_world.set_light_level(bhit.voxel, old_light);
+                        if (g_atmos) g_atmos->on_voxel_changed(bhit.voxel);
                         // Propagate lighting change from removed voxel, then
                         // enqueue all dirty chunks in one pass (avoids double
                         // snapshot before lighting has touched neighbour chunks).
                         lighting.update({bhit.voxel});
-                        mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
+                        mesher.enqueue_batch(g_world.dirty_chunks(), g_world);
                         SDL_Log("Build: destroyed voxel at (%d,%d,%d)",
                                 bhit.voxel.x, bhit.voxel.y, bhit.voxel.z);
                     }
                 }
                 // RMB: place voxel on adjacent face
                 if (input.is_pressed(Action::SecondaryInteract)) {
-                    RayHit bhit = server.world().raycast(cam_pos, rdir, 8.f);
+                    RayHit bhit = g_world.raycast(cam_pos, rdir, 8.f);
                     if (bhit.valid) {
                         glm::ivec3 place_pos = bhit.voxel + face_normal(bhit.face);
-                        if (server.world().get_voxel(place_pos).type_id == 0) {
-                            server.world().set_voxel(place_pos, build_voxel);
-                            server.atmos().on_voxel_changed(place_pos);
+                        if (g_world.get_voxel(place_pos).type_id == 0) {
+                            g_world.set_voxel(place_pos, build_voxel);
+                            if (g_atmos) g_atmos->on_voxel_changed(place_pos);
                             // Propagate lighting change from placed voxel, then
                             // enqueue all dirty chunks in one pass.
                             lighting.update({place_pos});
-                            mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
+                            mesher.enqueue_batch(g_world.dirty_chunks(), g_world);
                             SDL_Log("Build: placed voxel at (%d,%d,%d)",
                                     place_pos.x, place_pos.y, place_pos.z);
                         }
@@ -2185,7 +2171,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 * glm::lookAt(cam_pos, cam_pos + ray_dir, cam_up_r);
 
             // ── Voxel face ray cast ──────────────────────────────────────────
-            RayHit hit = server.world().raycast(cam_pos, ray_dir, 4.f);
+            RayHit hit = g_world.raycast(cam_pos, ray_dir, 4.f);
             // Restrict turf selection to voxels adjacent (Chebyshev ≤ 1) to the
             // player's current voxel — includes all 26 immediate neighbours.
             if (hit.valid) {
@@ -2213,7 +2199,7 @@ int main(int /*argc*/, char* /*argv*/[])
                     new_candidates.erase(
                         std::remove_if(new_candidates.begin(), new_candidates.end(),
                             [&](EntityID eid) {
-                                auto* tr = server.entities().get_component<TransformComponent>(eid);
+                                auto* tr = g_entities.get_component<TransformComponent>(eid);
                                 return !tr || glm::length(tr->pos - cam_pos) > ITEM_REACH;
                             }),
                         new_candidates.end());
@@ -2241,8 +2227,13 @@ int main(int /*argc*/, char* /*argv*/[])
 
             // ── Queue geometry for GPU upload (must be before begin_frame) ───
             renderer.queue_highlight(hit);
-            renderer.queue_world_items(server.entities(), hovered_item_entity,
+            renderer.queue_world_items(g_entities, hovered_item_entity,
                                        cam_pos, cam_yaw, cam_pitch);
+            // Append vehicle-local items at their world-space positions
+            if (test_vehicle)
+                renderer.queue_world_items(test_vehicle->entities(), NULL_ENTITY,
+                                           cam_pos, cam_yaw, cam_pitch,
+                                           test_vehicle->world_pos_f(), /*clear_first=*/false);
 
             // ── Rebuild clothing + inhand overlays for all human mobs ─────────
             {
@@ -2420,7 +2411,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 // ── Local player ──────────────────────────────────────────────
                 EntityID player = client.local_player();
                 if (player != NULL_ENTITY) {
-                    auto* app = server.entities().get_component<HumanAppearance>(player);
+                    auto* app = g_entities.get_component<HumanAppearance>(player);
                     if (app) {
                         static std::string s_last_app_fp;
                         rebuild_if_changed(*app, player_inv, s_last_app_fp);
@@ -2428,17 +2419,22 @@ int main(int /*argc*/, char* /*argv*/[])
                 }
 
                 // ── All other mobs with InventoryComponent ────────────────────
-                server.entities().each<InventoryComponent>(
+                g_entities.each<InventoryComponent>(
                     [&](EntityID eid, InventoryComponent& ic) {
                         if (eid == client.local_player()) return; // handled above
-                        auto* app = server.entities().get_component<HumanAppearance>(eid);
+                        auto* app = g_entities.get_component<HumanAppearance>(eid);
                         if (!app) return;
                         rebuild_if_changed(*app, ic.inv, ic.overlay_fp);
                     });
             }
 
-            renderer.queue_mobs(server.entities(), cam_pos, cam_yaw,
+            renderer.queue_mobs(g_entities, cam_pos, cam_yaw,
                                  third_person ? NULL_ENTITY : client.local_player());
+            // Append mobs that live inside any vehicle (offset to world space)
+            if (test_vehicle)
+                renderer.queue_mobs(test_vehicle->entities(), cam_pos, cam_yaw,
+                                    NULL_ENTITY, test_vehicle->world_pos_f(),
+                                    /*clear_first=*/false);
             for (const auto& obj : model_objs.objects())
                 renderer.queue_model(obj.name.c_str(), obj.world_pos, obj.yaw, obj.scale);
             renderer.queue_earth_background(cam_pos, cam_yaw, cam_pitch);
@@ -2476,12 +2472,52 @@ int main(int /*argc*/, char* /*argv*/[])
                         lighting.add_dynamic_light(pv, 12, src, {255, 200, 140});
                         s_last_light_pos = pv;
                         // Re-mesh chunks whose light_levels changed.
-                        mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
+                        mesher.enqueue_batch(g_world.dirty_chunks(), g_world);
+                    }
+                    // Mirror into each vehicle's lighting (vehicle-local position).
+                    // If the player is outside the vehicle's voxel bounds, clamp
+                    // to the nearest surface point of the nearest occupied chunk so
+                    // the BFS has a valid starting position and can flood inward.
+                    if (test_vehicle) {
+                        World& vw3 = test_vehicle->world();
+                        glm::ivec3 vlocal = glm::ivec3(glm::floor(
+                            cam_pos - test_vehicle->world_pos_f()));
+
+                        if (!vw3.get_chunk(World::to_chunk_pos(vlocal))) {
+                            glm::ivec3 clamped = vlocal;
+                            float best = 1e30f;
+                            vw3.for_each_chunk([&](const Chunk& ch) {
+                                glm::ivec3 cmin = ch.chunk_pos() * CHUNK_SIZE;
+                                glm::ivec3 cmax = cmin + glm::ivec3(CHUNK_SIZE - 1);
+                                glm::ivec3 nearest = {
+                                    std::max(cmin.x, std::min(cmax.x, vlocal.x)),
+                                    std::max(cmin.y, std::min(cmax.y, vlocal.y)),
+                                    std::max(cmin.z, std::min(cmax.z, vlocal.z)),
+                                };
+                                float d = glm::length(glm::vec3(nearest - vlocal));
+                                if (d < best) { best = d; clamped = nearest; }
+                            });
+                            vlocal = clamped;
+                        }
+
+                        static glm::ivec3 s_last_veh_pos = {999999, 999999, 999999};
+                        if (!s_last_held || vlocal != s_last_veh_pos) {
+                            test_vehicle->lighting().add_dynamic_light(
+                                vlocal, 12, src, {255, 200, 140});
+                            s_last_veh_pos = vlocal;
+                            vehicle_mesher.enqueue_batch(vw3.dirty_chunks(), vw3, true);
+                        }
                     }
                 } else if (s_last_held) {
                     lighting.remove_dynamic_light(src);
                     // Re-mesh to restore steady-state static lighting.
-                    mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
+                    mesher.enqueue_batch(g_world.dirty_chunks(), g_world);
+                    // Remove from vehicle lighting too
+                    if (test_vehicle) {
+                        test_vehicle->lighting().remove_dynamic_light(src);
+                        World& vw3 = test_vehicle->world();
+                        vehicle_mesher.enqueue_batch(vw3.dirty_chunks(), vw3, true);
+                    }
                 }
                 s_last_held = holds_flashlight;
             }
@@ -2511,7 +2547,7 @@ int main(int /*argc*/, char* /*argv*/[])
             {
                 EntityID plr_se = client.local_player();
                 if (plr_se != NULL_ENTITY) {
-                    auto* se_pl = server.entities().get_component<StatusEffectsComponent>(plr_se);
+                    auto* se_pl = g_entities.get_component<StatusEffectsComponent>(plr_se);
                     if (se_pl) {
                         se_blind  = se_pl->is_blinded();
                         se_jitter = se_pl->is_jittering();
@@ -2523,14 +2559,7 @@ int main(int /*argc*/, char* /*argv*/[])
                     }
                 }
             }
-            // Jitter: random micro shake derived from sim_time (high-frequency)
-            if (se_jitter && !third_person) {
-                constexpr float JITTER_YAW   = 0.40f;  // ±0.4 degrees
-                constexpr float JITTER_PITCH = 0.20f;  // ±0.2 degrees
-                render_cam_yaw   += std::sin(static_cast<float>(sim_time) * 71.3f) * JITTER_YAW;
-                render_cam_yaw   += std::cos(static_cast<float>(sim_time) * 53.7f) * JITTER_YAW * 0.5f;
-                render_cam_pitch += std::sin(static_cast<float>(sim_time) * 97.1f) * JITTER_PITCH;
-            }
+            // Jitter camera shake is intentionally disabled.
             // Dizzy: slow oscillating screen roll (up to ±12 degrees)
             float render_cam_roll = cam_roll;
             if (se_dizzy && !third_person) {
@@ -2549,11 +2578,13 @@ int main(int /*argc*/, char* /*argv*/[])
                 renderer.set_psx_yshear(yshear);
             }
 
-            renderer.draw_world(server.world(), render_cam_pos, render_cam_yaw,
+            renderer.draw_world(g_world, render_cam_pos, render_cam_yaw,
                 render_cam_pitch, render_cam_roll);
             renderer.draw_world_items();
             renderer.draw_mobs();
             renderer.draw_models();
+            if (test_vehicle)
+                renderer.draw_vehicle(test_vehicle->id(), test_vehicle->world_pos_f());
             renderer.draw_viewmodel(0);
             // Pass the held item's type_id when the item pipeline is ready.
             // For now type_id=0 silently skips the draw; the call at least
@@ -2707,9 +2738,9 @@ int main(int /*argc*/, char* /*argv*/[])
                 {
                     EntityID plr = client.local_player();
                     if (plr != NULL_ENTITY) {
-                        auto* vc = server.entities().get_component<VelocityComponent>(plr);
+                        auto* vc = g_entities.get_component<VelocityComponent>(plr);
                         if (vc) dbg.velocity = vc->linear;
-                        auto* cc = server.entities().get_component<CharacterControllerComponent>(plr);
+                        auto* cc = g_entities.get_component<CharacterControllerComponent>(plr);
                         if (cc) {
                             dbg.noclip    = cc->noclip;
                             dbg.zero_g    = cc->zero_g;
@@ -2722,7 +2753,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 dbg.has_hit = hit.valid;
                 if (hit.valid) {
                     dbg.hit_voxel = hit.voxel;
-                    Voxel hv = server.world().get_voxel(hit.voxel);
+                    Voxel hv = g_world.get_voxel(hit.voxel);
                     const VoxelTypeDef* hvd = voxel_reg.get(hv.type_id);
                     dbg.hit_type_name = hvd ? hvd->id : std::to_string(hv.type_id);
                 }
@@ -2744,8 +2775,8 @@ int main(int /*argc*/, char* /*argv*/[])
                         static_cast<int>(std::floor(cam_pos.y - 0.5f)),
                         static_cast<int>(std::floor(cam_pos.z))
                     };
-                    dbg.zone_id = server.atmos().zone_at(feet_voxel);
-                    AtmosZone* zone_ptr = server.atmos().zone(dbg.zone_id);
+                    dbg.zone_id = (g_atmos ? g_atmos->zone_at(feet_voxel) : AtmosZoneID{});
+                    AtmosZone* zone_ptr = (g_atmos ? g_atmos->zone(dbg.zone_id) : nullptr);
                     if (zone_ptr) {
                         dbg.gas_mix            = zone_ptr->gas;
                         dbg.room_cell_count    = zone_ptr->cell_count;
@@ -2753,7 +2784,7 @@ int main(int /*argc*/, char* /*argv*/[])
                         dbg.atmos_status       = zone_ptr->status;
                         dbg.pressure_loss_rate = zone_ptr->pressure_loss_rate;
                     }
-                    dbg.total_rooms = server.atmos().total_rooms();
+                    dbg.total_rooms = (g_atmos ? g_atmos->total_rooms() : 0);
 
                     // Enclosure — query the air cell at feet-level
                     // Only run if the cell is actually air (avoids BFS from solid)
@@ -2775,7 +2806,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 gs.cam_pos   = cam_pos;
                 gs.fb_w      = renderer.width();
                 gs.fb_h      = renderer.height();
-                gas_overlay.draw(server.atmos(), gs, sim_time);
+                if (g_atmos) gas_overlay.draw(*g_atmos, gs, sim_time);
             }
 
             // ── Player stats overlay (F6) ─────────────────────────────────────
@@ -2785,13 +2816,13 @@ int main(int /*argc*/, char* /*argv*/[])
 
                 // Species / variant from MobComponent if present, else defaults
                 if (plr != NULL_ENTITY) {
-                    auto* mc = server.entities().get_component<MobComponent>(plr);
+                    auto* mc = g_entities.get_component<MobComponent>(plr);
                     if (mc) { ps.species = mc->species; ps.variant = mc->variant; }
                 }
 
                 // Health
                 if (plr != NULL_ENTITY) {
-                    auto* hp = server.entities().get_component<HealthComponent>(plr);
+                    auto* hp = g_entities.get_component<HealthComponent>(plr);
                     if (hp) {
                         ps.health_max = hp->health_max;
                         ps.dmg_brute  = hp->brute;
@@ -2810,7 +2841,7 @@ int main(int /*argc*/, char* /*argv*/[])
 
                 // Controller
                 if (plr != NULL_ENTITY) {
-                    auto* cc = server.entities().get_component<CharacterControllerComponent>(plr);
+                    auto* cc = g_entities.get_component<CharacterControllerComponent>(plr);
                     if (cc) {
                         ps.move_speed       = cc->move_speed;
                         ps.sprint_mult      = cc->sprint_mult;
@@ -2852,17 +2883,17 @@ int main(int /*argc*/, char* /*argv*/[])
                     bool hud_rmb_handled = false;
                     // Item verb list: build from the hovered world-item entity
                     if (hovered_item_entity != NULL_ENTITY) {
-                        auto* wic = server.entities().get_component<WorldItemComponent>(hovered_item_entity);
+                        auto* wic = g_entities.get_component<WorldItemComponent>(hovered_item_entity);
                         if (wic && wic->item.def && !wic->item.def->verbs.empty()) {
                             std::vector<ContextEntry> entries;
                             for (const auto& verb : wic->item.def->verbs) {
                                 EntityID veid    = hovered_item_entity;
                                 std::string vhnd = verb.handler;
                                 entries.push_back({verb.name, true, false,
-                                    [veid, vhnd, &server, &world_items,
+                                    [veid, vhnd, &g_entities, &world_items,
                                      &cam_pos, &cam_yaw, &cam_pitch,
                                      &client, &hud_state]() {
-                                        auto* wic2 = server.entities()
+                                        auto* wic2 = g_entities
                                             .get_component<WorldItemComponent>(veid);
                                         VerbContext vctx;
                                         vctx.actor      = client.local_player();
@@ -2886,7 +2917,7 @@ int main(int /*argc*/, char* /*argv*/[])
 
                     // RMB on a world face in alt-mode → populate verb list from voxel type
                     if (!hud_rmb_handled && alt_mode.active() && hit.valid && !ctx_menu.is_open()) {
-                        Voxel hv = server.world().get_voxel(hit.voxel);
+                        Voxel hv = g_world.get_voxel(hit.voxel);
                         const VoxelTypeDef* hvd = voxel_reg.get(hv.type_id);
                         std::vector<ContextEntry> voxel_entries;
                         if (hvd) {
@@ -2954,7 +2985,7 @@ int main(int /*argc*/, char* /*argv*/[])
                         std::sin(prc),
                        -std::cos(prc) * std::cos(yrc)
                     };
-                    RayHit fhc = server.world().raycast(cam_pos, rdc, CTX_REACH2);
+                    RayHit fhc = g_world.raycast(cam_pos, rdc, CTX_REACH2);
                     float idc = 0.f;
                     EntityID hit_ent = world_items.ray_cast_items(
                         cam_pos, rdc, CTX_REACH2,
@@ -2973,9 +3004,9 @@ int main(int /*argc*/, char* /*argv*/[])
                 {
                     EntityID plr = client.local_player();
                     if (plr != NULL_ENTITY) {
-                        auto* cc = server.entities().get_component<CharacterControllerComponent>(plr);
+                        auto* cc = g_entities.get_component<CharacterControllerComponent>(plr);
                         if (cc) adm_state.noclip = cc->noclip;
-                        auto* hp = server.entities().get_component<HealthComponent>(plr);
+                        auto* hp = g_entities.get_component<HealthComponent>(plr);
                         if (hp) adm_state.godmode = hp->godmode;
                     }
                 }
@@ -3002,7 +3033,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 if (ar.toggle_noclip) {
                     EntityID plr = client.local_player();
                     if (plr != NULL_ENTITY) {
-                        auto* cc = server.entities().get_component<CharacterControllerComponent>(plr);
+                        auto* cc = g_entities.get_component<CharacterControllerComponent>(plr);
                         if (cc) {
                             cc->noclip = !cc->noclip;
                             SDL_Log("Noclip: %s", cc->noclip ? "ON" : "OFF");
@@ -3012,7 +3043,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 if (ar.toggle_godmode) {
                     EntityID plr = client.local_player();
                     if (plr != NULL_ENTITY) {
-                        auto* hp = server.entities().get_component<HealthComponent>(plr);
+                        auto* hp = g_entities.get_component<HealthComponent>(plr);
                         if (hp) {
                             hp->godmode = !hp->godmode;
                             SDL_Log("God Mode: %s", hp->godmode ? "ON" : "OFF");
@@ -3075,7 +3106,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 if (ar.action_full_heal) {
                     EntityID plr = client.local_player();
                     if (plr != NULL_ENTITY) {
-                        auto* hp = server.entities().get_component<HealthComponent>(plr);
+                        auto* hp = g_entities.get_component<HealthComponent>(plr);
                         if (hp) {
                             hp->brute = hp->burn = hp->tox = hp->oxy = 0.f;
                             hp->dead  = false;
@@ -3086,7 +3117,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 if (ar.action_kill_player) {
                     EntityID plr = client.local_player();
                     if (plr != NULL_ENTITY) {
-                        auto* hp = server.entities().get_component<HealthComponent>(plr);
+                        auto* hp = g_entities.get_component<HealthComponent>(plr);
                         if (hp) {
                             bool was_god = hp->godmode;
                             hp->godmode = false;
@@ -3099,14 +3130,14 @@ int main(int /*argc*/, char* /*argv*/[])
                 if (ar.action_teleport_origin) {
                     EntityID plr = client.local_player();
                     if (plr != NULL_ENTITY) {
-                        auto* tr_pl = server.entities().get_component<TransformComponent>(plr);
-                        auto* vel_pl = server.entities().get_component<VelocityComponent>(plr);
+                        auto* tr_pl = g_entities.get_component<TransformComponent>(plr);
+                        auto* vel_pl = g_entities.get_component<VelocityComponent>(plr);
                         if (tr_pl) {
                             // Find first open Y at (0, 0)
                             bool found_y = false;
                             for (int sy = 1; sy <= 128 && !found_y; ++sy) {
-                                Voxel bot = server.world().get_voxel({0, sy,     0});
-                                Voxel top = server.world().get_voxel({0, sy + 1, 0});
+                                Voxel bot = g_world.get_voxel({0, sy,     0});
+                                Voxel top = g_world.get_voxel({0, sy + 1, 0});
                                 if (!(bot.flags & VFLAG_SOLID) && !(top.flags & VFLAG_SOLID)) {
                                     tr_pl->pos = {0.5f, static_cast<float>(sy), 0.5f};
                                     found_y = true;
@@ -3120,14 +3151,18 @@ int main(int /*argc*/, char* /*argv*/[])
                     }
                 }
                 if (ar.action_force_atmos) {
-                    server.atmos().rebuild_zones();
+                    if (g_atmos) g_atmos->rebuild_zones();
                     SDL_Log("Dev: atmos zones rebuilt");
                 }
                 if (ar.action_spawn_items) {
                     // Scatter up to 8 items from the registry at the player's feet
                     EntityID plr = client.local_player();
-                    glm::vec3 drop_pos = (plr != NULL_ENTITY) ? cam_pos : glm::vec3{0.5f, 1.f, 0.5f};
-                    RayHit drop_floor  = server.world().raycast(drop_pos, {0.f,-1.f,0.f}, 4.f);
+                    glm::vec3 drop_pos = glm::vec3{0.5f, 1.f, 0.5f};
+                    if (plr != NULL_ENTITY) {
+                        auto* tr = g_entities.get_component<TransformComponent>(plr);
+                        if (tr) drop_pos = tr->pos;
+                    }
+                    RayHit drop_floor  = g_world.raycast(drop_pos, {0.f,-1.f,0.f}, 4.f);
                     int spawned = 0;
                     for (const auto& [id, def] : item_reg.all()) {
                         if (spawned >= 8) break;
@@ -3214,17 +3249,17 @@ int main(int /*argc*/, char* /*argv*/[])
                     // to prevent them getting stuck inside a newly-placed wall.
                     EntityID plr_reload = client.local_player();
                     if (plr_reload != NULL_ENTITY) {
-                        auto* tr_pl = server.entities().get_component<TransformComponent>(plr_reload);
+                        auto* tr_pl = g_entities.get_component<TransformComponent>(plr_reload);
                         if (tr_pl) {
                             int px = static_cast<int>(std::floor(tr_pl->pos.x));
                             int pz = static_cast<int>(std::floor(tr_pl->pos.z));
                             bool found = false;
                             for (int sy = 1; sy <= 128 && !found; ++sy) {
-                                Voxel bot = server.world().get_voxel({px, sy,     pz});
-                                Voxel top = server.world().get_voxel({px, sy + 1, pz});
+                                Voxel bot = g_world.get_voxel({px, sy,     pz});
+                                Voxel top = g_world.get_voxel({px, sy + 1, pz});
                                 if (!(bot.flags & VFLAG_SOLID) && !(top.flags & VFLAG_SOLID)) {
                                     tr_pl->pos = { tr_pl->pos.x, float(sy), tr_pl->pos.z };
-                                    auto* vel_pl = server.entities().get_component<VelocityComponent>(plr_reload);
+                                    auto* vel_pl = g_entities.get_component<VelocityComponent>(plr_reload);
                                     if (vel_pl) vel_pl->linear = {};
                                     found = true;
                                 }
@@ -3232,17 +3267,17 @@ int main(int /*argc*/, char* /*argv*/[])
                             if (!found) {
                                 // Fallback: just elevate above any potential geometry
                                 tr_pl->pos.y = 130.f;
-                                auto* vel_pl = server.entities().get_component<VelocityComponent>(plr_reload);
+                                auto* vel_pl = g_entities.get_component<VelocityComponent>(plr_reload);
                                 if (vel_pl) vel_pl->linear = {};
                             }
                         }
                     }
                 }
                 if (me_result.world_modified) {
-                    mesher.enqueue_batch(server.world().dirty_chunks(), server.world());
+                    mesher.enqueue_batch(g_world.dirty_chunks(), g_world);
                 }
                 if (me_result.needs_atmos_rebuild)
-                    server.atmos().rebuild_zones();
+                    if (g_atmos) g_atmos->rebuild_zones();
                 if (me_result.request_close) {
                     map_editor.close();
                     if (!alt_mode.active())
@@ -3326,7 +3361,6 @@ int main(int /*argc*/, char* /*argv*/[])
     mesher.stop();
     audio.shutdown();
     client.disconnect();
-    server.stop();
     ui_renderer.shutdown();
     renderer.shutdown();
     SDL_Quit();

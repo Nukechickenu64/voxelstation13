@@ -8,7 +8,7 @@ static const glm::ivec3 k_dirs[6] = {
     {1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}
 };
 
-// â”€â”€ LightMap â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// LightMap
 
 void LightMap::set(glm::ivec3 pos, LightColor c)
 {
@@ -24,13 +24,13 @@ LightColor LightMap::get(glm::ivec3 pos) const
     return it != m_data.end() ? it->second : LightColor{255, 255, 255};
 }
 
-// â”€â”€ LightingSystem â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// LightingSystem
 
 LightingSystem::LightingSystem(World& world)
     : m_world(world)
 {}
 
-// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Helpers
 
 // Blend two colors weighted by their respective light levels.
 // The brighter source dominates; equal levels produce an average.
@@ -45,7 +45,7 @@ static LightColor blend_colors(LightColor a, uint8_t la, LightColor b, uint8_t l
     };
 }
 
-// â”€â”€ Full rebuild â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Full rebuild
 
 void LightingSystem::rebuild()
 {
@@ -64,13 +64,29 @@ void LightingSystem::rebuild()
         }
     });
 
+    // Propagate sky light from the top of each column down through transparent voxels.
+    // Collect all unique (x,z) columns from loaded chunks to avoid redundant work.
+    std::unordered_set<glm::ivec2> columns;
+    m_world.for_each_chunk([&](const Chunk& chunk) {
+        glm::ivec3 cp = chunk.chunk_pos();
+        for (int lz = 0; lz < CHUNK_SIZE; ++lz)
+        for (int lx = 0; lx < CHUNK_SIZE; ++lx) {
+            columns.insert({cp.x * CHUNK_SIZE + lx, cp.z * CHUNK_SIZE + lz});
+        }
+    });
+    for (const auto& col : columns)
+        propagate_sky(col);
+
     propagate_block();
 
     for (const auto& light : m_dynamic_lights)
         bfs_add(light.pos, light.level, light.color, false);
+
+    if (m_auto_border_sky)
+        flood_border_sky(m_auto_border_sky_level);
 }
 
-// â”€â”€ Incremental update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Incremental update
 
 void LightingSystem::update(const std::vector<glm::ivec3>& dirty_voxels)
 {
@@ -105,7 +121,7 @@ void LightingSystem::update(const std::vector<glm::ivec3>& dirty_voxels)
     }
 }
 
-// â”€â”€ Sky light â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Sky light
 
 void LightingSystem::propagate_sky(glm::ivec2 column)
 {
@@ -136,7 +152,7 @@ void LightingSystem::propagate_sky(glm::ivec2 column)
     }
 }
 
-// â”€â”€ Block (emissive voxel) propagation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Block (emissive voxel) propagation
 
 void LightingSystem::propagate_block()
 {
@@ -158,7 +174,7 @@ void LightingSystem::propagate_block()
     });
 }
 
-// â”€â”€ BFS flood-fill: add colored light outward from a source â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// BFS flood-fill: add colored light outward from a source
 
 void LightingSystem::bfs_add(glm::ivec3 pos, uint8_t level, LightColor color, bool /*sky*/)
 {
@@ -191,12 +207,21 @@ void LightingSystem::bfs_add(glm::ivec3 pos, uint8_t level, LightColor color, bo
             glm::ivec3 np = p + d;
             if (!m_world.get_chunk(World::to_chunk_pos(np))) continue;
             Voxel nv = m_world.get_voxel(np);
-            if (!(nv.flags & VFLAG_OPAQUE) && nv.light_level < nl)
+            if (nv.flags & VFLAG_OPAQUE) {
+                // Stamp surface brightness onto solid voxels so that the
+                // mesher can read it for exterior-face lighting without
+                // needing to walk inward through the hull.
+                if (nv.light_level < nl) {
+                    m_world.set_light_level(np, nl);
+                    m_light_map.set(np, col);
+                }
+            } else if (nv.light_level < nl) {
                 q.push_back({np, nl, col});
+            }
         }
     }
 }
-// â”€â”€ BFS dark-flood with color removal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// BFS dark-flood with color removal
 
 void LightingSystem::bfs_remove_colored(glm::ivec3 pos,
                                          const std::function<void(glm::ivec3)>& enqueue_relight)
@@ -235,15 +260,89 @@ void LightingSystem::bfs_remove_colored(glm::ivec3 pos,
     }
 }
 
-// â”€â”€ Vertex AO stub â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Vertex AO - computes ambient occlusion for a vertex corner of a voxel face.
+// Samples the three neighbouring cells around the vertex and counts how many
+// are opaque.  Returns 1.0 (fully lit) when none are opaque, down to 0.25
+// when all three block ambient light.
+
+// Direction offsets for each face's outward normal.
+static const glm::ivec3 k_face_normal[6] = {
+    { 1, 0, 0},  // PosX
+    {-1, 0, 0},  // NegX
+    { 0, 1, 0},  // PosY
+    { 0,-1, 0},  // NegY
+    { 0, 0, 1},  // PosZ
+    { 0, 0,-1},  // NegZ
+};
+// Tangent axes for each face (which two axes span the face plane).
+static const int k_face_t1[6] = {1, 1, 0, 0, 0, 0};  // Y, Y, X, X, X, X
+static const int k_face_t2[6] = {2, 2, 2, 2, 1, 1};  // Z, Z, Z, Z, Y, Y
 
 float LightingSystem::vertex_ao(glm::ivec3 voxel, FaceDir face, int corner) const
 {
-    (void)voxel; (void)face; (void)corner;
-    return 1.0f;
+    int fi = static_cast<int>(face);
+    if (fi < 0 || fi >= 6) return 1.0f;
+
+    // Corner encodes which tangent directions to step (+1 or -1 along each tangent).
+    // corner 0: (0,0) -> step -t1, -t2
+    // corner 1: (1,0) -> step +t1, -t2
+    // corner 2: (1,1) -> step +t1, +t2
+    // corner 3: (0,1) -> step -t1, +t2
+    int s1 = (corner == 1 || corner == 2) ? 1 : -1;
+    int s2 = (corner == 2 || corner == 3) ? 1 : -1;
+
+    glm::ivec3 n = k_face_normal[fi];
+    int t1 = k_face_t1[fi];
+    int t2 = k_face_t2[fi];
+
+    // Three sample positions: one step along each tangent, and the diagonal.
+    glm::ivec3 base = voxel + n;  // one cell outward from the voxel
+    glm::ivec3 samples[3];
+    {
+        glm::ivec3 off1(0), off2(0), off12(0);
+        off1[t1] = s1;
+        off2[t2] = s2;
+        off12 = off1 + off2;
+        samples[0] = base + off1;
+        samples[1] = base + off2;
+        samples[2] = base + off12;
+    }
+
+    int blocked = 0;
+    for (const auto& sp : samples) {
+        Voxel sv = m_world.get_voxel(sp);
+        if (sv.type_id != 0 && (sv.flags & VFLAG_OPAQUE))
+            ++blocked;
+    }
+
+    // Map blocked count (0-3) to AO factor: 1.0, 0.75, 0.5, 0.25
+    return 1.0f - blocked * 0.25f;
 }
 
-// â”€â”€ Dynamic point lights â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+void LightingSystem::flood_border_sky(uint8_t level)
+{
+    if (level == 0) return;
+    std::vector<glm::ivec3> seeds;
+    m_world.for_each_chunk([&](const Chunk& chunk) {
+        glm::ivec3 cp = chunk.chunk_pos();
+        for (int lz = 0; lz < CHUNK_SIZE; ++lz)
+        for (int ly = 0; ly < CHUNK_SIZE; ++ly)
+        for (int lx = 0; lx < CHUNK_SIZE; ++lx) {
+            glm::ivec3 wp = cp * CHUNK_SIZE + glm::ivec3(lx, ly, lz);
+            for (const auto& d : k_dirs) {
+                if (!m_world.get_chunk(World::to_chunk_pos(wp + d))) {
+                    seeds.push_back(wp);
+                    break;
+                }
+            }
+        }
+    });
+    for (const auto& s : seeds)
+        bfs_add(s, level, LightColor{255, 255, 255}, false);
+}
+
+
+// Dynamic point lights
 
 void LightingSystem::add_dynamic_light(glm::ivec3 pos, uint8_t level, EntityID source,
                                         LightColor color)
@@ -291,4 +390,7 @@ void LightingSystem::rebuild_dynamic()
 
     for (const auto& light : m_dynamic_lights)
         bfs_add(light.pos, light.level, light.color, false);
+
+    if (m_auto_border_sky)
+        flood_border_sky(m_auto_border_sky_level);
 }

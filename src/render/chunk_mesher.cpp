@@ -125,7 +125,8 @@ void ChunkMesher::enqueue(glm::ivec3 chunk_pos, const World& world)
     m_cv.notify_one();
 }
 
-void ChunkMesher::enqueue_batch(const std::vector<Chunk*>& chunks, const World& world)
+void ChunkMesher::enqueue_batch(const std::vector<Chunk*>& chunks, const World& world,
+                                bool isolated_world)
 {
     if (chunks.empty()) return;
 
@@ -149,8 +150,9 @@ void ChunkMesher::enqueue_batch(const std::vector<Chunk*>& chunks, const World& 
         glm::ivec3 chunk_pos = chunk->chunk_pos();
 
         Job job;
-        job.chunk_pos  = chunk_pos;
-        job.generation = gen;
+        job.chunk_pos      = chunk_pos;
+        job.generation     = gen;
+        job.isolated_world = isolated_world;
         job.type_atlas      = m_cached_atlas;          // shared — pointer copy
         job.bitmask_atlas   = m_cached_bitmask_atlas;   // shared — pointer copy
         job.overlay_atlas   = m_cached_overlay_atlas;   // shared — pointer copy
@@ -417,19 +419,59 @@ void ChunkMesher::worker_loop()
             int sx2 = bx, sy2 = by, sz2 = bz; sx2 += (af.t2==0?step2:0); sy2 += (af.t2==1?step2:0); sz2 += (af.t2==2?step2:0);
             int sx3 = sx1, sy3 = sy1, sz3 = sz1; sx3 += (af.t2==0?step2:0); sy3 += (af.t2==1?step2:0); sz3 += (af.t2==2?step2:0);
 
-            // Sample light_level at each corner
+            // Returns true when a sample position falls outside all loaded chunks
+            // (Y out of range, diagonal XZ, or single-axis into an absent neighbour).
+            auto is_void_pos = [&](int sx, int sy, int sz) -> bool {
+                if (sy < 0 || sy >= CHUNK_SIZE) return true;
+                int oob_x = (sx < 0 || sx >= CHUNK_SIZE) ? 1 : 0;
+                int oob_z = (sz < 0 || sz >= CHUNK_SIZE) ? 1 : 0;
+                if (oob_x + oob_z > 1) return true;  // diagonal corner
+                if (sx == -1)          return !job.neighbours[1].present;
+                if (sx == CHUNK_SIZE)  return !job.neighbours[0].present;
+                if (sz == -1)          return !job.neighbours[3].present;
+                if (sz == CHUNK_SIZE)  return !job.neighbours[2].present;
+                return false;
+            };
+
+            // For isolated-world (vehicle) meshes: the wall voxel itself
+            // now has the interior air's light stamped onto it by bfs_add,
+            // so just read sample(ox,oy,oz) directly as the fallback.
+            float wall_light = job.isolated_world
+                ? job.voxels[coord(ox, oy, oz)].light_level / 15.0f
+                : 0.0f;
+
             auto lv = [&](int sx, int sy, int sz) -> float {
-                return sample(sx, sy, sz).light_level / 15.0f;
+                if (is_void_pos(sx, sy, sz))
+                    return wall_light;
+                const Voxel& sv = sample(sx, sy, sz);
+                // Dark exterior air in isolated world → use wall voxel's stamped light
+                if (job.isolated_world && sv.type_id == 0 && sv.light_level == 0)
+                    return wall_light;
+                return sv.light_level / 15.0f;
             };
             // Look up color for a world-space position
             glm::ivec3 cp3 = job.chunk_pos * CHUNK_SIZE;
+            glm::vec3 wall_color = {1.0f, 1.0f, 1.0f};
+            if (job.isolated_world && job.light_colors) {
+                glm::ivec3 wp = cp3 + glm::ivec3(ox, oy, oz);
+                auto it = job.light_colors->find(wp);
+                if (it != job.light_colors->end())
+                    wall_color = { it->second.r/255.f, it->second.g/255.f, it->second.b/255.f };
+            }
             auto lc = [&](int sx, int sy, int sz) -> glm::vec3 {
+                bool use_wall = false;
+                if (is_void_pos(sx, sy, sz)) use_wall = true;
+                else {
+                    const Voxel& sv = sample(sx, sy, sz);
+                    if (job.isolated_world && sv.type_id == 0 && sv.light_level == 0)
+                        use_wall = true;
+                }
+                if (use_wall) return wall_color;
                 glm::ivec3 wp = cp3 + glm::ivec3(sx, sy, sz);
                 if (job.light_colors) {
                     auto it = job.light_colors->find(wp);
-                    if (it != job.light_colors->end()) {
-                        return { it->second.r / 255.0f, it->second.g / 255.0f, it->second.b / 255.0f };
-                    }
+                    if (it != job.light_colors->end())
+                        return { it->second.r/255.f, it->second.g/255.f, it->second.b/255.f };
                 }
                 return { 1.0f, 1.0f, 1.0f };
             };

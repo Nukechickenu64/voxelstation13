@@ -21,14 +21,17 @@ enum class PacketType : uint16_t {
     ChunkData,
     ChunkDelta,
     EntityState,
+    EntitySpawn,   // new entity spawned in world (type info + position)
     AtmosDelta,
     ChatMessage,
     RoundState,
+    SpawnInfo,     // tell the new client its entity ID + spawn pos
     // Client → Server
     InputState,
     InteractFace,
     InventoryAction,
     ChatSend,
+    Connect,       // initial handshake from client
 };
 
 struct NetAddress {
@@ -41,6 +44,7 @@ struct NetAddress {
 // is explicitly requested in a task description.
 struct PlayerInput {
     glm::vec3 wish_dir{};   // world-space wish direction (Y component used in zero-G)
+    float yaw = 0.f;        // player body yaw angle (degrees)
     bool sprint    = false;
     bool grab_wall = false; // Ctrl held: anchor to nearby solid surface in zero-G
 };
@@ -92,10 +96,15 @@ public:
 private:
     void process_incoming();
     void apply_pending_inputs(double dt);
+    void broadcast_entity_spawns();
     void broadcast_entity_states();
     void broadcast_dirty_chunks();
     void send_to(NetAddress addr, PacketType type,
                  const void* data, size_t len);
+    void send_entity_spawn_to(const NetAddress& addr, EntityID eid);
+
+    // Track which entities have been broadcast to clients (for delta spawns)
+    std::vector<EntityID> m_spawned_since_last_tick;
 
     std::unique_ptr<World>           m_world;
     std::unique_ptr<EntityManager>   m_entities;
@@ -122,6 +131,10 @@ private:
     };
     std::vector<Peer> m_peers;
 
-    uint16_t m_port = 0;
-    bool     m_running = false;
+    uint16_t  m_port   = 0;
+    bool      m_running = false;
+    uintptr_t m_socket  = uintptr_t(-1); // UDP socket (-1 = not bound)
+
+    // Send the full voxel data for one chunk to a specific peer.
+    void send_chunk_to(const NetAddress& addr, glm::ivec3 cp, const Chunk& chunk);
 };

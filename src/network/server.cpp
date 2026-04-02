@@ -1,5 +1,6 @@
 #include "network/server.h"
 #include "simulation/liquids.h"
+#include "simulation/world_items.h"
 #include "data/mob_species_registry.h"
 #include "simulation/mob_system.h"
 #include "simulation/status_effects.h"
@@ -13,7 +14,45 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
+
+// ── Platform UDP socket abstraction ──────────────────────────────────────
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <winsock2.h>
+#  include <ws2tcpip.h>
+#  pragma comment(lib, "ws2_32.lib")
+   using sock_t = SOCKET;
+   static constexpr sock_t k_bad_sock = INVALID_SOCKET;
+   static void  net_close(sock_t s)  { ::closesocket(s); }
+   static bool  net_would_block()    { return WSAGetLastError()==WSAEWOULDBLOCK; }
+   static bool  net_init()           { WSADATA w; return WSAStartup(MAKEWORD(2,2),&w)==0; }
+   static void  net_quit()           { WSACleanup(); }
+   static bool  net_set_nonblock(sock_t s) { u_long v=1; return ::ioctlsocket(s,FIONBIO,&v)==0; }
+   static const char* inet_str(struct in_addr a) { return ::inet_ntoa(a); }
+#else
+#  include <sys/socket.h>
+#  include <netinet/in.h>
+#  include <arpa/inet.h>
+#  include <fcntl.h>
+#  include <unistd.h>
+#  include <errno.h>
+   using sock_t = int;
+   static constexpr sock_t k_bad_sock = -1;
+   static void  net_close(sock_t s)  { ::close(s); }
+   static bool  net_would_block()    { return errno==EAGAIN||errno==EWOULDBLOCK; }
+   static bool  net_init()           { return true; }
+   static void  net_quit()           { }
+   static bool  net_set_nonblock(sock_t s) {
+       int f=::fcntl(s,F_GETFL,0); return ::fcntl(s,F_SETFL,f|O_NONBLOCK)!=-1; }
+   static const char* inet_str(struct in_addr a) { return ::inet_ntoa(a); }
+#endif
+static_assert(sizeof(sock_t) <= sizeof(uintptr_t));
+static inline sock_t   to_sock(uintptr_t u) { return static_cast<sock_t>(u); }
+static inline uintptr_t to_uptr(sock_t  s) { return static_cast<uintptr_t>(s); }
 
 Server::Server()  = default;
 Server::~Server() { stop(); }
@@ -31,15 +70,42 @@ bool Server::start(uint16_t port)
     m_running  = true;
 
     // ── Bump callback (density / TG Bump() proc) ──────────────────────────
-    // When physics detects that movement is blocked by a dense entity,
-    // dispatch to bump_attack() which fires COMSIG_ATOM_BUMPED.
     m_physics->set_bump_callback([this](EntityID mover, EntityID blocker) {
         bump_attack(mover, blocker, *m_entities, signals());
     });
 
-    SDL_Log("Server: started on port %u (loopback only; UDP socket not yet bound)", port);
-    // UDP socket bind: create SOCK_DGRAM and bind to 0.0.0.0:port.
-    // Deferred until a networking backend (ENet / yojimbo / raw sockets) is chosen.
+    // ── Bind UDP socket if port != 0 ──────────────────────────────────────
+    if (port != 0) {
+        if (!net_init()) {
+            SDL_Log("Server: network init failed");
+            return false;
+        }
+        sock_t fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (fd == k_bad_sock) {
+            SDL_Log("Server: socket() failed");
+            return false;
+        }
+        net_set_nonblock(fd);
+
+        // Allow address re-use so server can restart quickly
+        int yes = 1;
+        ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+                     reinterpret_cast<const char*>(&yes), sizeof(yes));
+
+        sockaddr_in addr{};
+        addr.sin_family      = AF_INET;
+        addr.sin_addr.s_addr = INADDR_ANY;
+        addr.sin_port        = htons(port);
+        if (::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+            SDL_Log("Server: bind() failed on port %u", port);
+            net_close(fd);
+            return false;
+        }
+        m_socket = to_uptr(fd);
+        SDL_Log("Server: UDP socket bound to 0.0.0.0:%u", port);
+    } else {
+        SDL_Log("Server: loopback mode (no UDP socket)");
+    }
     return true;
 }
 
@@ -47,7 +113,11 @@ void Server::stop()
 {
     m_running = false;
     m_peers.clear();
-    // Close UDP socket when a networking backend is integrated.
+    if (m_socket != uintptr_t(-1)) {
+        net_close(to_sock(m_socket));
+        m_socket = uintptr_t(-1);
+        net_quit();
+    }
     SDL_Log("Server: stopped");
 }
 
@@ -125,7 +195,25 @@ void Server::tick(double dt)
         cc->wish_move.z = w.x * s2 + w.z * c;
     });
 
+    // ── Zero-G: update for ALL character-controller entities ─────────────────
+    // Must run BEFORE physics so gravity/friction are correct this tick.
+    // main.cpp also updates the local player each frame (and respects the
+    // zerog_override dev tool); this pass handles NPCs and remote players.
+    m_entities->each<CharacterControllerComponent>([&](EntityID eid, CharacterControllerComponent& cc_e) {
+        auto* tr_e = m_entities->get_component<TransformComponent>(eid);
+        if (!tr_e) return;
+        glm::ivec3 cell = {
+            static_cast<int>(std::floor(tr_e->pos.x)),
+            static_cast<int>(std::floor(tr_e->pos.y)),
+            static_cast<int>(std::floor(tr_e->pos.z))
+        };
+        AtmosZoneID az        = m_atmos->zone_at(cell);
+        const AtmosZone* zptr = m_atmos->zone(az);
+        cc_e.zero_g = (!zptr || zptr->is_space);
+    });
+
     m_physics->tick(dt);
+
     // Atmos runs at a fixed 20 Hz to keep simulation stable regardless of
     // the main loop frame rate.  We accumulate elapsed time and drain it in
     // whole ticks so the gas math always sees the same dt.
@@ -138,67 +226,25 @@ void Server::tick(double dt)
     m_pipes->tick(dt);
     m_liquids->tick(dt);
 
-    // ── Atmospheric mob damage ──────────────────────────────────────────────
-    // For each player entity apply SS13-style oxygen deprivation, toxin, and
-    // barotrauma damage based on the gas mixture at their current position.
-    //
-    // Rates (per second):
-    //   oxy damage   — 4.0/s in vacuum, 1.5/s when O2 < 16 kPa
-    //   oxy healing  — 0.5/s when O2 >= 16 kPa and total pressure > 50 kPa
-    //   tox damage   — 1.5/s per 10 kPa of combined plasma+N2O+BZ
-    //   barotrauma   — brute 0.5–3.0/s + burn 0.25–1.5/s when > 550 kPa
-    //   decompression— brute 0–0.25/s when total pressure 1–10 kPa
-    m_entities->each<MobPlayerTag>([&](EntityID eid, MobPlayerTag&) {
-        auto* hp = m_entities->get_component<HealthComponent>(eid);
-        auto* tr = m_entities->get_component<TransformComponent>(eid);
-        if (!hp || !tr || hp->dead) return;
-
-        glm::ivec3 cell = {
-            static_cast<int>(std::floor(tr->pos.x)),
-            static_cast<int>(std::floor(tr->pos.y)),
-            static_cast<int>(std::floor(tr->pos.z))
-        };
-        AtmosZoneID az   = m_atmos->zone_at(cell);
-        const AtmosZone* zptr = m_atmos->zone(az);
-
-        bool   vacuum    = !zptr || zptr->is_space || zptr->gas.total_pressure() < 1.f;
-        float  total_kpa = zptr ? zptr->gas.total_pressure() : 0.f;
-        float  o2_kpa    = zptr ? zptr->gas.o2   : 0.f;
-        float  tox_kpa   = zptr ? (zptr->gas.plasma + zptr->gas.n2o + zptr->gas.bz) : 0.f;
-
-        // Oxygen damage / healing
-        if (vacuum) {
-            hp->apply("oxy", static_cast<float>(4.0 * dt));
-        } else if (o2_kpa < 16.f) {
-            hp->apply("oxy", static_cast<float>(1.5 * dt));
-        } else {
-            hp->heal(static_cast<float>(0.5 * dt));   // breathing fine — recover oxy
-        }
-
-        // Toxin damage (each 10 kPa of combined toxin = 1.5 dmg/s)
-        if (tox_kpa > 0.5f) {
-            hp->apply("tox", static_cast<float>(1.5 * (tox_kpa / 10.f) * dt));
-        }
-
-        // ── Barotrauma / decompression damage ─────────────────────────────────
-        // High pressure crush: > 550 kPa squeezes flesh and ruptures vessels.
-        //   burn + brute at 0.5/s (body heat and mechanical trauma).
-        // Low pressure (not full vacuum): 1–10 kPa causes decompression injury.
-        //   brute 0.25/s — nitrogen bubble formation, skin rupture.
-        //   Also starts at 10 kPa and ramps up toward vacuum severity.
-        // Full vacuum is handled by the oxy path above; no double-counting.
-        if (!vacuum && total_kpa > 550.f) {
-            float excess = (total_kpa - 550.f) / 100.f;  // severity 0..N
-            float rate = std::min(0.5f + excess * 0.3f, 3.0f);
-            hp->apply("brute", static_cast<float>(rate * dt));
-            hp->apply("burn",  static_cast<float>(rate * 0.5f * dt));
-        } else if (!vacuum && total_kpa < 10.f) {
-            float scale = (10.f - total_kpa) / 9.f;     // 0 at 10 kPa, 1 at 1 kPa
-            hp->apply("brute", static_cast<float>(0.25f * scale * dt));
+    // ── Stamina regeneration ──────────────────────────────────────────────────
+    // TG: stamRegenRate ≈ 3/s when stamina is not fully depleted.
+    // Stamina KO that clears here removes Knockdown only if no other knockdown
+    // source is active (status effects track their own durations independently).
+    static constexpr float STAM_REGEN_RATE = 3.f;
+    m_entities->each<HealthComponent>([&](EntityID eid, HealthComponent& hp_stam) {
+        if (hp_stam.dead || hp_stam.stam_damage <= 0.f) return;
+        bool was_ko = hp_stam.stam_ko;
+        hp_stam.regen_stam(STAM_REGEN_RATE * static_cast<float>(dt));
+        // If stamina KO just cleared, try removing the stam-induced Knockdown.
+        // We leave legitimately-applied status-effect durations alone.
+        if (was_ko && !hp_stam.stam_ko) {
+            auto* se_stam = m_entities->get_component<StatusEffectsComponent>(eid);
+            if (se_stam) se_stam->remove(StatusEffectType::Knockdown);
         }
     });
 
     // ── Status effects tick ───────────────────────────────────────────────────
+    // NOTE: atmospheric damage is now handled by AtmosSimulator::apply_entity_effects()
     // Drain status effect durations; update CharacterController mob state.
     // NOTE: speed-multiplier / wish_move scaling is done BEFORE physics above.
     m_entities->each<StatusEffectsComponent>([&](EntityID eid, StatusEffectsComponent& se) {
@@ -287,14 +333,19 @@ void Server::tick(double dt)
     // Fires process() for all registered entities in SS13 subsystem order.
     master_controller().tick(dt);
 
+    broadcast_entity_spawns();
     broadcast_entity_states();
     broadcast_dirty_chunks();
+    m_spawned_since_last_tick.clear();
 }
 
 EntityID Server::spawn_player(const std::string& species)
 {
     EntityID id = m_entities->create();
-    m_entities->add_component<TransformComponent>(id);
+    // Spawn above the floor (y=0 is the floor tile; y=1 is standing height).
+    TransformComponent spawn_tr{};
+    spawn_tr.pos = {0.f, 1.f, 0.f};
+    m_entities->add_component<TransformComponent>(id, spawn_tr);
     m_entities->add_component<VelocityComponent>(id);
 
     // Apply species stats to the character controller if registry is available.
@@ -377,6 +428,7 @@ EntityID Server::spawn_player(const std::string& species)
     m_entities->add_component<HumanAppearance>(id, app);
 
     SDL_Log("Server: spawned player entity %u (species: %s)", id, species.c_str());
+    m_spawned_since_last_tick.push_back(id);
     return id;
 }
 
@@ -470,38 +522,258 @@ EntityID Server::spawn_npc(const std::string& species, glm::vec3 pos, float yaw,
 
     SDL_Log("Server: spawned NPC '%s' (species: %s) at (%.1f,%.1f,%.1f)",
             display.c_str(), species.c_str(), pos.x, pos.y, pos.z);
+    m_spawned_since_last_tick.push_back(id);
     return id;
 }
 
 void Server::process_incoming()
 {
-    // When a UDP backend is available, receive packets here and dispatch:
-    //   while (recv_packet(&addr, &pkt_type, data_buf, &data_len)) {
-    //       switch (pkt_type) {
-    //       case PacketType::InputState:   apply player input to pending_inputs;  break;
-    //       case PacketType::InteractFace: call voxel on_hit handler;            break;
-    //       case PacketType::ChatSend:     broadcast chat message to peers;      break;
-    //       }
-    //   }
+    sock_t fd = to_sock(m_socket);
+    if (fd == k_bad_sock) return; // loopback mode
+
+    static uint8_t buf[65536];
+    for (;;) {
+        sockaddr_in from{};
+#ifdef _WIN32
+        int from_len = sizeof(from);
+#else
+        socklen_t from_len = sizeof(from);
+#endif
+        int n = ::recvfrom(fd, reinterpret_cast<char*>(buf), (int)sizeof(buf), 0,
+                           reinterpret_cast<sockaddr*>(&from), &from_len);
+        if (n < 0) {
+            if (net_would_block()) break;
+            break;
+        }
+        if (n < 6) continue; // too small for a packet header
+
+        NetAddress sender;
+        sender.ip   = from.sin_addr.s_addr;
+        sender.port = ntohs(from.sin_port);
+
+        // Wire format: [type:uint16_t LE][len:uint32_t LE][payload:len bytes]
+        uint16_t type_raw;
+        uint32_t payload_len;
+        std::memcpy(&type_raw,    buf,     2);
+        std::memcpy(&payload_len, buf + 2, 4);
+        auto type = static_cast<PacketType>(type_raw);
+        if (n < 6 + (int)payload_len) continue; // truncated payload
+        const uint8_t* payload = buf + 6;
+
+        switch (type) {
+        // ── New client connect handshake ───────────────────────────────────
+        case PacketType::Connect: {
+            bool already = false;
+            for (auto& p : m_peers)
+                if (p.addr.ip == sender.ip && p.addr.port == sender.port)
+                    { already = true; break; }
+            if (!already) {
+                Peer peer;
+                peer.addr          = sender;
+                peer.player_entity = spawn_player("human");
+                m_peers.push_back(peer);
+                SDL_Log("Server: client %s:%u connected → entity %u",
+                        inet_str(from.sin_addr), sender.port, peer.player_entity);
+
+                // Tell the client its player entity ID and spawn position
+                auto* tr = m_entities->get_component<TransformComponent>(peer.player_entity);
+                struct { uint32_t entity_id; float x, y, z; } si{};
+                si.entity_id = static_cast<uint32_t>(peer.player_entity);
+                if (tr) { si.x = tr->pos.x; si.y = tr->pos.y; si.z = tr->pos.z; }
+                send_to(sender, PacketType::SpawnInfo, &si, sizeof(si));
+                SDL_Log("Server: sent SpawnInfo to client %s:%u (entity %u)",
+                        inet_str(from.sin_addr), sender.port, peer.player_entity);
+
+                // Send all currently loaded chunk data to the new client
+                int chunk_count = 0;
+                m_world->for_each_chunk([&](const Chunk& chunk) {
+                    send_chunk_to(sender, chunk.chunk_pos(), chunk);
+                    chunk_count++;
+                });
+                SDL_Log("Server: sent %d chunks to new client", chunk_count);
+
+                // Send all existing entities (except the new player's own entity)
+                // Do this AFTER SpawnInfo so the client knows its own entity first.
+                int entity_count = 0;
+                m_entities->each<TransformComponent>([&](EntityID eid, TransformComponent&) {
+                    if (eid == peer.player_entity) return;  // skip self
+                    // Only send if entity has a rendering component
+                    if (m_entities->has_component<HumanAppearance>(eid) ||
+                        m_entities->has_component<MobComponent>(eid) ||
+                        m_entities->has_component<WorldItemComponent>(eid)) {
+                        send_entity_spawn_to(sender, eid);
+                        entity_count++;
+                    }
+                });
+                SDL_Log("Server: sent %d entities to new client", entity_count);
+            }
+            break;
+        }
+        // ── Player movement input ──────────────────────────────────────────
+        case PacketType::InputState: {
+            struct WireInput { float dx, dy, dz; float yaw; uint8_t sprint, grab; };
+            if (payload_len < sizeof(WireInput)) break;
+            WireInput wi;
+            std::memcpy(&wi, payload, sizeof(wi));
+            for (auto& p : m_peers) {
+                if (p.addr.ip == sender.ip && p.addr.port == sender.port) {
+                    PlayerInput pi;
+                    pi.wish_dir  = {wi.dx, wi.dy, wi.dz};
+                    pi.yaw       = wi.yaw;
+                    pi.sprint    = wi.sprint != 0;
+                    pi.grab_wall = wi.grab   != 0;
+                    queue_player_input(p.player_entity, pi);
+                    break;
+                }
+            }
+            break;
+        }
+        default: break;
+        }
+    }
+}
+
+// ── Entity spawn broadcast ────────────────────────────────────────────────────
+// Sends entity type information (MobComponent, HumanAppearance, etc.) to clients
+// so they can create the correct rendering components.
+
+void Server::broadcast_entity_spawns()
+{
+    if (m_peers.empty() || m_spawned_since_last_tick.empty()) {
+        if (!m_spawned_since_last_tick.empty()) {
+            SDL_Log("Server: broadcast_entity_spawns - %d entities to broadcast, %d peers",
+                    (int)m_spawned_since_last_tick.size(), (int)m_peers.size());
+        }
+        return;
+    }
+
+    SDL_Log("Server: broadcasting %d entity spawns to %d peers",
+            (int)m_spawned_since_last_tick.size(), (int)m_peers.size());
+
+    for (EntityID eid : m_spawned_since_last_tick) {
+        for (const auto& peer : m_peers) {
+            // Don't send a player their own entity (they already have it)
+            if (peer.player_entity == eid) {
+                SDL_Log("Server: skipping entity %d for peer %s:%u (own entity)",
+                        eid, inet_str(*reinterpret_cast<const in_addr*>(&peer.addr.ip)), peer.addr.port);
+                continue;
+            }
+            SDL_Log("Server: sending entity %d spawn to peer %s:%u",
+                    eid, inet_str(*reinterpret_cast<const in_addr*>(&peer.addr.ip)), peer.addr.port);
+            send_entity_spawn_to(peer.addr, eid);
+        }
+    }
+}
+
+void Server::send_entity_spawn_to(const NetAddress& addr, EntityID eid)
+{
+    // Packet format:
+    // [entity_id:4][type:1][x:4][y:4][z:4][yaw:4]
+    // type: 0=player_mob, 1=npc_mob, 2=item
+    // For mobs: [species_len:1][species:N]
+    // For items: [item_type_id:2]
+
+    auto* tr = m_entities->get_component<TransformComponent>(eid);
+    if (!tr) return;
+
+    std::vector<uint8_t> payload;
+    auto append = [&](const void* data, size_t len) {
+        payload.insert(payload.end(), static_cast<const uint8_t*>(data),
+                       static_cast<const uint8_t*>(data) + len);
+    };
+
+    uint32_t eid_raw = static_cast<uint32_t>(eid);
+    append(&eid_raw, 4);
+
+    // Determine entity type and write type-specific data
+    if (m_entities->has_component<HumanAppearance>(eid)) {
+        // Player mob with HumanAppearance
+        uint8_t type = 0;
+        append(&type, 1);
+
+        // Write species info
+        auto* tag = m_entities->get_component<MobPlayerTag>(eid);
+        auto* name = m_entities->get_component<NameComponent>(eid);
+        std::string species = tag ? tag->species : "human";
+        std::string display_name = name ? name->name : "Player";
+
+        uint8_t species_len = static_cast<uint8_t>(species.size());
+        append(&species_len, 1);
+        append(species.data(), species.size());
+
+        uint8_t name_len = static_cast<uint8_t>(display_name.size());
+        append(&name_len, 1);
+        append(display_name.data(), display_name.size());
+
+        // Write appearance tint (first layer)
+        auto* app = m_entities->get_component<HumanAppearance>(eid);
+        if (app && !app->layers.empty()) {
+            const auto& tint = app->layers[0].tint;
+            append(&tint.r, 1);
+            append(&tint.g, 1);
+            append(&tint.b, 1);
+            append(&tint.a, 1);
+        } else {
+            uint8_t default_tint[4] = {255, 200, 160, 255};
+            append(default_tint, 4);
+        }
+    } else if (m_entities->has_component<MobComponent>(eid)) {
+        // NPC mob with MobComponent
+        uint8_t type = 1;
+        append(&type, 1);
+
+        auto* mob = m_entities->get_component<MobComponent>(eid);
+        auto* name = m_entities->get_component<NameComponent>(eid);
+        std::string species = mob ? mob->species : "unknown";
+        std::string display_name = name ? name->name : species;
+
+        uint8_t species_len = static_cast<uint8_t>(species.size());
+        append(&species_len, 1);
+        append(species.data(), species.size());
+
+        uint8_t name_len = static_cast<uint8_t>(display_name.size());
+        append(&name_len, 1);
+        append(display_name.data(), display_name.size());
+    } else if (m_entities->has_component<WorldItemComponent>(eid)) {
+        // World item
+        uint8_t type = 2;
+        append(&type, 1);
+
+        auto* item = m_entities->get_component<WorldItemComponent>(eid);
+        // Send item def id as string for client-side lookup
+        std::string item_id = (item && item->item.def) ? item->item.def->id : "";
+        uint8_t id_len = static_cast<uint8_t>(item_id.size());
+        append(&id_len, 1);
+        append(item_id.data(), item_id.size());
+    } else {
+        // Unknown entity type - skip
+        return;
+    }
+
+    // Write position and yaw
+    append(&tr->pos.x, 4);
+    append(&tr->pos.y, 4);
+    append(&tr->pos.z, 4);
+    append(&tr->yaw, 4);
+
+    send_to(addr, PacketType::EntitySpawn, payload.data(), payload.size());
 }
 
 void Server::broadcast_entity_states()
 {
     if (m_peers.empty()) return;
-    // Serialise each entity's transform as a compact array:
-    //   [EntityID(4) x(4) y(4) z(4) yaw(4)] per entity  →  20 bytes each.
-    struct EntityStateEntry {
-        uint32_t id;
-        float    x, y, z, yaw;
-    };
+
+    struct EntityStateEntry { uint32_t id; float x, y, z, yaw; };
     std::vector<EntityStateEntry> entries;
     m_entities->each<TransformComponent>([&](EntityID eid, TransformComponent& tr) {
         entries.push_back({static_cast<uint32_t>(eid),
                            tr.pos.x, tr.pos.y, tr.pos.z, tr.yaw});
     });
     if (entries.empty()) return;
-    send_to({}, PacketType::EntityState,
-            entries.data(), entries.size() * sizeof(EntityStateEntry));
+
+    for (const auto& peer : m_peers)
+        send_to(peer.addr, PacketType::EntityState,
+                entries.data(), entries.size() * sizeof(EntityStateEntry));
 }
 
 void Server::queue_player_input(EntityID id, const PlayerInput& input)
@@ -512,6 +784,11 @@ void Server::queue_player_input(EntityID id, const PlayerInput& input)
 void Server::apply_pending_inputs(double dt)
 {
     for (auto& [id, inp] : m_pending_inputs) {
+        // Update entity yaw from player input
+        auto* tr = m_entities->get_component<TransformComponent>(id);
+        if (tr) {
+            tr->yaw = inp.yaw;
+        }
         m_physics->prepare_character_movement(id, inp.wish_dir, inp.sprint, inp.grab_wall);
     }
     (void)dt;
@@ -527,31 +804,79 @@ void Server::move_player(EntityID id, glm::vec3 wish_dir,
 void Server::broadcast_dirty_chunks()
 {
     auto dirty = m_world->dirty_chunks();
+    if (dirty.empty()) return;
+
+    if (m_peers.empty()) {
+        // Nothing to broadcast, but still clear the dirty flags so
+        // consecutive loopback ticks don't accumulate stale dirty chunks.
+        for (Chunk* c : dirty) c->clear_dirty();
+        return;
+    }
+
+    struct ChunkHdr { int32_t cx, cy, cz; };
+    constexpr size_t k_payload = sizeof(ChunkHdr) + CHUNK_VOL * sizeof(uint16_t);
+
     for (Chunk* chunk : dirty) {
-        // Serialise chunk header + flat voxel type_id array.
-        //   Header:  [cx(4)  cy(4)  cz(4)]              = 12 bytes
-        //   Payload: [CHUNK_VOL × uint16_t type_ids]    = 8192 bytes
-        struct ChunkHdr { int32_t cx, cy, cz; };
+        // Build packet payload: [header 12B][type_id array 8192B]
+        uint8_t payload[k_payload];
         const glm::ivec3 cp = chunk->chunk_pos();
         ChunkHdr hdr{ cp.x, cp.y, cp.z };
-        std::vector<uint16_t> vox_data;
-        vox_data.reserve(CHUNK_VOL);
+        std::memcpy(payload, &hdr, sizeof(hdr));
+
+        auto* vox_data = reinterpret_cast<uint16_t*>(payload + sizeof(hdr));
         for (int z = 0; z < CHUNK_SIZE; ++z)
             for (int y = 0; y < CHUNK_SIZE; ++y)
                 for (int x = 0; x < CHUNK_SIZE; ++x)
-                    vox_data.push_back(chunk->get(x, y, z).type_id);
-        // Transmit to subscribed peers (loopback peers are skipped by send_to).
-        send_to({}, PacketType::ChunkData, &hdr, sizeof(hdr));
-        // In a real impl: send header + vox_data in a single packet.
-        (void)vox_data;
+                    vox_data[x + CHUNK_SIZE * (y + CHUNK_SIZE * z)] =
+                        chunk->get(x, y, z).type_id;
+
+        for (const auto& peer : m_peers)
+            send_to(peer.addr, PacketType::ChunkData, payload, k_payload);
+
         chunk->clear_dirty();
     }
 }
 
-void Server::send_to(NetAddress /*addr*/, PacketType /*type*/,
-                     const void* /*data*/, size_t /*len*/)
+void Server::send_chunk_to(const NetAddress& addr, glm::ivec3 cp, const Chunk& chunk)
 {
-    // Transmit packet over UDP when a networking backend is integrated.
-    // Packet wire format: [PacketType(2) | payload_len(4) | payload(len)]
-    // For loopback sessions this path is not taken — state is shared by pointer.
+    struct ChunkHdr { int32_t cx, cy, cz; };
+    constexpr size_t k_payload = sizeof(ChunkHdr) + CHUNK_VOL * sizeof(uint16_t);
+
+    uint8_t payload[k_payload];
+    ChunkHdr hdr{ cp.x, cp.y, cp.z };
+    std::memcpy(payload, &hdr, sizeof(hdr));
+
+    auto* vox_data = reinterpret_cast<uint16_t*>(payload + sizeof(hdr));
+    for (int z = 0; z < CHUNK_SIZE; ++z)
+        for (int y = 0; y < CHUNK_SIZE; ++y)
+            for (int x = 0; x < CHUNK_SIZE; ++x)
+                vox_data[x + CHUNK_SIZE * (y + CHUNK_SIZE * z)] =
+                    chunk.get(x, y, z).type_id;
+
+    send_to(addr, PacketType::ChunkData, payload, k_payload);
+}
+
+void Server::send_to(NetAddress addr, PacketType type,
+                     const void* data, size_t len)
+{
+    sock_t fd = to_sock(m_socket);
+    if (fd == k_bad_sock) return; // loopback mode — no UDP socket
+
+    // Wire format: [type:uint16_t LE][len:uint32_t LE][payload]
+    const size_t pkt_size = 6 + len;
+    std::vector<uint8_t> pkt(pkt_size);
+    uint16_t t = static_cast<uint16_t>(type);
+    uint32_t l = static_cast<uint32_t>(len);
+    std::memcpy(pkt.data(),     &t, 2);
+    std::memcpy(pkt.data() + 2, &l, 4);
+    if (data && len > 0)
+        std::memcpy(pkt.data() + 6, data, len);
+
+    sockaddr_in dest{};
+    dest.sin_family      = AF_INET;
+    dest.sin_addr.s_addr = addr.ip;
+    dest.sin_port        = htons(addr.port);
+    ::sendto(fd, reinterpret_cast<const char*>(pkt.data()),
+             static_cast<int>(pkt_size), 0,
+             reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
 }

@@ -96,6 +96,63 @@
                 "reveal": "always",
                 "panel": "shared"
             }
+        },
+        {
+            "label": "Server Test: Launch Server",
+            "type": "shell",
+            "command": ".\\build_ninja\\vs13_server.exe",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "group": "servertest"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "Server Test: Launch Client 1",
+            "type": "shell",
+            "command": ".\\build_ninja\\vs13.exe --server localhost:7778",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "group": "servertest"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "Server Test: Launch Client 2",
+            "type": "shell",
+            "command": ".\\build_ninja\\vs13.exe --server localhost:7778",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "group": "servertest"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "Server Test",
+            "dependsOn": [
+                "Build (Debug)",
+                "Server Test: Launch Server",
+                "Server Test: Launch Client 1",
+                "Server Test: Launch Client 2"
+            ],
+            "dependsOrder": "sequence",
+            "group": "test",
+            "problemMatcher": []
         }
     ]
 }

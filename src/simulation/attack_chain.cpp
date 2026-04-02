@@ -105,13 +105,20 @@ AttackResult attack_chain(AttackContext& ctx,
         if (res & COMPONENT_SIGNAL_CANCEL)
             return AttackResult::Missed;
 
-        // Apply unarmed damage
+        // Apply unarmed damage + stamina loss (TG: unarmed punch deals 5 stam loss)
         auto* hp = entities.get_component<HealthComponent>(ctx.target);
         if (hp) {
             hp->apply("brute", dmg);
+            hp->apply_stam(BASE_UNARMED_STAM_DAMAGE);
             ctx.hit = true;
-            SDL_Log("[attack_chain] %u punched %u for %.1f brute (hp=%.1f)",
-                    ctx.attacker, ctx.target, dmg, hp->current());
+            SDL_Log("[attack_chain] %u punched %u for %.1f brute (hp=%.1f stam_dmg=%.1f)",
+                    ctx.attacker, ctx.target, dmg, hp->current(), hp->stam_damage);
+            // Stamina KO — knock the target down
+            if (hp->stam_ko) {
+                auto* tse_unarmed = entities.get_component<StatusEffectsComponent>(ctx.target);
+                if (tse_unarmed)
+                    tse_unarmed->apply(StatusEffectType::Knockdown, 4.f, 1.f);
+            }
         }
 
         return AttackResult::HitMob;
@@ -159,18 +166,33 @@ AttackResult attack_chain(AttackContext& ctx,
                 ctx.attacker, ctx.target,
                 dmg, dmg_type.c_str(), hp->current());
 
-        // Tool / item-specific: stun effect on targets (e.g. stun baton)
+        // Tool / item-specific: stun / knockdown / stamina effects (e.g. stun baton)
+        // TG tags:
+        //   stun:<seconds>      → hard stun (full immobilise)
+        //   knockdown:<seconds> → soft knockdown (crawl only)
+        //   stam:<amount>       → stamina damage (KO at stam_damage >= stamina_max)
         auto* target_status = entities.get_component<StatusEffectsComponent>(ctx.target);
-        if (target_status && ctx.weapon && ctx.weapon->def) {
+        if (ctx.weapon && ctx.weapon->def) {
             for (const auto& tag : ctx.weapon->def->tags) {
                 if (tag.rfind("stun:", 0) == 0) {
                     float dur = 2.f;
                     try { dur = std::stof(tag.substr(5)); } catch (...) {}
-                    target_status->apply(StatusEffectType::Stun, dur);
+                    if (target_status) target_status->apply(StatusEffectType::Stun, dur);
                 } else if (tag.rfind("knockdown:", 0) == 0) {
                     float dur = 3.f;
                     try { dur = std::stof(tag.substr(10)); } catch (...) {}
-                    target_status->apply(StatusEffectType::Knockdown, dur);
+                    if (target_status) target_status->apply(StatusEffectType::Knockdown, dur);
+                } else if (tag.rfind("stam:", 0) == 0) {
+                    // Stamina damage (TG: stun-baton primary effect)
+                    float stam_amt = 30.f;
+                    try { stam_amt = std::stof(tag.substr(5)); } catch (...) {}
+                    hp->apply_stam(stam_amt);
+                    // KO from stamina depletion — applies Knockdown
+                    if (hp->stam_ko && target_status)
+                        target_status->apply(StatusEffectType::Knockdown, 5.f, 1.f);
+                    SDL_Log("[attack_chain] stam hit: %u → %u stam_dmg=%.1f/%0.f ko=%d",
+                            ctx.attacker, ctx.target,
+                            hp->stam_damage, hp->stamina_max, hp->stam_ko ? 1 : 0);
                 }
             }
         }

@@ -1,11 +1,18 @@
 #pragma once
 #include "core/world.h"
 #include "core/entity_manager.h"
-#include "network/server.h"
 #include "network/input_snapshot.h"
 #include <string>
 #include <vector>
 #include <optional>
+#include <cstdint>
+
+// Forward declarations — avoids pulling heavy headers into every TU that
+// includes client.h.
+class Server;
+class AtmosSimulator;
+class VoxelRegistry;
+class ItemRegistry;
 
 // Client-side view of the game world.
 // Applies server state deltas and performs client-side prediction for the
@@ -15,16 +22,15 @@ public:
     Client();
     ~Client();
 
-    // Connect to a remote server, or pass nullptr to connect to a local Server
+    // Connect to a remote server (blocking up to ~5 s for the handshake).
     bool connect(const char* host, uint16_t port);
-    bool connect_local(Server& server);
     void disconnect();
     bool connected() const { return m_connected; }
 
     // Called each logic tick
     void tick(double dt);
 
-    // Send local player input to server
+    // Send local player input to server (no-op in loopback mode)
     void send_input(const struct InputSnapshot& snap);
 
     // Called each render frame — returns interpolated entity states
@@ -33,9 +39,21 @@ public:
     // Local player entity (may be NULL_ENTITY before spawn)
     EntityID local_player() const { return m_local_player; }
 
-    // Client-side world (received from server)
-    World&         world()    { return *m_world; }
-    EntityManager& entities() { return *m_entities; }
+    // World/entity access — works transparently in both loopback and remote mode.
+    // Loopback: delegates to the in-process Server's authoritative state.
+    // Remote:   returns the client's locally replicated state.
+    World&         world();
+    EntityManager& entities();
+
+    // Atmospherics access — always returns nullptr (simulation runs server-side).
+    AtmosSimulator* atmos() { return nullptr; }
+
+    // Provide the voxel registry so received chunk data has correct flags.
+    // Must be called before the first chunk packet arrives.
+    void set_registry(const VoxelRegistry* reg) { m_voxel_registry = reg; }
+
+    // Provide the item registry so spawned items can resolve their ItemDef*.
+    void set_item_registry(const ItemRegistry* reg) { m_item_registry = reg; }
 
     // Chat
     void      send_chat(const std::string& msg);
@@ -45,6 +63,7 @@ private:
     void process_incoming();
     void on_chunk_data  (const void* data, size_t len);
     void on_entity_state(const void* data, size_t len);
+    void on_entity_spawn  (const void* data, size_t len);
     void on_chat_message(const void* data, size_t len);
 
     std::unique_ptr<World>         m_world;
@@ -54,8 +73,16 @@ private:
     bool     m_connected    = false;
 
     // Rewind buffer for lag compensation (up to 150 ms of input snapshots)
-    static constexpr int REWIND_BUFFER = 16;
     std::vector<std::string> m_chat_log;
 
-    Server* m_local_server = nullptr; // set when using loopback
+    // Remote: UDP socket + server address
+    uintptr_t m_socket     = uintptr_t(-1);
+    uint32_t  m_server_ip  = 0;
+    uint16_t  m_server_port = 0;
+
+    // Voxel type registry for flag reconstruction on received chunk data
+    const VoxelRegistry* m_voxel_registry = nullptr;
+
+    // Item registry for resolving item definitions on spawned items
+    const ItemRegistry* m_item_registry = nullptr;
 };

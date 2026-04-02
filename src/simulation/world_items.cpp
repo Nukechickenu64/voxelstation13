@@ -128,7 +128,7 @@ std::optional<ItemStack> WorldItemSystem::pick_up(EntityID id)
 void WorldItemSystem::tick(double /*dt*/)
 {
     // Speed threshold below which a floating item is considered at rest (m/s)
-    constexpr float SETTLE_SPEED_SQ = 0.02f * 0.02f;
+    constexpr float SETTLE_SPEED_SQ = 0.005f * 0.005f;
     constexpr float ITEM_RADIUS     = 0.15f;
 
     m_entities.each<WorldItemComponent>([&](EntityID id, WorldItemComponent& wic) {
