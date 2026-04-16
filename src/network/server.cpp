@@ -571,6 +571,25 @@ void Server::process_incoming()
                 Peer peer;
                 peer.addr          = sender;
                 peer.player_entity = spawn_player("human");
+
+                // Parse optional appearance payload:
+                // [eye_r:1][eye_g:1][eye_b:1][hair_len:1][hair:N][hair_r:1][hair_g:1][hair_b:1]
+                if (payload_len >= 3) {
+                    peer.eye_r = payload[0];
+                    peer.eye_g = payload[1];
+                    peer.eye_b = payload[2];
+                }
+                if (payload_len >= 4) {
+                    uint8_t hair_len = payload[3];
+                    if (payload_len >= static_cast<uint32_t>(4 + hair_len + 3)) {
+                        peer.hair_file = std::string(
+                            reinterpret_cast<const char*>(payload + 4), hair_len);
+                        peer.hair_r = payload[4 + hair_len + 0];
+                        peer.hair_g = payload[4 + hair_len + 1];
+                        peer.hair_b = payload[4 + hair_len + 2];
+                    }
+                }
+
                 m_peers.push_back(peer);
                 SDL_Log("Server: client %s:%u connected → entity %u",
                         inet_str(from.sin_addr), sender.port, peer.player_entity);
@@ -606,6 +625,94 @@ void Server::process_incoming()
                     }
                 });
                 SDL_Log("Server: sent %d entities to new client", entity_count);
+
+                // Notify all already-connected peers about the new player so
+                // they can see it without waiting for the end-of-tick broadcast.
+                for (const auto& ep : m_peers) {
+                    if (ep.player_entity == peer.player_entity) continue;
+                    send_entity_spawn_to(ep.addr, peer.player_entity);
+                    SDL_Log("Server: notified peer (entity %u) about new player (entity %u)",
+                            ep.player_entity, peer.player_entity);
+                }
+            }
+            break;
+        }
+        // ── Appearance + equipment update from client ──────────────────────
+        case PacketType::AppearanceUpdate: {
+            // Format: [eye_r:1][eye_g:1][eye_b:1][hair_len:1][hair:N][hair_r:1][hair_g:1][hair_b:1]
+            //         [slot_count:1]([slot_id_len:1][slot_id:N][item_id_len:1][item_id:N])*
+            if (payload_len < 4) break;
+            const uint8_t* p   = static_cast<const uint8_t*>(payload);
+            const uint8_t* end = p + payload_len;
+            uint8_t eye_r = p[0], eye_g = p[1], eye_b = p[2];
+            uint8_t hlen  = p[3];
+            p += 4;
+            if (p + hlen + 3 > end) break;
+            std::string hair_file(reinterpret_cast<const char*>(p), hlen);
+            p += hlen;
+            uint8_t hair_r = p[0], hair_g = p[1], hair_b = p[2];
+            p += 3;
+
+            // Parse slot pairs (optional, may not be present for older sends)
+            std::vector<std::pair<std::string,std::string>> slots;
+            if (p < end) {
+                uint8_t slot_count = *p++;
+                for (int i = 0; i < slot_count && p < end; ++i) {
+                    if (p >= end) break;
+                    uint8_t slen = *p++;
+                    if (p + slen > end) break;
+                    std::string slot_id(reinterpret_cast<const char*>(p), slen);
+                    p += slen;
+                    if (p >= end) break;
+                    uint8_t ilen = *p++;
+                    if (p + ilen > end) break;
+                    std::string item_id(reinterpret_cast<const char*>(p), ilen);
+                    p += ilen;
+                    if (!slot_id.empty())
+                        slots.emplace_back(std::move(slot_id), std::move(item_id));
+                }
+            }
+
+            for (auto& peer : m_peers) {
+                if (peer.addr.ip != sender.ip || peer.addr.port != sender.port)
+                    continue;
+                peer.eye_r         = eye_r;
+                peer.eye_g         = eye_g;
+                peer.eye_b         = eye_b;
+                peer.hair_file     = hair_file;
+                peer.hair_r        = hair_r;
+                peer.hair_g        = hair_g;
+                peer.hair_b        = hair_b;
+                peer.equipped_slots = slots;
+
+                // Build AppearanceState relay packet:
+                // [entity_id:4] + same payload as AppearanceUpdate
+                std::vector<uint8_t> relay;
+                uint32_t eid_raw = static_cast<uint32_t>(peer.player_entity);
+                relay.insert(relay.end(),
+                    reinterpret_cast<const uint8_t*>(&eid_raw),
+                    reinterpret_cast<const uint8_t*>(&eid_raw) + 4);
+                // eye + hair (re-encode from parsed values to ensure clean relay)
+                relay.push_back(eye_r); relay.push_back(eye_g); relay.push_back(eye_b);
+                relay.push_back(hlen);
+                relay.insert(relay.end(), hair_file.begin(), hair_file.end());
+                relay.push_back(hair_r); relay.push_back(hair_g); relay.push_back(hair_b);
+                // slots
+                relay.push_back((uint8_t)std::min(slots.size(), (size_t)255));
+                for (auto& [sid, iid] : slots) {
+                    relay.push_back((uint8_t)sid.size());
+                    relay.insert(relay.end(), sid.begin(), sid.end());
+                    relay.push_back((uint8_t)iid.size());
+                    relay.insert(relay.end(), iid.begin(), iid.end());
+                }
+
+                for (const auto& other : m_peers) {
+                    if (other.addr.ip == peer.addr.ip &&
+                        other.addr.port == peer.addr.port) continue;
+                    send_to(other.addr, PacketType::AppearanceState,
+                            relay.data(), relay.size());
+                }
+                break;
             }
             break;
         }
@@ -618,7 +725,7 @@ void Server::process_incoming()
             for (auto& p : m_peers) {
                 if (p.addr.ip == sender.ip && p.addr.port == sender.port) {
                     PlayerInput pi;
-                    pi.wish_dir  = {wi.dx, wi.dy, wi.dz};
+                    pi.wish_dir  = glm::vec3(wi.dx, wi.dy, wi.dz);
                     pi.yaw       = wi.yaw;
                     pi.sprint    = wi.sprint != 0;
                     pi.grab_wall = wi.grab   != 0;
@@ -716,6 +823,29 @@ void Server::send_entity_spawn_to(const NetAddress& addr, EntityID eid)
         } else {
             uint8_t default_tint[4] = {255, 200, 160, 255};
             append(default_tint, 4);
+        }
+
+        // Write eye color and hair from this player's stored appearance profile
+        const Peer* peer_of_eid = nullptr;
+        for (const auto& p : m_peers)
+            if (p.player_entity == eid) { peer_of_eid = &p; break; }
+        if (peer_of_eid) {
+            append(&peer_of_eid->eye_r, 1);
+            append(&peer_of_eid->eye_g, 1);
+            append(&peer_of_eid->eye_b, 1);
+            uint8_t hair_len = static_cast<uint8_t>(peer_of_eid->hair_file.size());
+            append(&hair_len, 1);
+            append(peer_of_eid->hair_file.data(), peer_of_eid->hair_file.size());
+            append(&peer_of_eid->hair_r, 1);
+            append(&peer_of_eid->hair_g, 1);
+            append(&peer_of_eid->hair_b, 1);
+        } else {
+            // Default appearance for server-side NPCs / loopback players
+            uint8_t defaults[] = {30, 100, 190,            // eye color (blue)
+                                   10,                      // hair_len
+                                   'h','a','i','r','_','m','e','s','s','y',
+                                   89, 60, 30};             // hair color (brown)
+            append(defaults, sizeof(defaults));
         }
     } else if (m_entities->has_component<MobComponent>(eid)) {
         // NPC mob with MobComponent

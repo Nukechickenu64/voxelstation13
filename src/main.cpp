@@ -599,6 +599,21 @@ int main(int argc, char* argv[])
         }
     }
 
+    // Send the final character appearance to the server so other clients see
+    // the correct eye colour / hair after the character creator has run.
+    if (client.connected()) {
+        Client::AppearanceInfo ai;
+        ai.eye_r     = player_profile.eye_color.r;
+        ai.eye_g     = player_profile.eye_color.g;
+        ai.eye_b     = player_profile.eye_color.b;
+        ai.hair_file = player_profile.hair_file;
+        ai.hair_r    = player_profile.hair_color.r;
+        ai.hair_g    = player_profile.hair_color.g;
+        ai.hair_b    = player_profile.hair_color.b;
+        client.set_appearance(ai);
+        client.send_appearance_update();
+    }
+
     // Capture cursor now that the player has entered the game.
     input.capture_cursor(renderer.window(), true);
 
@@ -2414,7 +2429,24 @@ int main(int argc, char* argv[])
                     auto* app = g_entities.get_component<HumanAppearance>(player);
                     if (app) {
                         static std::string s_last_app_fp;
+                        std::string fp_before = s_last_app_fp;
                         rebuild_if_changed(*app, player_inv, s_last_app_fp);
+                        // Send equipment update to server whenever inventory changed
+                        if (s_last_app_fp != fp_before && client.connected()) {
+                            std::vector<std::pair<std::string,std::string>> slots;
+                            for (const char* sl : k_vis_eq_slots) {
+                                const auto* slt = player_inv.find_slot(sl);
+                                if (slt && slt->item && slt->item->def)
+                                    slots.emplace_back(sl, slt->item->def->id);
+                            }
+                            for (const char* sl : { "l_hand", "r_hand" }) {
+                                const auto* slt = player_inv.find_slot(sl);
+                                if (slt && slt->item && slt->item->def)
+                                    slots.emplace_back(sl, slt->item->def->id);
+                            }
+                            client.set_equipped_slots(slots);
+                            client.send_appearance_update();
+                        }
                     }
                 }
 

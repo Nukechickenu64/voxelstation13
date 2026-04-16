@@ -13,6 +13,58 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
+#include <algorithm>
+
+// ── Shared clothing / inhand lookup tables ─────────────────────────────────
+// Mirrored from main.cpp k_clothing_map / k_inhand_map so received
+// AppearanceState packets can rebuild remote-player overlays client-side.
+namespace {
+struct CEntry { const char* id; const char* dir; const char* name; };
+static const CEntry k_clothing_map[] = {
+    { "hardsuit",        "clothing/suits/spacesuit", "space"            },
+    { "body_armor",      "clothing/suits/armor",     "armor"            },
+    { "security_armor",  "clothing/suits/armor",     "armor_sec"        },
+    { "hardsuit_helmet", "clothing/head/spacehelm",  "space"            },
+    { "mining_helmet",   "clothing/head/utility",    "hardhat0_orange"  },
+    { "welding_helmet",  "clothing/head/utility",    "welding"          },
+    { "hard_hat",        "clothing/head/utility",    "hardhat0_yellow"  },
+    { "welding_goggles", "clothing/eyes",            "welding-g"        },
+    { "sunglasses",      "clothing/eyes",            "bigsunglasses"    },
+    { "gas_mask",        "clothing/mask",            "gas_mask"         },
+    { "jetpack",         "clothing/back",            "jetpack"          },
+    { "toolbelt",        "clothing/belt",            "ebelt"            },
+    { "rubber_gloves",   "clothing/hands",           "latex"            },
+    { "magboots",        "clothing/feet",            "magboots0"        },
+    { "boots",           "clothing/feet",            "workboots"        },
+    { "headset",         "clothing/ears",            "headset"          },
+};
+struct IEntry { const char* id; const char* category; const char* name; };
+static const IEntry k_inhand_map[] = {
+    { "wrench",       "equipment/tools",   "wrench"       },
+    { "screwdriver",  "equipment/tools",   "screwdriver"  },
+    { "crowbar",      "equipment/tools",   "crowbar"      },
+    { "wirecutters",  "equipment/tools",   "cutters"      },
+    { "welder",       "equipment/tools",   "welder"       },
+    { "multitool",    "equipment/tools",   "multitool"    },
+    { "drill",        "equipment/tools",   "drill"        },
+    { "rcd",          "equipment/tools",   "rcd"          },
+    { "pickaxe",      "equipment/mining",  "pickaxe"      },
+    { "shovel",       "equipment/mining",  "shovel"       },
+    { "flashlight",   "items/devices",     "flashlight"   },
+    { "radio",        "items/devices",     "radio"        },
+    { "baseball_bat", "weapons/melee",     "baseball_bat" },
+    { "katana",       "weapons/swords",    "katana"       },
+    { "bow",          "weapons/bows",      "bow"          },
+    { "beaker",       "items",             "beaker"       },
+    { "medipen",      "equipment/medical", "medipen"      },
+    { "syringe",      "equipment/medical", "syringe_0"    },
+    { "scalpel",      "equipment/medical", "scalpel"      },
+};
+// Slot IDs that are clothing (not inhand)
+static const char* k_clothing_slot_ids[] = {
+    "suit","head","glasses","mask","back","belt","gloves","shoes","ears"
+};
+} // namespace
 
 // ── Platform UDP socket helpers ───────────────────────────────────────────────
 #ifdef _WIN32
@@ -119,7 +171,25 @@ bool Client::connect(const char* host, uint16_t port)
     m_socket = cli_to_uptr(fd);
 
     SDL_Log("Client: connecting to %s:%u ...", host_buf, port);
-    cli_send_packet(fd, srv, PacketType::Connect, nullptr, 0);
+
+    // Build Connect payload with appearance data:
+    // [eye_r:1][eye_g:1][eye_b:1][hair_len:1][hair:N][hair_r:1][hair_g:1][hair_b:1]
+    {
+        std::vector<uint8_t> app_payload;
+        app_payload.push_back(m_appearance.eye_r);
+        app_payload.push_back(m_appearance.eye_g);
+        app_payload.push_back(m_appearance.eye_b);
+        uint8_t hair_len = static_cast<uint8_t>(m_appearance.hair_file.size());
+        app_payload.push_back(hair_len);
+        app_payload.insert(app_payload.end(),
+                           m_appearance.hair_file.begin(),
+                           m_appearance.hair_file.end());
+        app_payload.push_back(m_appearance.hair_r);
+        app_payload.push_back(m_appearance.hair_g);
+        app_payload.push_back(m_appearance.hair_b);
+        cli_send_packet(fd, srv, PacketType::Connect,
+                        app_payload.data(), app_payload.size());
+    }
 
     // Wait up to 5 s for SpawnInfo
     uint64_t deadline = SDL_GetTicks() + 5000;
@@ -154,6 +224,17 @@ bool Client::connect(const char* host, uint16_t port)
             TransformComponent tr{};
             tr.pos = tr.prev_pos = {sx, sy, sz};
             m_entities->add_component<TransformComponent>(m_local_player, tr);
+
+            // HumanAppearance for rendering the local player's body
+            HumanAppearance app{};
+            HumanOverlay base_layer{};
+            base_layer.sprite_dir = "bodyparts_greyscale";
+            base_layer.prefix     = "human";
+            base_layer.gender     = "_m";
+            base_layer.tint       = {255, 255, 255, 255};
+            app.layers.push_back(base_layer);
+            app.dirty = true;
+            m_entities->add_component<HumanAppearance>(m_local_player, app);
 
             m_connected = true;
             SDL_Log("Client: connected! player entity %u at (%.1f,%.1f,%.1f)",
@@ -250,6 +331,41 @@ void Client::send_chat(const std::string& msg)
     cli_send_packet(fd, srv, PacketType::ChatSend, msg.data(), msg.size());
 }
 
+void Client::send_appearance_update()
+{
+    sock_t fd = cli_to_sock(m_socket);
+    if (fd == k_bad_sock) return;
+    sockaddr_in srv{};
+    srv.sin_family      = AF_INET;
+    srv.sin_addr.s_addr = m_server_ip;
+    srv.sin_port        = htons(m_server_port);
+
+    std::vector<uint8_t> payload;
+    payload.push_back(m_appearance.eye_r);
+    payload.push_back(m_appearance.eye_g);
+    payload.push_back(m_appearance.eye_b);
+    uint8_t hlen = (uint8_t)std::min(m_appearance.hair_file.size(), (size_t)255);
+    payload.push_back(hlen);
+    payload.insert(payload.end(),
+        m_appearance.hair_file.begin(),
+        m_appearance.hair_file.begin() + hlen);
+    payload.push_back(m_appearance.hair_r);
+    payload.push_back(m_appearance.hair_g);
+    payload.push_back(m_appearance.hair_b);
+
+    // Append slot data
+    payload.push_back((uint8_t)std::min(m_equipped_slots.size(), (size_t)255));
+    for (auto& [sid, iid] : m_equipped_slots) {
+        payload.push_back((uint8_t)sid.size());
+        payload.insert(payload.end(), sid.begin(), sid.end());
+        payload.push_back((uint8_t)iid.size());
+        payload.insert(payload.end(), iid.begin(), iid.end());
+    }
+
+    cli_send_packet(fd, srv, PacketType::AppearanceUpdate,
+                   payload.data(), payload.size());
+}
+
 void Client::process_incoming()
 {
     sock_t fd = cli_to_sock(m_socket);
@@ -275,10 +391,11 @@ void Client::process_incoming()
         const uint8_t* payload = buf + 6;
 
         switch (type) {
-        case PacketType::ChunkData:   on_chunk_data  (payload, payload_len); break;
-        case PacketType::EntityState: on_entity_state(payload, payload_len); break;
-        case PacketType::EntitySpawn: on_entity_spawn  (payload, payload_len); break;
-        case PacketType::ChatMessage: on_chat_message(payload, payload_len); break;
+        case PacketType::ChunkData:       on_chunk_data       (payload, payload_len); break;
+        case PacketType::EntityState:     on_entity_state     (payload, payload_len); break;
+        case PacketType::EntitySpawn:     on_entity_spawn     (payload, payload_len); break;
+        case PacketType::ChatMessage:     on_chat_message     (payload, payload_len); break;
+        case PacketType::AppearanceState: on_appearance_state (payload, payload_len); break;
         default: break;
         }
     }
@@ -378,6 +495,29 @@ void Client::on_entity_spawn(const void* data, size_t len)
         uint8_t tint_r = p[0], tint_g = p[1], tint_b = p[2], tint_a = p[3];
         p += 4;
 
+        // Read eye color and hair (added after tint in the updated protocol)
+        uint8_t eye_r = 30, eye_g = 100, eye_b = 190;
+        std::string hair_file = "hair_messy";
+        uint8_t hair_r = 89, hair_g = 60, hair_b = 30;
+        {
+            // Peek ahead to see if there is appearance data before the floats.
+            // Layout: [eye_r:1][eye_g:1][eye_b:1][hair_len:1][hair:N][hair_r:1][hair_g:1][hair_b:1]
+            // We check we have at least 7 bytes + hair_len bytes left before
+            // the 4×4 = 16 float bytes at the end.
+            const uint8_t* end = static_cast<const uint8_t*>(data) + len;
+            if (p + 4 + 3 + 16 <= end) {  // at least: eyeRGB(3) + hairLen(1) + hairRGB(3) + xyzw(16)
+                eye_r = p[0]; eye_g = p[1]; eye_b = p[2];
+                uint8_t hair_len = p[3];
+                if (p + 4 + hair_len + 3 + 16 <= end) {
+                    hair_file = std::string(reinterpret_cast<const char*>(p + 4), hair_len);
+                    hair_r = p[4 + hair_len + 0];
+                    hair_g = p[4 + hair_len + 1];
+                    hair_b = p[4 + hair_len + 2];
+                    p += 4 + hair_len + 3;
+                }
+            }
+        }
+
         // Read position
         float x, y, z, yaw;
         std::memcpy(&x, p, 4); p += 4;
@@ -398,16 +538,71 @@ void Client::on_entity_spawn(const void* data, size_t len)
         m_entities->add_component<MobTypeTag>(eid, MobTypeTag{"/mob/living/carbon/human"});
         m_entities->add_component<NameComponent>(eid, NameComponent{display_name, "A player."});
 
-        // HumanAppearance for rendering
-        HumanAppearance app{};
-        HumanOverlay base_layer{};
-        base_layer.sprite_dir = "bodyparts_greyscale";
-        base_layer.prefix     = "human";
-        base_layer.gender     = "_m";
-        base_layer.tint       = {tint_r, tint_g, tint_b, tint_a};
-        app.layers.push_back(base_layer);
-        app.dirty = true;
-        m_entities->add_component<HumanAppearance>(eid, app);
+        // HumanAppearance for rendering — update if already present (local player
+        // or a re-broadcast after AppearanceUpdate)
+        auto* app_ptr = m_entities->get_component<HumanAppearance>(eid);
+        if (app_ptr) {
+            // Update skin tint on the bodypart layer
+            for (auto& ov : app_ptr->layers) {
+                if (ov.kind == HumanOverlayKind::Bodypart)
+                    ov.tint = {tint_r, tint_g, tint_b, tint_a};
+            }
+            // Refresh eye/hair layers (remove old ones and re-add with new colors)
+            app_ptr->layers.erase(
+                std::remove_if(app_ptr->layers.begin(), app_ptr->layers.end(),
+                    [](const HumanOverlay& ov) {
+                        return ov.kind == HumanOverlayKind::Clothing &&
+                               (ov.sprite_dir == "human/human_eyes" ||
+                                ov.sprite_dir == "human/human_face");
+                    }),
+                app_ptr->layers.end());
+            for (const char* eye_pfx : { "eyes_l", "eyes_r" }) {
+                HumanOverlay eye{};
+                eye.kind       = HumanOverlayKind::Clothing;
+                eye.sprite_dir = "human/human_eyes";
+                eye.prefix     = eye_pfx;
+                eye.tint       = {eye_r, eye_g, eye_b, 255};
+                app_ptr->layers.push_back(eye);
+            }
+            if (!hair_file.empty()) {
+                HumanOverlay hair{};
+                hair.kind       = HumanOverlayKind::Clothing;
+                hair.sprite_dir = "human/human_face";
+                hair.prefix     = hair_file;
+                hair.tint       = {hair_r, hair_g, hair_b, 255};
+                app_ptr->layers.push_back(hair);
+            }
+            app_ptr->dirty = true;
+        } else {
+            HumanAppearance app{};
+            // Base bodypart layer (skin)
+            HumanOverlay base_layer{};
+            base_layer.sprite_dir = "bodyparts_greyscale";
+            base_layer.prefix     = "human";
+            base_layer.gender     = "_m";
+            base_layer.tint       = {tint_r, tint_g, tint_b, tint_a};
+            app.layers.push_back(base_layer);
+            // Eye overlays
+            for (const char* eye_pfx : { "eyes_l", "eyes_r" }) {
+                HumanOverlay eye{};
+                eye.kind       = HumanOverlayKind::Clothing;
+                eye.sprite_dir = "human/human_eyes";
+                eye.prefix     = eye_pfx;
+                eye.tint       = {eye_r, eye_g, eye_b, 255};
+                app.layers.push_back(eye);
+            }
+            // Hair overlay
+            if (!hair_file.empty()) {
+                HumanOverlay hair{};
+                hair.kind       = HumanOverlayKind::Clothing;
+                hair.sprite_dir = "human/human_face";
+                hair.prefix     = hair_file;
+                hair.tint       = {hair_r, hair_g, hair_b, 255};
+                app.layers.push_back(hair);
+            }
+            app.dirty = true;
+            m_entities->add_component<HumanAppearance>(eid, app);
+        }
 
         SDL_Log("Client: spawned player mob entity %u '%s' at (%.1f,%.1f,%.1f)",
                 eid, display_name.c_str(), x, y, z);
@@ -497,4 +692,112 @@ void Client::on_chat_message(const void* data, size_t len)
 {
     if (!data || len == 0) return;
     m_chat_log.emplace_back(reinterpret_cast<const char*>(data), len);
+}
+
+void Client::on_appearance_state(const void* data, size_t len)
+{
+    // Format: [entity_id:4][eye_r:1][eye_g:1][eye_b:1]
+    //         [hair_len:1][hair:N][hair_r:1][hair_g:1][hair_b:1]
+    //         [slot_count:1]([slot_id_len:1][slot_id:N][item_id_len:1][item_id:N])*
+    if (!data || len < 8) return;
+    const uint8_t* p   = static_cast<const uint8_t*>(data);
+    const uint8_t* end = p + len;
+
+    uint32_t eid_raw;
+    std::memcpy(&eid_raw, p, 4); p += 4;
+    EntityID eid = static_cast<EntityID>(eid_raw);
+
+    // Skip update for local player — main.cpp manages their own layers.
+    if (eid == m_local_player) return;
+
+    auto* app = m_entities->get_component<HumanAppearance>(eid);
+    if (!app) return;
+
+    if (p + 3 > end) return;
+    uint8_t eye_r = p[0], eye_g = p[1], eye_b = p[2]; p += 3;
+
+    if (p >= end) return;
+    uint8_t hlen = *p++; p += 0; // already incremented
+    if (p + hlen + 3 > end) return;
+    std::string hair_file(reinterpret_cast<const char*>(p), hlen); p += hlen;
+    uint8_t hair_r = p[0], hair_g = p[1], hair_b = p[2]; p += 3;
+
+    // Remove all non-Bodypart layers and rebuild from received data
+    std::vector<HumanOverlay> new_layers;
+    new_layers.reserve(app->layers.size() + 12);
+    for (const auto& ov : app->layers)
+        if (ov.kind == HumanOverlayKind::Bodypart)
+            new_layers.push_back(ov);
+
+    // Eye overlays
+    for (const char* eye_pfx : { "eyes_l", "eyes_r" }) {
+        HumanOverlay ov;
+        ov.kind       = HumanOverlayKind::Clothing;
+        ov.sprite_dir = "human/human_eyes";
+        ov.prefix     = eye_pfx;
+        ov.tint       = {eye_r, eye_g, eye_b, 255};
+        new_layers.push_back(ov);
+    }
+
+    // Hair overlay
+    if (!hair_file.empty()) {
+        HumanOverlay ov;
+        ov.kind       = HumanOverlayKind::Clothing;
+        ov.sprite_dir = "human/human_face";
+        ov.prefix     = hair_file;
+        ov.tint       = {hair_r, hair_g, hair_b, 255};
+        new_layers.push_back(ov);
+    }
+
+    // Slot-based clothing + inhand overlays
+    if (p < end) {
+        uint8_t slot_count = *p++;
+        for (int i = 0; i < slot_count && p < end; ++i) {
+            if (p >= end) break;
+            uint8_t slen = *p++;
+            if (p + slen > end) break;
+            std::string slot_id(reinterpret_cast<const char*>(p), slen); p += slen;
+            if (p >= end) break;
+            uint8_t ilen = *p++;
+            if (p + ilen > end) break;
+            std::string item_id(reinterpret_cast<const char*>(p), ilen); p += ilen;
+            if (item_id.empty()) continue;
+
+            // Check if it's a clothing slot or an inhand slot
+            bool is_clothing = false;
+            for (const char* cslot : k_clothing_slot_ids) {
+                if (slot_id == cslot) { is_clothing = true; break; }
+            }
+            if (is_clothing) {
+                for (const auto& ce : k_clothing_map) {
+                    if (item_id == ce.id) {
+                        HumanOverlay ov;
+                        ov.kind       = HumanOverlayKind::Clothing;
+                        ov.sprite_dir = ce.dir;
+                        ov.prefix     = ce.name;
+                        new_layers.push_back(ov);
+                        break;
+                    }
+                }
+            } else {
+                // l_hand or r_hand
+                bool right = (slot_id == "r_hand");
+                for (const auto& ie : k_inhand_map) {
+                    if (item_id == ie.id) {
+                        HumanOverlay ov;
+                        ov.kind       = HumanOverlayKind::Inhand;
+                        ov.sprite_dir = std::string("inhands/")
+                                      + ie.category
+                                      + (right ? "_righthand" : "_lefthand");
+                        ov.prefix     = ie.name;
+                        new_layers.push_back(ov);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    app->layers = std::move(new_layers);
+    app->dirty  = true;
 }

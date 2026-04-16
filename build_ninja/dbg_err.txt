@@ -1,0 +1,83 @@
+GPU driver: vulkan
+Renderer: world pipeline created
+Renderer: wireframe pipeline created
+Renderer: world overlay pipeline created
+Renderer: highlight pipeline created
+Renderer: item pipeline created
+create_assembly_texture: 512 layers of 32x32 RGBA pre-allocated
+Renderer: sky pipeline created
+create_sky_util_texture: 2-layer 64x64 util texture ready
+build_star_geometry: 1800 stars (10800 indices)
+build_cloud_geometry: 8 clouds (48 indices)
+load_earth_gif: loaded 94 frames (240x240) from 'textures/decoration/earthspin.gif'
+UIRenderer::load_texture: loaded textures/font/roboto.png (512x256)
+MobSpeciesRegistry: loaded species 'drone'
+MobSpeciesRegistry: loaded species 'human'
+MobSpeciesRegistry: loaded species 'mouse'
+load_tile_textures: loaded 61 layers (32x32 each, 4 extra face-specific)
+load_item_textures: loaded 98 layers (32x32 each)
+load_mob_textures: loaded augmentation/advanced_augments (layers 0/0/0/0)
+load_mob_textures: loaded augmentation/augments (layers 0/0/0/0)
+load_mob_textures: loaded augmentation/augments_engineer (layers 0/0/0/0)
+load_mob_textures: loaded augmentation/augments_mining (layers 0/0/0/0)
+load_mob_textures: loaded augmentation/augments_security (layers 0/0/0/0)
+load_mob_textures: loaded augmentation/surplus_augments (layers 0/0/0/0)
+load_mob_textures: loaded drone/default (layers 1/2/3/4)
+load_mob_textures: loaded human/bodyparts (layers 0/0/0/0)
+load_mob_textures: loaded human/bodyparts_greyscale (layers 0/0/0/0)
+load_mob_textures: loaded human/cat_features (layers 5/0/0/0)
+load_mob_textures: loaded human/emote_visuals (layers 0/0/0/0)
+load_mob_textures: loaded human/fish_features (layers 6/0/0/0)
+load_mob_textures: loaded human/fox_features (layers 7/0/0/0)
+load_mob_textures: loaded human/hair_masks (layers 0/0/0/0)
+load_mob_textures: loaded human/human (layers 0/0/0/0)
+load_mob_textures: loaded human/human_eyes (layers 0/0/8/9)
+load_mob_textures: loaded human/human_face (layers 10/0/11/12)
+load_mob_textures: loaded human/mannequin (layers 0/0/0/0)
+load_mob_textures: loaded human/species (layers 0/0/0/0)
+load_mob_textures: loaded human/textures (layers 0/0/0/0)
+load_mob_textures: loaded inhands/64x64_lefthand (layers 0/0/0/0)
+load_mob_textures: loaded inhands/64x64_righthand (layers 0/0/0/0)
+load_mob_textures: loaded inhands/animal_item_lefthand (layers 0/0/0/0)
+load_mob_textures: loaded inhands/animal_item_righthand (layers 0/0/0/0)
+load_mob_textures: loaded inhands/antag (layers 0/0/0/0)
+load_mob_textures: loaded inhands/clothing (layers 0/0/0/0)
+load_mob_textures: loaded inhands/equipment (layers 0/0/0/0)
+load_mob_textures: loaded inhands/fish_lefthand (layers 0/0/0/0)
+load_mob_textures: loaded inhands/fish_righthand (layers 0/0/0/0)
+load_mob_textures: loaded inhands/golem_lefthand (layers 0/0/0/0)
+load_mob_textures: loaded inhands/golem_righthand (layers 0/0/0/0)
+load_mob_textures: loaded inhands/items (layers 0/0/0/0)
+load_mob_textures: loaded inhands/items_lefthand (layers 0/13/0/0)
+load_mob_textures: loaded inhands/items_righthand (layers 0/14/0/0)
+load_mob_textures: loaded inhands/pai_item_lh (layers 0/0/0/0)
+load_mob_textures: loaded inhands/pai_item_rh (layers 0/0/0/0)
+load_mob_textures: loaded inhands/pets_held_lh (layers 0/0/0/0)
+load_mob_textures: loaded inhands/pets_held_rh (layers 0/0/0/0)
+load_mob_textures: loaded inhands/weapons (layers 0/0/0/0)
+load_mob_textures: loaded inhands/__inhand_template (layers 0/0/0/0)
+load_mob_textures: loaded large-worn-icons/64x64 (layers 0/0/0/0)
+load_mob_textures: loaded mouse/default (layers 0/0/0/0)
+load_mob_textures: uploaded 15 layers (64x128 each)
+load_door_anim: loaded 6 frames from 'textures/specialtile/public/glass/opening.gif'
+load_door_overlay_anim: loaded 6 frames from 'textures/specialtile/public/overlays/glass_opening.gif'
+load_door_fill_anim: loaded 6 frames from 'textures/specialtile/public/glass/fill_opening.gif'
+load_human_bodyparts: loaded 1058 bodypart sprites
+load_mesh_file: 'models/SMES.mesh' — 3669 verts, 7098 indices  aabb (-0.41 0.00 -0.41)-(0.41 0.98 0.46)
+load_model: 'smes' ready — 3669 verts, 7098 indices, tex=yes
+UIRenderer: cached 97 item icons
+Client: connecting to localhost:7778 ...
+Client: connected! player entity 8 at (0.0,1.0,0.0)
+compose_human_canvas: overlay 'human/human_eyes/eyes_l_s' load OK
+compose_human_canvas: overlay 'human/human_eyes/eyes_r_s' load OK
+compose_human_canvas: overlay 'human/human_face/hair_messy_s' load OK
+Client: spawned NPC mob entity 7 'Maintenance Drone' (species: drone) at (-5.0,1.0,0.0)
+Client: spawned NPC mob entity 6 'Space Rat' (species: mouse) at (3.2,1.0,7.1)
+Client: spawned player mob entity 5 'Scientist' at (-2.0,1.0,1.8)
+Client: spawned player mob entity 4 'Security Officer' at (2.2,1.0,-0.0)
+Client: spawned item entity 3 (id: crowbar) at (-1.4,1.0,2.5)
+Client: spawned item entity 2 (id: screwdriver) at (2.3,1.0,2.7)
+Client: spawned item entity 1 (id: wrench) at (2.2,1.0,0.5)
+compose_human_canvas: overlay 'human/human_eyes/eyes_l_n' load OK
+compose_human_canvas: overlay 'human/human_eyes/eyes_r_n' load OK
+compose_human_canvas: overlay 'human/human_face/hair_messy_n' load OK

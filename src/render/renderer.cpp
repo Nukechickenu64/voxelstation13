@@ -2232,6 +2232,7 @@ std::vector<uint8_t> Renderer::compose_human_canvas(const HumanAppearance& app, 
     const char* dir_suf = k_asm_dir_suffix[dir];
 
     // Phase 1: bodyparts
+    int found_count = 0;
     for (const auto& ov : app.layers) {
         if (ov.kind != HumanOverlayKind::Bodypart) continue;
 
@@ -2252,9 +2253,18 @@ std::vector<uint8_t> Renderer::compose_human_canvas(const HumanAppearance& app, 
                 it   = m_bodypart_pixels.find(key);
             }
 
-            if (it == m_bodypart_pixels.end()) continue;
+            if (it == m_bodypart_pixels.end()) {
+                SDL_Log("compose_human_canvas: MISSING key='%s' (sprite_dir='%s' prefix='%s' part='%s' gender='%s' dir=%d)",
+                        key.c_str(), ov.sprite_dir.c_str(), ov.prefix.c_str(), part, ov.gender.c_str(), dir);
+                continue;
+            }
+            ++found_count;
             alpha_composite(canvas.data(), it->second.data(), N, ov.tint);
         }
+    }
+    if (found_count == 0) {
+        SDL_Log("compose_human_canvas: NO bodyparts found! layers=%d dir=%d total_bodypart_keys=%d",
+                (int)app.layers.size(), dir, (int)m_bodypart_pixels.size());
     }
 
     // Horizontal flip (BYOND bodyparts are in mob-perspective)
@@ -2747,17 +2757,21 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
             if (!tr) return;
 
             glm::vec3 feet = tr->pos + world_offset;
-            // Back-face cull
-            if (glm::dot(feet - cam_pos, cam_fwd) < -0.5f) return;
+
+            // Check for prone state
+            auto* cc_mob = entities.get_component<CharacterControllerComponent>(eid);
+            bool prone = cc_mob && cc_mob->mob_state != MobState::Normal;
+
+            // Back-face cull — skip for local player (camera is at player's eyes,
+            // so the body is always "behind" the camera in first-person view)
+            if (eid != local_player_eid) {
+                if (glm::dot(feet - cam_pos, cam_fwd) < -0.5f) return;
+            }
 
             int dir = mob_sprite_dir(feet, tr->yaw, cam_pos);
             uint32_t layer = get_or_assemble_human(app, dir);
 
             glm::vec3 mob_tint = entity_light_tint(feet + glm::vec3(0.f, 0.5f, 0.f));
-
-            // Check for prone state
-            auto* cc_mob = entities.get_component<CharacterControllerComponent>(eid);
-            bool prone = cc_mob && cc_mob->mob_state != MobState::Normal;
 
             if (eid == local_player_eid) {
                 // Update the HUD mirror with the player's front-facing sprite
@@ -2768,7 +2782,7 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
                     push_prone_quad(m_asm_verts, m_asm_indices, feet, tr->yaw,
                                     MOB_HALF_W, MOB_HEIGHT * 0.5f, front_layer, mob_tint);
                 } else {
-                    // First-person standing: render body only (no head), skip back-face cull
+                    // First-person standing: render body only (no head)
                     push_quad(m_asm_verts, m_asm_indices, feet, MOB_HALF_W,
                               k_body_height, layer, k_body_uv_top, mob_tint);
                 }

@@ -55,16 +55,35 @@ public:
     // Provide the item registry so spawned items can resolve their ItemDef*.
     void set_item_registry(const ItemRegistry* reg) { m_item_registry = reg; }
 
+    // Set the player's visual appearance so it is sent to the server on connect
+    // and relayed to other clients via EntitySpawn packets.
+    struct AppearanceInfo {
+        uint8_t     eye_r = 30, eye_g = 100, eye_b = 190;
+        std::string hair_file = "hair_messy";
+        uint8_t     hair_r = 89, hair_g = 60, hair_b = 30;
+    };
+    void set_appearance(const AppearanceInfo& info) { m_appearance = info; }
+
+    // Set which equipment slots are filled (slot_id → item_def_id).
+    // Called whenever the local player's visible equipment changes.
+    void set_equipped_slots(const std::vector<std::pair<std::string,std::string>>& slots) {
+        m_equipped_slots = slots;
+    }
+
+    // Send the current appearance + equipped slots to the server.
+    void send_appearance_update();
+
     // Chat
     void      send_chat(const std::string& msg);
     const std::vector<std::string>& chat_log() const { return m_chat_log; }
 
 private:
     void process_incoming();
-    void on_chunk_data  (const void* data, size_t len);
-    void on_entity_state(const void* data, size_t len);
-    void on_entity_spawn  (const void* data, size_t len);
-    void on_chat_message(const void* data, size_t len);
+    void on_chunk_data      (const void* data, size_t len);
+    void on_entity_state    (const void* data, size_t len);
+    void on_entity_spawn    (const void* data, size_t len);
+    void on_chat_message    (const void* data, size_t len);
+    void on_appearance_state(const void* data, size_t len);
 
     std::unique_ptr<World>         m_world;
     std::unique_ptr<EntityManager> m_entities;
@@ -85,4 +104,8 @@ private:
 
     // Item registry for resolving item definitions on spawned items
     const ItemRegistry* m_item_registry = nullptr;
+
+    // Visual appearance transmitted to server on connect / AppearanceUpdate
+    AppearanceInfo m_appearance;
+    std::vector<std::pair<std::string,std::string>> m_equipped_slots;
 };

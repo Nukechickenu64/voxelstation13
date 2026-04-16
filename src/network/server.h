@@ -26,12 +26,15 @@ enum class PacketType : uint16_t {
     ChatMessage,
     RoundState,
     SpawnInfo,     // tell the new client its entity ID + spawn pos
+    // Server → Client (cont.)
+    AppearanceState,  // relayed appearance + equipment for a remote player
     // Client → Server
     InputState,
     InteractFace,
     InventoryAction,
     ChatSend,
-    Connect,       // initial handshake from client
+    Connect,          // initial handshake from client
+    AppearanceUpdate, // client sends appearance/equipment whenever it changes
 };
 
 struct NetAddress {
@@ -128,6 +131,12 @@ private:
         uint64_t   last_ack_tick = 0;
         // Per-player chunk subscription set
         std::vector<glm::ivec3> subscribed_chunks;
+        // Visual appearance received in the Connect / AppearanceUpdate packets
+        uint8_t     eye_r = 30, eye_g = 100, eye_b = 190;
+        std::string hair_file = "hair_messy";
+        uint8_t     hair_r = 89, hair_g = 60, hair_b = 30;
+        // Equipped slots: (slot_id, item_def_id) pairs (empty item_id = nothing)
+        std::vector<std::pair<std::string,std::string>> equipped_slots;
     };
     std::vector<Peer> m_peers;
 
