@@ -9,11 +9,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  Layout constants  (all in logical/CSS pixels)
 // ─────────────────────────────────────────────────────────────────────────────
-static constexpr float BAR_H     = 96.f;   // 32px swap strip + 64px slot area
+static constexpr float BAR_H     = 68.f;   // total bar height (slots are 56px + 6px padding each side)
 static constexpr float BAR_PAD   =  7.f;   // top/bottom inner padding
-static constexpr float SWAP_H    = 32.f;   // height of the swap strip above the hands
 static constexpr float HAND_SZ   = 56.f;   // hand slot square
-static constexpr float HAND_GAP  =  4.f;   // gap between left and right hand slots
+static constexpr float HAND_GAP  = HAND_SZ + 4.f;  // fits act_swap button between hands
 static constexpr float EQUIP_SZ  = HAND_SZ; // all slots same size as hands
 static constexpr float EQUIP_GAP =  4.f;
 static constexpr float SEC_GAP   = 10.f;   // gap between sections
@@ -28,12 +27,12 @@ static constexpr float PANEL_RIGHT   = 8.f;   // margin from right edge
 // ─────────────────────────────────────────────────────────────────────────────
 //  Colour constants
 // ─────────────────────────────────────────────────────────────────────────────
-static constexpr glm::vec4 k_bar_bg    = {0.04f, 0.05f, 0.07f, 0.00f};
-static constexpr glm::vec4 k_bar_top   = {0.22f, 0.45f, 0.88f, 0.00f};
-static constexpr glm::vec4 k_slot_bg   = {0.11f, 0.11f, 0.14f, 0.00f};
-static constexpr glm::vec4 k_slot_act  = {0.18f, 0.28f, 0.52f, 0.00f};
+static constexpr glm::vec4 k_bar_bg    = {0.04f, 0.05f, 0.07f, 0.90f};
+static constexpr glm::vec4 k_bar_top   = {0.22f, 0.45f, 0.88f, 0.70f};
+static constexpr glm::vec4 k_slot_bg   = {0.11f, 0.11f, 0.14f, 0.85f};
+static constexpr glm::vec4 k_slot_act  = {0.18f, 0.28f, 0.52f, 0.92f};
 static constexpr glm::vec4 k_slot_ring = {0.32f, 0.58f, 1.00f, 0.72f};
-static constexpr glm::vec4 k_sec_div   = {0.20f, 0.26f, 0.40f, 0.00f};
+static constexpr glm::vec4 k_sec_div   = {0.20f, 0.26f, 0.40f, 0.60f};
 static constexpr glm::vec4 k_intent_col[4] = {
     {0.08f, 0.55f, 0.08f, 1.f},
     {0.16f, 0.36f, 0.80f, 1.f},
@@ -114,7 +113,6 @@ HUD::HUD(UIRenderer& ui) : m_ui(ui)
     m_slot_icon_tex["gloves"]       = LM("gloves.png");
     m_slot_icon_tex["belt"]         = LM("belt.png");
     m_slot_icon_tex["boots"]        = LM("shoes.png");
-    m_slot_icon_tex["neck"]         = LM("neck.png");
     m_slot_icon_tex["id_card"]      = LM("id.png");
     m_slot_icon_tex["suit_storage"] = LM("suit_storage.png");
     m_slot_icon_tex["l_pocket"]     = LM("pocket.png");
@@ -132,17 +130,19 @@ HUD::HUD(UIRenderer& ui) : m_ui(ui)
 //  Right float:     health panel (center height)
 // ─────────────────────────────────────────────────────────────────────────────
 std::string HUD::draw(HUDState& state, const Inventory& inv,
-                      glm::vec2 mouse_pos, bool lmb_clicked)
+                      glm::vec2 mouse_pos, bool lmb_clicked,
+                      SDL_GPUTexture* player_mirror_tex)
 {
     const float fb_w   = static_cast<float>(m_ui.fb_width());
     const float fb_h   = static_cast<float>(m_ui.fb_height());
     const float bar_y  = fb_h - BAR_H;
-    // Slots sit in the lower 68px of the bar (top 12px = swap strip area)
-    const float slot_y = bar_y + SWAP_H + (BAR_H - SWAP_H - EQUIP_SZ) * 0.5f;
-    const float hand_y = slot_y;   // hands align with equipment slots
+    const float slot_y = bar_y + (BAR_H - EQUIP_SZ) * 0.5f;
+    const float hand_y = bar_y + (BAR_H - HAND_SZ)  * 0.5f;
     const float cx     = fb_w * 0.5f;
 
-    // Hand slot edges — symmetric around cx, directly adjacent (HAND_GAP = SEP)
+    // Hand slot edges — symmetric around cx with a HAND_GAP gap at the center.
+    // Left-hand left-edge:  cx - HAND_SZ - HAND_GAP/2
+    // Right-hand left-edge: cx + HAND_GAP/2
     const float lhand_x  = cx - HAND_SZ - HAND_GAP * 0.5f;
     const float rhand_end = lhand_x + HAND_SZ + HAND_GAP + HAND_SZ;  // right edge of r_hand
     constexpr float SEP = 4.f;   // gap between adjacent slots
@@ -169,9 +169,9 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
                     mouse_pos.y >= bp.y && mouse_pos.y < bp.y + EQUIP_SZ);
         if (click && hov) state.inv_open = !state.inv_open;
         glm::vec4 col = state.inv_open
-            ? glm::vec4{0.22f, 0.38f, 0.72f, 0.00f}
-            : (hov ? glm::vec4{0.22f, 0.32f, 0.52f, 0.00f}
-                   : glm::vec4{0.11f, 0.13f, 0.20f, 0.00f});
+            ? glm::vec4{0.22f, 0.38f, 0.72f, 0.96f}
+            : (hov ? glm::vec4{0.22f, 0.32f, 0.52f, 0.92f}
+                   : glm::vec4{0.11f, 0.13f, 0.20f, 0.85f});
         m_ui.rect(bp, {EQUIP_SZ, EQUIP_SZ}, col, 4.f);
         SDL_GPUTexture* tog = state.inv_open ? m_toggle_active_tex : m_toggle_tex;
         if (tog)
@@ -197,22 +197,6 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
                 clicked = s.id;
             rx = sx - SEP;
         }
-    }
-
-    // ── Swap strip: act_swap.png spanning both hand slots, above them ──────────
-    {
-        const float strip_w = HAND_SZ + HAND_GAP + HAND_SZ;  // width of both hands combined
-        const float strip_x = lhand_x;
-        const float strip_y = bar_y + 1.f;
-        bool hov_swap = (mouse_pos.x >= strip_x && mouse_pos.x < strip_x + strip_w &&
-                         mouse_pos.y >= strip_y && mouse_pos.y < strip_y + SWAP_H);
-        // Background strip the full width of both hands
-        m_ui.rect({strip_x, strip_y}, {strip_w, SWAP_H}, {0.07f, 0.08f, 0.12f, 0.00f}, 3.f);
-        // Sprite stretched to fill the full strip
-        if (m_act_swap_tex)
-            m_ui.image({strip_x, strip_y}, {strip_w, SWAP_H}, m_act_swap_tex, hov_swap ? 1.0f : 0.80f);
-        if (hov_swap && click)
-            clicked = "swap_hand";
     }
 
     // ── Hands (center) ────────────────────────────────────────────────────────
@@ -241,7 +225,7 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
     // ── Body-slot panel (shown above bar when inv_open) ───────────────────────
     if (state.inv_open) {
         constexpr float PAD = 6.f;
-        constexpr float PROWS = 3.f;
+        constexpr float PROWS = 2.f;
         const float inner_h = PROWS * EQUIP_SZ + (PROWS - 1) * SEP;
         const float panel_h = inner_h + 2.f * PAD;
         const float panel_y = bar_y - panel_h - 4.f;
@@ -253,6 +237,7 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
         draw_examine_label(state.examine_label);
     if (!state.radio_log.empty())
         draw_radio_log(state.radio_log);
+    draw_mirror(player_mirror_tex);
     return clicked;
 }
 
@@ -337,7 +322,7 @@ void HUD::draw_health_panel(const HUDState& s, glm::vec2 origin)
     const float panel_pad = 5.f;
     m_ui.rect(origin - glm::vec2(panel_pad),
               {PANEL_W + panel_pad*2.f, PANEL_H + panel_pad*2.f},
-              {0.04f, 0.05f, 0.07f, 0.00f}, 5.f);
+              {0.04f, 0.05f, 0.07f, 0.82f}, 5.f);
 
     // ── Sprite body doll (64×64) ─────────────────────────────────────────────
     {
@@ -440,6 +425,9 @@ void HUD::draw_hand_slots(const Inventory& inv, bool left_active,
     {
         bool is_grip = (!grip_hand.empty() && std::string(sid) == grip_hand);
 
+        if (active)
+            m_ui.rect({px-3.f,hy-3.f}, {HAND_SZ+6.f,HAND_SZ+6.f}, k_slot_ring, 7.f);
+
         // Amber ring for the gripped (support) hand
         if (is_grip)
             m_ui.rect({px-3.f,hy-3.f}, {HAND_SZ+6.f,HAND_SZ+6.f},
@@ -447,7 +435,7 @@ void HUD::draw_hand_slots(const Inventory& inv, bool left_active,
 
         bool hov = (mouse.x >= px && mouse.x < px+HAND_SZ &&
                     mouse.y >= hy && mouse.y < hy+HAND_SZ);
-        glm::vec4 bg = is_grip ? glm::vec4{0.35f,0.22f,0.03f,0.00f} : k_slot_bg;
+        glm::vec4 bg = is_grip ? glm::vec4{0.35f,0.22f,0.03f,0.85f} : k_slot_bg;
         m_ui.rect({px,hy}, {HAND_SZ,HAND_SZ}, bg, 5.f);
         SDL_GPUTexture* hand_bg = (std::string(sid) == "l_hand") ? m_hand_l_tex : m_hand_r_tex;
         if (hand_bg) m_ui.image({px,hy}, {HAND_SZ,HAND_SZ}, hand_bg, hov ? 1.0f : 0.85f);
@@ -493,6 +481,16 @@ void HUD::draw_hand_slots(const Inventory& inv, bool left_active,
 
     draw_one(lx, "l_hand",  left_active);
     draw_one(rx, "r_hand", !left_active);
+
+    // ── Swap-hand button (act_swap.png) centred in the gap between the two hands
+    const float swap_x = lx + HAND_SZ + (HAND_GAP - HAND_SZ) * 0.5f;
+    bool hov_swap = (mouse.x >= swap_x && mouse.x < swap_x + HAND_SZ &&
+                     mouse.y >= hy     && mouse.y < hy     + HAND_SZ);
+    m_ui.rect({swap_x, hy}, {HAND_SZ, HAND_SZ}, k_slot_bg, 5.f);
+    if (m_act_swap_tex)
+        m_ui.image({swap_x, hy}, {HAND_SZ, HAND_SZ}, m_act_swap_tex, hov_swap ? 1.0f : 0.75f);
+    if (hov_swap && click)
+        out_click = "swap_hand";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -506,18 +504,13 @@ void HUD::draw_body_equip(const Inventory& inv, glm::vec2 panel_tl,
 {
     constexpr float SEP     = 4.f;
     constexpr float PAD     = 6.f;
-    constexpr int   COLS    = 3;
-    constexpr int   ROWS    = 3;
+    constexpr int   COLS    = 4;
+    constexpr int   ROWS    = 2;
 
-    // TG 3-column layout (top→bottom, matching WEST:6 / WEST+1 / WEST+2 columns):
-    //  Row 0: eyes(glasses)  head    ears
-    //  Row 1: mask           suit    uniform
-    //  Row 2: gloves         boots   neck
     struct E { const char* id; const char* lbl; };
     static const E k[ROWS][COLS] = {
-        { {"eyes","EYES"}, {"head","HEAD"}, {"ears","EARS"} },
-        { {"mask","MASK"}, {"suit","SUIT"}, {"uniform","UNIF"} },
-        { {"gloves","GLVS"}, {"boots","BOOT"}, {"neck","NECK"} },
+        { {"head","HEAD"}, {"eyes","EYES"}, {"ears","EARS"}, {"mask","MASK"} },
+        { {"suit","SUIT"}, {"uniform","UNIF"}, {"gloves","GLVS"}, {"boots","BOOT"} },
     };
 
     // Panel background
@@ -525,7 +518,7 @@ void HUD::draw_body_equip(const Inventory& inv, glm::vec2 panel_tl,
     const float inner_h = ROWS * EQUIP_SZ + (ROWS - 1) * SEP;
     const glm::vec2 bg_tl = panel_tl - glm::vec2(PAD, PAD);
     const glm::vec2 bg_sz = {inner_w + 2.f * PAD, inner_h + 2.f * PAD};
-    m_ui.rect(bg_tl, bg_sz, {0.04f, 0.05f, 0.07f, 0.00f}, 6.f);
+    m_ui.rect(bg_tl, bg_sz, {0.04f, 0.05f, 0.07f, 0.93f}, 6.f);
     // Top accent line (matches bar top line colour)
     m_ui.rect(bg_tl, {bg_sz.x, 2.f}, k_bar_top, 0.f);
 
@@ -645,7 +638,7 @@ void HUD::draw_examine_label(const std::string& label)
     const float fb_h = static_cast<float>(m_ui.fb_height());
     glm::vec2 pos = {fb_w*0.5f+24.f, fb_h*0.5f-10.f};
     float w = static_cast<float>(label.size()) * 7.f + 10.f;
-    m_ui.rect(pos-glm::vec2(5.f,2.f), {w,18.f}, {0,0,0,0.00f}, 3.f);
+    m_ui.rect(pos-glm::vec2(5.f,2.f), {w,18.f}, {0,0,0,0.65f}, 3.f);
     m_ui.text(pos, label, {1.f,1.f,0.75f,1.f}, 13.f);
 }
 
@@ -675,4 +668,43 @@ void HUD::draw_clock(const std::string& time_str)
     const float fb_w = static_cast<float>(m_ui.fb_width());
     m_ui.text({fb_w-81.f, 11.f}, time_str, {0,0,0,0.50f}, 13.f);
     m_ui.text({fb_w-82.f, 10.f}, time_str, {0.85f,0.90f,0.95f,0.88f}, 13.f);
+}
+// ─────────────────────────────────────────────────────────────────────────────
+//  Mirror — top-left corner, shows the player's front-facing assembled sprite
+//  so they can see how other players see them.
+// ─────────────────────────────────────────────────────────────────────────────
+void HUD::draw_mirror(SDL_GPUTexture* sprite_tex)
+{
+    if (!sprite_tex) return;
+
+    // Layout constants
+    constexpr float SPRITE_PX  = 64.f;   // 2× pixel-art scale of 32px sprite
+    constexpr float PAD        =  6.f;
+    constexpr float LABEL_H    = 14.f;
+    constexpr float PANEL_W    = SPRITE_PX + PAD * 2.f;
+    constexpr float PANEL_H    = PAD + LABEL_H + PAD * 0.5f + SPRITE_PX + PAD;
+    constexpr float MARGIN     =  8.f;
+
+    const glm::vec2 panel_pos  = { MARGIN, MARGIN };
+
+    // Background + border
+    static constexpr glm::vec4 k_bg     = { 0.04f, 0.05f, 0.07f, 0.88f };
+    static constexpr glm::vec4 k_border = { 0.32f, 0.58f, 1.00f, 0.55f };
+    static constexpr glm::vec4 k_label  = { 0.70f, 0.82f, 1.00f, 0.90f };
+
+    // Outer border (1-px inset)
+    m_ui.rect(panel_pos - glm::vec2(1.f), { PANEL_W + 2.f, PANEL_H + 2.f }, k_border, 4.f);
+    // Background
+    m_ui.rect(panel_pos, { PANEL_W, PANEL_H }, k_bg, 4.f);
+
+    // Label "YOU"
+    m_ui.text({ panel_pos.x + PAD, panel_pos.y + PAD * 0.5f },
+              "YOU", k_label, 11.f);
+
+    // Sprite (pixel-perfect scaled 32→64)
+    const glm::vec2 sprite_pos = {
+        panel_pos.x + PAD,
+        panel_pos.y + PAD + LABEL_H + PAD * 0.5f
+    };
+    m_ui.image(sprite_pos, { SPRITE_PX, SPRITE_PX }, sprite_tex, 1.f);
 }

@@ -2745,9 +2745,11 @@ int main(int argc, char* argv[])
                     : glm::vec2{-9999.f, -9999.f};
                 bool hud_click = cursor_free && input.is_pressed(Action::PrimaryInteract);
                 {
-                    std::string hud_clicked = hud.draw(hud_state, player_inv, hud_mouse, hud_click,
-                                                           renderer.player_mirror_tex());
+                    std::string hud_clicked = hud.draw(hud_state, player_inv, hud_mouse, hud_click);
                     if (!hud_clicked.empty()) {
+                        if (hud_clicked == "swap_hand") {
+                            player_inv.cycle_active_hand();
+                        } else {
                         const std::string& active = player_inv.active_hand_id();
                         auto* eq_slot   = player_inv.find_slot(hud_clicked);
                         auto* hand_slot = player_inv.find_slot(active);
@@ -2774,6 +2776,7 @@ int main(int argc, char* argv[])
                         }
                         if (!did_swap)
                             player_inv.swap(hud_clicked, active);
+                        } // end non-swap_hand
                     }
                 }
             }
