@@ -73,8 +73,8 @@ HUD::HUD(UIRenderer& ui) : m_ui(ui)
     for (int i = 0; i < 5; ++i)
         m_living_tex[i] = L("living" + std::to_string(i) + ".png");
 
-    // Body-doll base outline (zone_sel from screen_midnight)
-    m_living_tex[0] = LM("zone_sel.png");
+    // Doll outline shared by both the damage doll and target doll
+    m_doll_base_tex = LM("zone_sel.png");
 
     // Suit pressure sprites
     m_suit_tex[0] = L("spacesuit_empty.png");
@@ -329,7 +329,8 @@ void HUD::draw_health_panel(const HUDState& s, glm::vec2 origin)
         int lvl = s.dead ? 4 : std::min(4, static_cast<int>((1.f - ratio) * 5.f));
         float base_alpha = s.dead ? 0.55f : 1.f;
 
-        if (m_living_tex[lvl])
+        // living1-4 add injury overlays; living0 is just a solid-colour placeholder so skip it
+        if (lvl > 0 && m_living_tex[lvl])
             m_ui.image(origin, {PANEL_DOLL_SZ, PANEL_DOLL_SZ}, m_living_tex[lvl], base_alpha);
 
         auto dmg_lvl = [&](float dmg) -> int {
@@ -608,6 +609,8 @@ void HUD::draw_zone_intent(HUDState& s, glm::vec2 mouse, bool click)
     const float scale = SPRITE_SZ / 32.f;
     const int sel_z = static_cast<int>(s.target_zone);
 
+    if (m_doll_base_tex)
+        m_ui.image({zone_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_doll_base_tex);
     if (sel_z < 7 && m_zone_sel_tex[sel_z])
         m_ui.image({zone_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_zone_sel_tex[sel_z]);
 

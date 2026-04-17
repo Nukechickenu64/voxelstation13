@@ -116,6 +116,8 @@ private:
     SDL_GPUTexture* m_living_tex[5]      = {};
     // Suit pressure sprites (empty=0, low=1, mid=2, high=3)
     SDL_GPUTexture* m_suit_tex[4]        = {};
+    // Body-doll outline (zone_sel.png from screen_midnight) used by both dolls
+    SDL_GPUTexture* m_doll_base_tex       = nullptr;
     // Generic slot background frame (template.png)
     SDL_GPUTexture* m_template_tex        = nullptr;
     // Active slot frame (template_active.png)
