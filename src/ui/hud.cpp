@@ -241,7 +241,7 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
     // ── Body-slot panel (shown above bar when inv_open) ───────────────────────
     if (state.inv_open) {
         constexpr float PAD = 6.f;
-        constexpr float PROWS = 3.f;
+        constexpr float PROWS = 4.f;
         const float inner_h = PROWS * EQUIP_SZ + (PROWS - 1) * SEP;
         const float panel_h = inner_h + 2.f * PAD;
         const float panel_y = bar_y - panel_h - 4.f;
@@ -507,17 +507,19 @@ void HUD::draw_body_equip(const Inventory& inv, glm::vec2 panel_tl,
     constexpr float SEP     = 4.f;
     constexpr float PAD     = 6.f;
     constexpr int   COLS    = 3;
-    constexpr int   ROWS    = 3;
+    constexpr int   ROWS    = 4;
 
-    // TG 3-column layout (top→bottom, matching WEST:6 / WEST+1 / WEST+2 columns):
-    //  Row 0: eyes(glasses)  head    ears
-    //  Row 1: mask           suit    uniform
-    //  Row 2: gloves         boots   neck
+    // TG pop-up inventory layout (cols = WEST / WEST+1 / WEST+2, rows top→bottom):
+    //  Row 0 (SOUTH+3): eyes     head    —
+    //  Row 1 (SOUTH+2): neck     mask    ears
+    //  Row 2 (SOUTH+1): uniform  suit    gloves
+    //  Row 3 (SOUTH+0): —        shoes   —
     struct E { const char* id; const char* lbl; };
     static const E k[ROWS][COLS] = {
-        { {"eyes","EYES"}, {"head","HEAD"}, {"ears","EARS"} },
-        { {"mask","MASK"}, {"suit","SUIT"}, {"uniform","UNIF"} },
-        { {"gloves","GLVS"}, {"boots","BOOT"}, {"neck","NECK"} },
+        { {"eyes","EYES"},    {"head","HEAD"},  {"",      ""    } },
+        { {"neck","NECK"},    {"mask","MASK"},  {"ears",  "EARS"} },
+        { {"uniform","UNIF"}, {"suit","SUIT"},  {"gloves","GLVS"} },
+        { {"",      ""},      {"boots","BOOT"}, {"",      ""    } },
     };
 
     // Panel background
@@ -531,6 +533,7 @@ void HUD::draw_body_equip(const Inventory& inv, glm::vec2 panel_tl,
 
     for (int row = 0; row < ROWS; ++row)
         for (int col = 0; col < COLS; ++col) {
+            if (k[row][col].id[0] == '\0') continue;   // empty cell
             glm::vec2 p = panel_tl + glm::vec2(col * (EQUIP_SZ + SEP),
                                                row * (EQUIP_SZ + SEP));
             if (draw_slot(inv, k[row][col].id, p, EQUIP_SZ,
