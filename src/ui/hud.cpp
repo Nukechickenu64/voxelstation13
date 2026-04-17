@@ -45,8 +45,12 @@ static constexpr const char* k_intent_label[4] = { "HELP", "DSRM", "GRAB", "HARM
 HUD::HUD(UIRenderer& ui) : m_ui(ui)
 {
     static const char* BASE = "legacysets/extracted/hud/screen_gen/";
+    static const char* MID  = "legacysets/extracted/hud/screen_midnight/";
     auto L = [&](const std::string& name) -> SDL_GPUTexture* {
         return ui.load_texture((BASE + name).c_str());
+    };
+    auto LM = [&](const std::string& name) -> SDL_GPUTexture* {
+        return ui.load_texture((std::string(MID) + name).c_str());
     };
 
     // Intent icons (indexed by Intent enum)
@@ -69,16 +73,50 @@ HUD::HUD(UIRenderer& ui) : m_ui(ui)
     for (int i = 0; i < 5; ++i)
         m_living_tex[i] = L("living" + std::to_string(i) + ".png");
 
+    // Body-doll base outline (zone_sel from screen_midnight)
+    m_living_tex[0] = LM("zone_sel.png");
+
     // Suit pressure sprites
     m_suit_tex[0] = L("spacesuit_empty.png");
     m_suit_tex[1] = L("spacesuit_low.png");
     m_suit_tex[2] = L("spacesuit_mid.png");
     m_suit_tex[3] = L("spacesuit_high.png");
 
-    // Generic slot background frame
-    m_template_tex = L("template.png");
-    // Pull indicator
-    m_pull_tex = L("pull.png");
+    // Generic slot background frame — use midnight's richer template
+    m_template_tex        = LM("template.png");
+    m_template_active_tex = LM("template_active.png");
+    // Pull indicator — midnight version has "PULL" text badge
+    m_pull_tex = LM("pull.png");
+
+    // Hand slot sprites (screen_midnight)
+    m_hand_l_tex        = LM("hand_l.png");
+    m_hand_r_tex        = LM("hand_r.png");
+    m_lhand_active_tex  = LM("lhandactive.png");
+    m_rhand_active_tex  = LM("rhandactive.png");
+
+    // Movement intent sprites (screen_midnight)
+    m_walking_tex = LM("walking.png");
+    m_running_tex = LM("running.png");
+
+    // INV toggle sprites (screen_midnight)
+    m_toggle_tex        = LM("toggle.png");
+    m_toggle_active_tex = LM("toggle_active.png");
+
+    // Per-slot empty icons (screen_midnight) — drawn when slot is empty
+    m_slot_icon_tex["head"]         = LM("head.png");
+    m_slot_icon_tex["eyes"]         = LM("glasses.png");
+    m_slot_icon_tex["ears"]         = LM("ears.png");
+    m_slot_icon_tex["mask"]         = LM("mask.png");
+    m_slot_icon_tex["suit"]         = LM("suit.png");
+    m_slot_icon_tex["uniform"]      = LM("uniform.png");
+    m_slot_icon_tex["back"]         = LM("back.png");
+    m_slot_icon_tex["gloves"]       = LM("gloves.png");
+    m_slot_icon_tex["belt"]         = LM("belt.png");
+    m_slot_icon_tex["boots"]        = LM("shoes.png");
+    m_slot_icon_tex["id_card"]      = LM("id.png");
+    m_slot_icon_tex["suit_storage"] = LM("suit_storage.png");
+    m_slot_icon_tex["l_pocket"]     = LM("pocket.png");
+    m_slot_icon_tex["r_pocket"]     = LM("pocket.png");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -135,18 +173,11 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
             : (hov ? glm::vec4{0.22f, 0.32f, 0.52f, 0.92f}
                    : glm::vec4{0.11f, 0.13f, 0.20f, 0.85f});
         m_ui.rect(bp, {EQUIP_SZ, EQUIP_SZ}, col, 4.f);
-        if (m_template_tex)
+        SDL_GPUTexture* tog = state.inv_open ? m_toggle_active_tex : m_toggle_tex;
+        if (tog)
+            m_ui.image(bp, {EQUIP_SZ, EQUIP_SZ}, tog, hov ? 1.0f : 0.85f);
+        else if (m_template_tex)
             m_ui.image(bp, {EQUIP_SZ, EQUIP_SZ}, m_template_tex, 0.65f);
-        // Draw a small grid icon hinting at the body slots
-        constexpr float G = 5.f, GS = 9.f;  // cell size + gap
-        for (int r = 0; r < 2; ++r)
-            for (int c = 0; c < 4; ++c) {
-                glm::vec4 gc = state.inv_open
-                    ? glm::vec4{0.50f, 0.70f, 1.00f, 0.90f}
-                    : glm::vec4{0.35f, 0.50f, 0.80f, 0.70f};
-                m_ui.rect(bp + glm::vec2(G + c*(GS+1.f), EQUIP_SZ - G - (2-r)*(GS+1.f)),
-                          {GS, GS}, gc, 1.f);
-            }
     }
 
     // ── Left cluster: back | belt | id | suit_storage (packed right→left from left hand)
@@ -194,7 +225,7 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
     // ── Body-slot panel (shown above bar when inv_open) ───────────────────────
     if (state.inv_open) {
         constexpr float PAD = 6.f;
-        constexpr float PCOLS = 4.f, PROWS = 2.f;
+        constexpr float PROWS = 2.f;
         const float inner_h = PROWS * EQUIP_SZ + (PROWS - 1) * SEP;
         const float panel_h = inner_h + 2.f * PAD;
         const float panel_y = bar_y - panel_h - 4.f;
@@ -225,12 +256,16 @@ bool HUD::draw_slot(const Inventory& inv, const char* slot_id,
     if (highlight_active)
         m_ui.rect(pos - glm::vec2(2.f), {sz + 4.f, sz + 4.f}, k_slot_ring, 6.f);
 
-    // Draw solid background first, then the TG template.png border frame on top.
+    // Background rect then template overlay
     glm::vec4 bg = highlight_active ? k_slot_act : k_slot_bg;
     if (hov) bg = {bg.r + 0.06f, bg.g + 0.07f, bg.b + 0.10f, bg.a};
     m_ui.rect(pos, {sz, sz}, bg, 4.f);
-    if (m_template_tex)
-        m_ui.image(pos, {sz, sz}, m_template_tex, hov ? 0.85f : 0.65f);
+
+    // Use template_active for active/hover, normal template otherwise
+    SDL_GPUTexture* tmpl = (highlight_active && m_template_active_tex)
+        ? m_template_active_tex : m_template_tex;
+    if (tmpl)
+        m_ui.image(pos, {sz, sz}, tmpl, hov ? 0.90f : 0.75f);
 
     const auto* slot = inv.find_slot(slot_id);
     if (slot && slot->item && slot->item->def) {
@@ -259,9 +294,15 @@ bool HUD::draw_slot(const Inventory& inv, const char* slot_id,
             m_ui.rect({pos.x+2.f, pos.y+sz-3.f}, {fil, 2.f}, ic, 0.f);
         }
     } else {
-        float tw = static_cast<float>(strlen(fallback_label)) * 5.8f;
-        m_ui.text(pos + glm::vec2((sz - tw) * 0.5f, sz * 0.5f - 5.f),
-                  fallback_label, {0.26f,0.30f,0.40f,0.68f}, 8.f);
+        // Show per-slot icon if available, otherwise fall back to dim text
+        auto it = m_slot_icon_tex.find(slot_id);
+        if (it != m_slot_icon_tex.end() && it->second) {
+            m_ui.image(pos, {sz, sz}, it->second, hov ? 0.85f : 0.60f);
+        } else {
+            float tw = static_cast<float>(strlen(fallback_label)) * 5.8f;
+            m_ui.text(pos + glm::vec2((sz - tw) * 0.5f, sz * 0.5f - 5.f),
+                      fallback_label, {0.26f,0.30f,0.40f,0.68f}, 8.f);
+        }
     }
     return hov && click;
 }
@@ -393,10 +434,14 @@ void HUD::draw_hand_slots(const Inventory& inv, bool left_active,
 
         bool hov = (mouse.x >= px && mouse.x < px+HAND_SZ &&
                     mouse.y >= hy && mouse.y < hy+HAND_SZ);
-        glm::vec4 bg = is_grip  ? glm::vec4{0.35f,0.22f,0.03f,0.85f}
-            : (active ? k_slot_act
-            : (hov ? glm::vec4{0.17f,0.18f,0.22f,0.88f} : k_slot_bg));
+        glm::vec4 bg = is_grip ? glm::vec4{0.35f,0.22f,0.03f,0.85f} : k_slot_bg;
         m_ui.rect({px,hy}, {HAND_SZ,HAND_SZ}, bg, 5.f);
+        SDL_GPUTexture* hand_bg = (std::string(sid) == "l_hand") ? m_hand_l_tex : m_hand_r_tex;
+        if (hand_bg) m_ui.image({px,hy}, {HAND_SZ,HAND_SZ}, hand_bg, hov ? 1.0f : 0.85f);
+        if (active && !is_grip) {
+            SDL_GPUTexture* act_tex = (std::string(sid) == "l_hand") ? m_lhand_active_tex : m_rhand_active_tex;
+            if (act_tex) m_ui.image({px,hy}, {HAND_SZ,HAND_SZ}, act_tex);
+        }
 
         if (is_grip) {
             // The item icon is already shown in the holding hand — just label this one.
@@ -519,15 +564,19 @@ void HUD::draw_zone_intent(HUDState& s, glm::vec2 mouse, bool click)
             ? glm::vec4{0.14f, 0.52f, 0.14f, 0.90f}    // green = running
             : glm::vec4{0.18f, 0.30f, 0.55f, 0.90f};   // blue  = walking
         if (hov_movi) movi_bg.a = 1.f;
-        m_ui.rect({movi_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, movi_bg, 4.f);
-        if (m_template_tex)
-            m_ui.image({movi_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_template_tex, 0.6f);
-        const char* movi_lbl = s.is_running ? "RUN" : "WLK";
-        float tw = static_cast<float>(SDL_strlen(movi_lbl)) * 5.8f;
-        m_ui.text({movi_x + (SPRITE_SZ - tw) * 0.5f, sprite_y + SPRITE_SZ * 0.5f - 5.f},
-                  movi_lbl,
-                  s.is_running ? glm::vec4{0.5f, 1.f, 0.5f, 1.f}
-                               : glm::vec4{0.6f, 0.85f, 1.f, 1.f}, 8.f);
+        SDL_GPUTexture* movi_sprite = s.is_running ? m_running_tex : m_walking_tex;
+        if (movi_sprite)
+            m_ui.image({movi_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, movi_sprite,
+                       hov_movi ? 1.0f : 0.85f);
+        else {
+            m_ui.rect({movi_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, movi_bg, 4.f);
+            const char* movi_lbl = s.is_running ? "RUN" : "WLK";
+            float tw = static_cast<float>(SDL_strlen(movi_lbl)) * 5.8f;
+            m_ui.text({movi_x + (SPRITE_SZ - tw) * 0.5f, sprite_y + SPRITE_SZ * 0.5f - 5.f},
+                      movi_lbl,
+                      s.is_running ? glm::vec4{0.5f, 1.f, 0.5f, 1.f}
+                                   : glm::vec4{0.6f, 0.85f, 1.f, 1.f}, 8.f);
+        }
     }
 
     // ── Intent button ─────────────────────────────────────────────────────────
@@ -545,15 +594,7 @@ void HUD::draw_zone_intent(HUDState& s, glm::vec2 mouse, bool click)
         m_ui.image({intent_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_intent_tex[idx]);
 
     // ── Zone selector (ui_zonesel) ─────────────────────────────────────────────
-    if (m_living_tex[0])
-        m_ui.image({zone_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_living_tex[0]);
-
-    int sel_z = static_cast<int>(s.target_zone);
-    if (sel_z < 7 && m_zone_sel_tex[sel_z])
-        m_ui.image({zone_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_zone_sel_tex[sel_z]);
-
-    // Click hit-zones proportionally scaled to 32×32 sprite canvas
-    // (all values halved from the 64-px version)
+    // Click hit-zones — coordinates defined on a 32×32 canvas, scaled to SPRITE_SZ
     struct ZR { BodyZone zone; glm::vec2 tl; glm::vec2 sz; };
     static const ZR k_z[] = {
         { BodyZone::Head,  {10.f,  1.f}, {12.f,  9.f} },
@@ -564,10 +605,18 @@ void HUD::draw_zone_intent(HUDState& s, glm::vec2 mouse, bool click)
         { BodyZone::LLeg,  { 4.f, 23.f}, {10.f,  9.f} },
         { BodyZone::RLeg,  {18.f, 23.f}, {10.f,  9.f} },
     };
-    for (const auto& z : k_z) {
-        glm::vec2 p = glm::vec2{zone_x, sprite_y} + z.tl;
-        bool hov = (mouse.x >= p.x && mouse.x < p.x + z.sz.x &&
-                    mouse.y >= p.y && mouse.y < p.y + z.sz.y);
+    const float scale = SPRITE_SZ / 32.f;
+    const int sel_z = static_cast<int>(s.target_zone);
+
+    if (sel_z < 7 && m_zone_sel_tex[sel_z])
+        m_ui.image({zone_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_zone_sel_tex[sel_z]);
+
+    for (int i = 0; i < 7; ++i) {
+        const auto& z = k_z[i];
+        glm::vec2 p  = glm::vec2{zone_x, sprite_y} + z.tl * scale;
+        glm::vec2 sz = z.sz * scale;
+        bool hov = (mouse.x >= p.x && mouse.x < p.x + sz.x &&
+                    mouse.y >= p.y && mouse.y < p.y + sz.y);
         if (click && hov) s.target_zone = z.zone;
     }
 }

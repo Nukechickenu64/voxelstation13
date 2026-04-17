@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <string>
 #include <deque>
+#include <unordered_map>
 
 // ── TG-style intent ───────────────────────────────────────────────────────────
 enum class Intent : uint8_t {
@@ -116,7 +117,22 @@ private:
     // Suit pressure sprites (empty=0, low=1, mid=2, high=3)
     SDL_GPUTexture* m_suit_tex[4]        = {};
     // Generic slot background frame (template.png)
-    SDL_GPUTexture* m_template_tex       = nullptr;
+    SDL_GPUTexture* m_template_tex        = nullptr;
+    // Active slot frame (template_active.png)
+    SDL_GPUTexture* m_template_active_tex = nullptr;
     // Pull indicator (pull.png) shown in health panel
-    SDL_GPUTexture* m_pull_tex           = nullptr;
+    SDL_GPUTexture* m_pull_tex            = nullptr;
+    // Hand slot backgrounds and active-hand overlays (screen_midnight)
+    SDL_GPUTexture* m_hand_l_tex          = nullptr;
+    SDL_GPUTexture* m_hand_r_tex          = nullptr;
+    SDL_GPUTexture* m_lhand_active_tex    = nullptr;
+    SDL_GPUTexture* m_rhand_active_tex    = nullptr;
+    // Movement intent sprites (screen_midnight)
+    SDL_GPUTexture* m_walking_tex         = nullptr;
+    SDL_GPUTexture* m_running_tex         = nullptr;
+    // INV toggle sprites (screen_midnight)
+    SDL_GPUTexture* m_toggle_tex          = nullptr;
+    SDL_GPUTexture* m_toggle_active_tex   = nullptr;
+    // Per-slot empty-state icons keyed by slot_id (screen_midnight)
+    std::unordered_map<std::string, SDL_GPUTexture*> m_slot_icon_tex;
 };
