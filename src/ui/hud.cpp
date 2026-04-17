@@ -124,17 +124,29 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
     const bool click  = in_bar && lmb_clicked;
     std::string clicked;
 
-    // ── WEST edge: inventory toggle (TG: ui_inventory "WEST:6,SOUTH:5") ───────
+    // ── WEST edge: inventory toggle ─────────────────────────────────────────────
     {
-        constexpr float BTN_SZ = 28.f;
-        glm::vec2 bp = {6.f, bar_y + (BAR_H - BTN_SZ) * 0.5f};
-        bool hov = (mouse_pos.x >= bp.x && mouse_pos.x < bp.x + BTN_SZ &&
-                    mouse_pos.y >= bp.y && mouse_pos.y < bp.y + BTN_SZ);
-        m_ui.rect(bp, {BTN_SZ, BTN_SZ}, hov
-                      ? glm::vec4{0.22f, 0.32f, 0.52f, 0.92f}
-                      : glm::vec4{0.11f, 0.13f, 0.20f, 0.85f}, 4.f);
-        m_ui.text(bp + glm::vec2(3.f, BTN_SZ * 0.5f - 5.f), "INV",
-                  {0.55f, 0.72f, 1.f, 0.85f}, 8.f);
+        const glm::vec2 bp = {6.f, slot_y};
+        bool hov = (mouse_pos.x >= bp.x && mouse_pos.x < bp.x + EQUIP_SZ &&
+                    mouse_pos.y >= bp.y && mouse_pos.y < bp.y + EQUIP_SZ);
+        if (click && hov) state.inv_open = !state.inv_open;
+        glm::vec4 col = state.inv_open
+            ? glm::vec4{0.22f, 0.38f, 0.72f, 0.96f}
+            : (hov ? glm::vec4{0.22f, 0.32f, 0.52f, 0.92f}
+                   : glm::vec4{0.11f, 0.13f, 0.20f, 0.85f});
+        m_ui.rect(bp, {EQUIP_SZ, EQUIP_SZ}, col, 4.f);
+        if (m_template_tex)
+            m_ui.image(bp, {EQUIP_SZ, EQUIP_SZ}, m_template_tex, 0.65f);
+        // Draw a small grid icon hinting at the body slots
+        constexpr float G = 5.f, GS = 9.f;  // cell size + gap
+        for (int r = 0; r < 2; ++r)
+            for (int c = 0; c < 4; ++c) {
+                glm::vec4 gc = state.inv_open
+                    ? glm::vec4{0.50f, 0.70f, 1.00f, 0.90f}
+                    : glm::vec4{0.35f, 0.50f, 0.80f, 0.70f};
+                m_ui.rect(bp + glm::vec2(G + c*(GS+1.f), EQUIP_SZ - G - (2-r)*(GS+1.f)),
+                          {GS, GS}, gc, 1.f);
+            }
     }
 
     // ── Left cluster: back | belt | id | suit_storage (packed right→left from left hand)
@@ -179,7 +191,16 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
     // ── EAST edge: intent + zone selector ────────────────────────────────────
     draw_zone_intent(state, mouse_pos, click);
 
-    // ── Overlays above the bar ────────────────────────────────────────────────
+    // ── Body-slot panel (shown above bar when inv_open) ───────────────────────
+    if (state.inv_open) {
+        constexpr float PAD = 6.f;
+        constexpr float PCOLS = 4.f, PROWS = 2.f;
+        const float inner_h = PROWS * EQUIP_SZ + (PROWS - 1) * SEP;
+        const float panel_h = inner_h + 2.f * PAD;
+        const float panel_y = bar_y - panel_h - 4.f;
+        draw_body_equip(inv, {6.f + PAD, panel_y + PAD},
+                        mouse_pos, lmb_clicked, clicked);
+    }
     draw_clock(state.clock_str);
     if (!state.examine_label.empty())
         draw_examine_label(state.examine_label);
@@ -421,7 +442,44 @@ void HUD::draw_hand_slots(const Inventory& inv, bool left_active,
               arr, {0.50f,0.72f,1.f,0.88f}, 12.f);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Body-equipment panel  (2 rows × 4 cols)
+//  Row 0: HEAD  EYES  EARS  MASK
+//  Row 1: SUIT  UNIF  GLVS  BOOT
+//  panel_tl = top-left of the inner slot area (inside padding).
+// ─────────────────────────────────────────────────────────────────────────────
+void HUD::draw_body_equip(const Inventory& inv, glm::vec2 panel_tl,
+                           glm::vec2 mouse, bool click, std::string& out_click)
+{
+    constexpr float SEP     = 4.f;
+    constexpr float PAD     = 6.f;
+    constexpr int   COLS    = 4;
+    constexpr int   ROWS    = 2;
 
+    struct E { const char* id; const char* lbl; };
+    static const E k[ROWS][COLS] = {
+        { {"head","HEAD"}, {"eyes","EYES"}, {"ears","EARS"}, {"mask","MASK"} },
+        { {"suit","SUIT"}, {"uniform","UNIF"}, {"gloves","GLVS"}, {"boots","BOOT"} },
+    };
+
+    // Panel background
+    const float inner_w = COLS * EQUIP_SZ + (COLS - 1) * SEP;
+    const float inner_h = ROWS * EQUIP_SZ + (ROWS - 1) * SEP;
+    const glm::vec2 bg_tl = panel_tl - glm::vec2(PAD, PAD);
+    const glm::vec2 bg_sz = {inner_w + 2.f * PAD, inner_h + 2.f * PAD};
+    m_ui.rect(bg_tl, bg_sz, {0.04f, 0.05f, 0.07f, 0.93f}, 6.f);
+    // Top accent line (matches bar top line colour)
+    m_ui.rect(bg_tl, {bg_sz.x, 2.f}, k_bar_top, 0.f);
+
+    for (int row = 0; row < ROWS; ++row)
+        for (int col = 0; col < COLS; ++col) {
+            glm::vec2 p = panel_tl + glm::vec2(col * (EQUIP_SZ + SEP),
+                                               row * (EQUIP_SZ + SEP));
+            if (draw_slot(inv, k[row][col].id, p, EQUIP_SZ,
+                          k[row][col].lbl, false, mouse, click))
+                out_click = k[row][col].id;
+        }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  draw_zone_intent — bottom-right corner, TG positions:

@@ -53,6 +53,7 @@ struct HUDState {
     BodyZone target_zone = BodyZone::Chest;
     bool     is_running  = false;   // walk/run toggle (ui_movi)
     bool     is_pulling  = false;   // currently dragging/pulling something (shows pull.png)
+    bool     inv_open    = false;   // body-slot panel expanded
 };
 
 // Draws the always-on TG-style HUD in a unified bottom bar.
@@ -83,6 +84,10 @@ private:
     // TG bottom-right: zone selector doll + intent + movement intent buttons
     void draw_zone_intent       (HUDState& s,
                                  glm::vec2 mouse, bool click);
+    void draw_body_equip        (const Inventory& inv,
+                                 glm::vec2 panel_tl,
+                                 glm::vec2 mouse, bool click,
+                                 std::string& out_click);
     void draw_examine_label     (const std::string& label);
     void draw_radio_log         (const std::deque<std::string>& log);
     void draw_clock             (const std::string& time_str);
