@@ -1003,19 +1003,23 @@ void Server::send_to(NetAddress addr, PacketType type,
 
     // Wire format: [type:uint16_t LE][len:uint32_t LE][payload]
     const size_t pkt_size = 6 + len;
-    std::vector<uint8_t> pkt(pkt_size);
+    // Static send buffer — avoids a heap allocation on every broadcast packet.
+    // sendto() copies data synchronously before returning, so reusing the
+    // buffer across consecutive peer sends in broadcast loops is safe.
+    static uint8_t s_srv_send_buf[65536 + 6];
+    if (pkt_size > sizeof(s_srv_send_buf)) return; // oversized — drop
     uint16_t t = static_cast<uint16_t>(type);
     uint32_t l = static_cast<uint32_t>(len);
-    std::memcpy(pkt.data(),     &t, 2);
-    std::memcpy(pkt.data() + 2, &l, 4);
+    std::memcpy(s_srv_send_buf,     &t, 2);
+    std::memcpy(s_srv_send_buf + 2, &l, 4);
     if (data && len > 0)
-        std::memcpy(pkt.data() + 6, data, len);
+        std::memcpy(s_srv_send_buf + 6, data, len);
 
     sockaddr_in dest{};
     dest.sin_family      = AF_INET;
     dest.sin_addr.s_addr = addr.ip;
     dest.sin_port        = htons(addr.port);
-    ::sendto(fd, reinterpret_cast<const char*>(pkt.data()),
+    ::sendto(fd, reinterpret_cast<const char*>(s_srv_send_buf),
              static_cast<int>(pkt_size), 0,
              reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
 }

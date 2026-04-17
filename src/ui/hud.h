@@ -39,6 +39,15 @@ struct HUDState {
     float       cam_pitch = 0.f;         // degrees, negative = looking down
     std::deque<std::string> radio_log;   // capped at ~30 entries
 
+    // SS13-style damage buckets (from HealthComponent)
+    float dmg_brute = 0.f;   // physical / melee / explosion
+    float dmg_burn  = 0.f;   // heat / electrical / laser
+    float dmg_tox   = 0.f;   // toxin / plasma gas / poison
+    float dmg_oxy   = 0.f;   // oxygen deprivation / asphyxia
+    float dmg_clone = 0.f;   // radiation / mutagenic
+    bool  dead      = false;
+    bool  in_crit   = false;
+
     // TG-specific combat state
     Intent   intent      = Intent::Help;
     BodyZone target_zone = BodyZone::Chest;
@@ -60,9 +69,10 @@ public:
                      SDL_GPUTexture* player_mirror_tex = nullptr);
 
 private:
-    // ── Unified bottom bar sections ────────────────────────────────────────
-    void draw_status_section    (const HUDState& s,           // leftmost
-                                 glm::vec2 bar_tl, float bar_h);
+    // ── Right-side floating health doll panel (TG: EAST-1, CENTER) ────────
+    void draw_health_panel      (const HUDState& s, glm::vec2 origin);
+
+    // ── Bottom bar sections ────────────────────────────────────────────────
     void draw_body_equip        (const Inventory& inv,        // head/suit cluster
                                  glm::vec2 origin,
                                  glm::vec2 mouse, bool click,
@@ -76,9 +86,8 @@ private:
                                  glm::vec2 origin,
                                  glm::vec2 mouse, bool click,
                                  std::string& out_click);
-    void draw_intent_zone       (HUDState& s,                 // rightmost
-                                 glm::vec2 zone_origin,
-                                 glm::vec2 intent_origin,
+    // TG bottom-right: zone selector doll + single cycling intent button
+    void draw_zone_intent       (HUDState& s,
                                  glm::vec2 mouse, bool click);
     void draw_examine_label     (const std::string& label);
     void draw_radio_log         (const std::deque<std::string>& log);
@@ -95,4 +104,16 @@ private:
                    glm::vec2 mouse, bool click);
 
     UIRenderer& m_ui;
+
+    // ── Legacyset HUD sprites (loaded once in constructor) ─────────────────
+    // Intent icons indexed by Intent enum value (Help=0, Disarm=1, Grab=2, Harm=3)
+    SDL_GPUTexture* m_intent_tex[4]      = {};
+    // Zone highlight overlays (chest=0, head=1, l_arm=2, r_arm=3, l_leg=4, r_leg=5, groin=6)
+    SDL_GPUTexture* m_zone_sel_tex[7]    = {};
+    // Body-part damage level sprites [zone][level 0-4]
+    SDL_GPUTexture* m_zone_dmg_tex[7][5] = {};
+    // Overall health-state background sprites [level 0-4]
+    SDL_GPUTexture* m_living_tex[5]      = {};
+    // Suit pressure sprites (empty=0, low=1, mid=2, high=3)
+    SDL_GPUTexture* m_suit_tex[4]        = {};
 };

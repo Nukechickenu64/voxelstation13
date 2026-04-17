@@ -106,14 +106,17 @@ static void cli_send_packet(sock_t fd, const sockaddr_in& dest,
                              PacketType type, const void* data, size_t len)
 {
     const size_t pkt_size = 6 + len;
-    std::vector<uint8_t> pkt(pkt_size);
+    // Static send buffer — avoids a heap allocation on every packet send.
+    // 65536 + 6 bytes covers the full UDP payload ceiling safely.
+    static uint8_t s_cli_send_buf[65536 + 6];
+    if (pkt_size > sizeof(s_cli_send_buf)) return; // oversized — drop
     uint16_t t = static_cast<uint16_t>(type);
     uint32_t l = static_cast<uint32_t>(len);
-    std::memcpy(pkt.data(),     &t, 2);
-    std::memcpy(pkt.data() + 2, &l, 4);
+    std::memcpy(s_cli_send_buf,     &t, 2);
+    std::memcpy(s_cli_send_buf + 2, &l, 4);
     if (data && len > 0)
-        std::memcpy(pkt.data() + 6, data, len);
-    ::sendto(fd, reinterpret_cast<const char*>(pkt.data()),
+        std::memcpy(s_cli_send_buf + 6, data, len);
+    ::sendto(fd, reinterpret_cast<const char*>(s_cli_send_buf),
              static_cast<int>(pkt_size), 0,
              reinterpret_cast<const sockaddr*>(&dest), sizeof(dest));
 }
@@ -335,6 +338,14 @@ void Client::send_appearance_update()
 {
     sock_t fd = cli_to_sock(m_socket);
     if (fd == k_bad_sock) return;
+
+    // Rate-limit: the UI can trigger appearance updates at render-frame rate
+    // (60+ Hz) when drag-dropping equipment. Cap sends to once per 100 ms so
+    // only the final settled state is broadcast, not every intermediate frame.
+    uint64_t now = SDL_GetTicks();
+    if (now - m_last_appearance_ms < 100) return;
+    m_last_appearance_ms = now;
+
     sockaddr_in srv{};
     srv.sin_family      = AF_INET;
     srv.sin_addr.s_addr = m_server_ip;

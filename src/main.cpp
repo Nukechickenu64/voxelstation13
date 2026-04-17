@@ -1160,6 +1160,13 @@ int main(int argc, char* argv[])
                 if (hp) {
                     hud_state.health     = hp->current();
                     hud_state.health_max = hp->health_max;
+                    hud_state.dmg_brute  = hp->brute;
+                    hud_state.dmg_burn   = hp->burn;
+                    hud_state.dmg_tox    = hp->tox;
+                    hud_state.dmg_oxy    = hp->oxy;
+                    hud_state.dmg_clone  = hp->clone;
+                    hud_state.dead       = hp->dead;
+                    hud_state.in_crit    = hp->crit;
 
                     // Use HealthComponent flags — thresholds match TG (HEALTH_THRESHOLD_CRIT=50)
                     auto* cc_hp = g_entities.get_component<CharacterControllerComponent>(player);
@@ -2334,27 +2341,39 @@ int main(int argc, char* argv[])
                 auto rebuild_if_changed = [&](HumanAppearance& app,
                                               const Inventory&  inv,
                                               std::string&      last_fp) {
+                    // Pre-reserve to avoid repeated reallocations on every
+                    // render frame.  Use append() throughout to prevent the
+                    // temporary std::string objects created by operator+.
                     std::string fp;
+                    fp.reserve(256);
                     for (const char* sl : k_vis_eq_slots) {
                         const auto* slt = inv.find_slot(sl);
-                        if (slt && slt->item && slt->item->def)
-                            fp += sl + std::string("=") + slt->item->def->id + ";";
+                        if (slt && slt->item && slt->item->def) {
+                            fp.append(sl);
+                            fp += '=';
+                            fp.append(slt->item->def->id);
+                            fp += ';';
+                        }
                     }
                     for (const char* sl : { "l_hand", "r_hand" }) {
                         const auto* slt = inv.find_slot(sl);
-                        if (slt && slt->item && slt->item->def)
-                            fp += sl + std::string("=") + slt->item->def->id + ";";
+                        if (slt && slt->item && slt->item->def) {
+                            fp.append(sl);
+                            fp += '=';
+                            fp.append(slt->item->def->id);
+                            fp += ';';
+                        }
                     }
                     // For the local player, include character profile in fingerprint
                     // so hair/skin changes trigger a rebuild.
                     if (&inv == &player_inv) {
-                        fp += "|hair=" + player_profile.hair_file;
-                        fp += "|hcol=" + std::to_string(player_profile.hair_col_idx);
-                        fp += "|facial=" + player_profile.facial_file;
-                        fp += "|fcol=" + std::to_string(player_profile.facial_col_idx);
-                        fp += "|skin=" + std::to_string(player_profile.skin_idx);
-                        fp += "|eye="  + std::to_string(player_profile.eye_col_idx);
-                        fp += "|gend="; fp += (player_profile.is_male ? 'm' : 'f');
+                        fp.append("|hair=");  fp.append(player_profile.hair_file);
+                        fp.append("|hcol=");  fp.append(std::to_string(player_profile.hair_col_idx));
+                        fp.append("|facial=");fp.append(player_profile.facial_file);
+                        fp.append("|fcol=");  fp.append(std::to_string(player_profile.facial_col_idx));
+                        fp.append("|skin=");  fp.append(std::to_string(player_profile.skin_idx));
+                        fp.append("|eye=");   fp.append(std::to_string(player_profile.eye_col_idx));
+                        fp.append("|gend=");  fp += (player_profile.is_male ? 'm' : 'f');
                     }
                     if (fp == last_fp) return;
                     last_fp = fp;

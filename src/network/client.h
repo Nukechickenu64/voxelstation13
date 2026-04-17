@@ -109,4 +109,8 @@ private:
     // Visual appearance transmitted to server on connect / AppearanceUpdate
     AppearanceInfo m_appearance;
     std::vector<std::pair<std::string,std::string>> m_equipped_slots;
+
+    // Rate-limiting for appearance updates sent from the render loop.
+    // Tracks SDL_GetTicks() timestamp of the last successful send.
+    uint64_t m_last_appearance_ms = 0;
 };

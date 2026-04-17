@@ -15,14 +15,14 @@ static constexpr float HAND_SZ   = 56.f;   // hand slot square
 static constexpr float HAND_GAP  = 10.f;   // gap between the two hands
 static constexpr float EQUIP_SZ  = 32.f;   // equipment slot (2 rows fit: 2*32+4=68 ≈ inner)
 static constexpr float EQUIP_GAP =  4.f;
-static constexpr float INTENT_SZ = 32.f;
-static constexpr float INTENT_GAP=  4.f;
 static constexpr float SEC_GAP   = 10.f;   // gap between sections
 
-// Status section widths
-static constexpr float STATUS_DOLL_W = 30.f;
-static constexpr float STATUS_INFO_W = 116.f;
-static constexpr float STATUS_TOT_W  = STATUS_DOLL_W + 6.f + STATUS_INFO_W;
+// Right-side health panel constants
+static constexpr float PANEL_DOLL_SZ = 64.f;  // health doll sprite size
+static constexpr float PANEL_BAR_W   = 80.f;  // damage bar width
+static constexpr float PANEL_W       = PANEL_DOLL_SZ + 6.f + PANEL_BAR_W + 6.f;
+static constexpr float PANEL_H       = 90.f;  // enough for doll + bar rows
+static constexpr float PANEL_RIGHT   = 8.f;   // margin from right edge
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Colour constants
@@ -42,10 +42,49 @@ static constexpr glm::vec4 k_intent_col[4] = {
 static constexpr const char* k_intent_label[4] = { "HELP", "DSRM", "GRAB", "HARM" };
 
 // ─────────────────────────────────────────────────────────────────────────────
-HUD::HUD(UIRenderer& ui) : m_ui(ui) {}
+HUD::HUD(UIRenderer& ui) : m_ui(ui)
+{
+    static const char* BASE = "legacysets/extracted/hud/screen_gen/";
+    auto L = [&](const std::string& name) -> SDL_GPUTexture* {
+        return ui.load_texture((BASE + name).c_str());
+    };
+
+    // Intent icons (indexed by Intent enum)
+    m_intent_tex[0] = L("help.png");
+    m_intent_tex[1] = L("disarm.png");
+    m_intent_tex[2] = L("grab.png");
+    m_intent_tex[3] = L("harm.png");
+
+    // Zone sprites — order matches BodyZone enum: Chest=0 … Groin=6
+    static const char* k_zone_name[7] = {
+        "chest", "head", "l_arm", "r_arm", "l_leg", "r_leg", "groin"
+    };
+    for (int z = 0; z < 7; ++z) {
+        m_zone_sel_tex[z] = L(std::string(k_zone_name[z]) + ".png");
+        for (int d = 0; d < 5; ++d)
+            m_zone_dmg_tex[z][d] = L(std::string(k_zone_name[z]) + std::to_string(d) + ".png");
+    }
+
+    // Overall health-state background sprites
+    for (int i = 0; i < 5; ++i)
+        m_living_tex[i] = L("living" + std::to_string(i) + ".png");
+
+    // Suit pressure sprites
+    m_suit_tex[0] = L("spacesuit_empty.png");
+    m_suit_tex[1] = L("spacesuit_low.png");
+    m_suit_tex[2] = L("spacesuit_mid.png");
+    m_suit_tex[3] = L("spacesuit_high.png");
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  draw() — master layout: unified full-width bottom bar
+//  draw() — TG-faithful layout  (hud.dm screen_loc reference)
+//
+//  Left of hands:   suit_storage | id | belt | back    (C-5 C-4 C-3 C-2)
+//  Hands (center):  [l_hand]  [r_hand]
+//  Right of hands:  pda | storage1                     (C+1 C+2)
+//  EAST edge bar:   [intent] [zone]
+//  WEST edge bar:   [INV toggle]
+//  Right float:     health panel (center height)
 // ─────────────────────────────────────────────────────────────────────────────
 std::string HUD::draw(HUDState& state, const Inventory& inv,
                       glm::vec2 mouse_pos, bool lmb_clicked,
@@ -54,75 +93,86 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
     const float fb_w   = static_cast<float>(m_ui.fb_width());
     const float fb_h   = static_cast<float>(m_ui.fb_height());
     const float bar_y  = fb_h - BAR_H;
-    const float inner_y = bar_y + BAR_PAD;
+    const float slot_y = bar_y + (BAR_H - EQUIP_SZ) * 0.5f;
+    const float hand_y = bar_y + (BAR_H - HAND_SZ)  * 0.5f;
+    const float cx     = fb_w * 0.5f;
 
-    // ── Full-width bottom bar ─────────────────────────────────────────────────
+    // Hand slot edges — symmetric around cx with a HAND_GAP gap at the center.
+    // Left-hand left-edge:  cx - HAND_SZ - HAND_GAP/2
+    // Right-hand left-edge: cx + HAND_GAP/2
+    const float lhand_x  = cx - HAND_SZ - HAND_GAP * 0.5f;
+    const float rhand_end = lhand_x + HAND_SZ + HAND_GAP + HAND_SZ;  // right edge of r_hand
+    constexpr float SEP = 4.f;   // gap between adjacent slots
+
+    // ── Right-side floating health panel (TG: ui_healthdoll EAST-1:28, CENTER) ─
+    {
+        const float panel_x = fb_w - PANEL_W - PANEL_RIGHT;
+        const float panel_y = fb_h * 0.5f - PANEL_H * 0.5f;
+        draw_health_panel(state, {panel_x, panel_y});
+    }
+
+    // ── Full-width bottom bar background ──────────────────────────────────────
     m_ui.rect({0.f, bar_y}, {fb_w, BAR_H}, k_bar_bg,  0.f);
     m_ui.rect({0.f, bar_y}, {fb_w, 2.f},   k_bar_top, 0.f);
 
-    // Only allow HUD slot clicks when the cursor is inside the bar area
     const bool in_bar = (mouse_pos.y >= bar_y - 2.f);
     const bool click  = in_bar && lmb_clicked;
-
     std::string clicked;
 
-    // Helper: thin vertical divider
-    auto div = [&](float x) {
-        m_ui.rect({x, bar_y + 8.f}, {1.f, BAR_H - 16.f}, k_sec_div, 0.f);
-    };
-
-    // ── 1. Status section (leftmost) ─────────────────────────────────────────
-    draw_status_section(state, {0.f, bar_y}, BAR_H);
-    float x = BAR_PAD + STATUS_TOT_W + SEC_GAP;
-    div(x - SEC_GAP * 0.5f);
-
-    // ── 2. Body-equipment cluster  (4 cols × 2 rows) ─────────────────────────
-    draw_body_equip(inv, {x, inner_y}, mouse_pos, click, clicked);
-    x += 4.f * (EQUIP_SZ + EQUIP_GAP);
-    div(x + SEC_GAP * 0.5f - EQUIP_GAP);
-    x += SEC_GAP - EQUIP_GAP;
-
-    // ── 3+4+5. Left pocket | Hands | Right pocket  (all anchored to screen center)
+    // ── WEST edge: inventory toggle (TG: ui_inventory "WEST:6,SOUTH:5") ───────
     {
-        const float hands_w = HAND_SZ * 2.f + HAND_GAP;
-        const float hands_x = fb_w * 0.5f - hands_w * 0.5f;
-        const float hand_y  = bar_y + (BAR_H - HAND_SZ) * 0.5f;
-        const float pkt_y   = bar_y + (BAR_H - EQUIP_SZ) * 0.5f;
-        const float pkt_gap = 4.f;
-
-        // Left pocket immediately left of left hand
-        if (draw_slot(inv, "l_pocket", {hands_x - pkt_gap - EQUIP_SZ, pkt_y},
-                      EQUIP_SZ, "PKT", false, mouse_pos, click))
-            clicked = "l_pocket";
-
-        draw_hand_slots(inv, state.active_hand_is_left,
-                        {hands_x, hand_y}, mouse_pos, click, clicked);
-
-        // Right pocket immediately right of right hand
-        if (draw_slot(inv, "r_pocket", {hands_x + hands_w + pkt_gap, pkt_y},
-                      EQUIP_SZ, "PKT", false, mouse_pos, click))
-            clicked = "r_pocket";
-
-        x = hands_x + hands_w + pkt_gap + EQUIP_SZ + SEC_GAP;
+        constexpr float BTN_SZ = 28.f;
+        glm::vec2 bp = {6.f, bar_y + (BAR_H - BTN_SZ) * 0.5f};
+        bool hov = (mouse_pos.x >= bp.x && mouse_pos.x < bp.x + BTN_SZ &&
+                    mouse_pos.y >= bp.y && mouse_pos.y < bp.y + BTN_SZ);
+        m_ui.rect(bp, {BTN_SZ, BTN_SZ}, hov
+                      ? glm::vec4{0.22f, 0.32f, 0.52f, 0.92f}
+                      : glm::vec4{0.11f, 0.13f, 0.20f, 0.85f}, 4.f);
+        m_ui.text(bp + glm::vec2(3.f, BTN_SZ * 0.5f - 5.f), "INV",
+                  {0.55f, 0.72f, 1.f, 0.85f}, 8.f);
     }
-    div(x - SEC_GAP * 0.5f);
 
-    // ── 6. Storage cluster  (2 cols × 2 rows) ────────────────────────────────
-    draw_storage_equip(inv, {x, inner_y}, mouse_pos, click, clicked);
-    x += 2.f * (EQUIP_SZ + EQUIP_GAP);
-    div(x + SEC_GAP * 0.5f - EQUIP_GAP);
-
-    // ── 7. Intent 2×2 + Zone selector (right-anchored) ───────────────────────
+    // ── Left cluster: back | belt | id | suit_storage (packed right→left from left hand)
+    // TG order is C-2:back  C-3:belt  C-4:id  C-5:sstore1
     {
-        const float intent_blk = INTENT_SZ * 2.f + INTENT_GAP;
-        const float zone_blk   = 46.f;
-        const float intent_x   = fb_w - BAR_PAD - intent_blk;
-        const float zone_x     = intent_x - SEC_GAP - zone_blk;
-        draw_intent_zone(state,
-                         {zone_x,   inner_y},
-                         {intent_x, inner_y},
-                         mouse_pos, click);
+        struct S { const char* id; const char* lbl; };
+        static const S kLeft[] = {
+            {"back",         "BACK"},
+            {"belt",         "BELT"},
+            {"id_card",      "ID"  },
+            {"suit_storage", "SSTR"},
+        };
+        float rx = lhand_x - SEP;   // right edge of next slot
+        for (const auto& s : kLeft) {
+            float sx = rx - EQUIP_SZ;
+            if (draw_slot(inv, s.id, {sx, slot_y}, EQUIP_SZ, s.lbl, false, mouse_pos, click))
+                clicked = s.id;
+            rx = sx - SEP;
+        }
     }
+
+    // ── Hands (center) ────────────────────────────────────────────────────────
+    draw_hand_slots(inv, state.active_hand_is_left,
+                    {lhand_x, hand_y}, mouse_pos, click, clicked);
+
+    // ── Right cluster: pda | storage1 (packed left→right from right hand)
+    // TG: C+1:storage1  C+2:storage2
+    {
+        struct S { const char* id; const char* lbl; };
+        static const S kRight[] = {
+            {"pda",    "PDA" },
+            {"l_pocket", "PKT"},
+        };
+        float sx = rhand_end + SEP;
+        for (const auto& s : kRight) {
+            if (draw_slot(inv, s.id, {sx, slot_y}, EQUIP_SZ, s.lbl, false, mouse_pos, click))
+                clicked = s.id;
+            sx += EQUIP_SZ + SEP;
+        }
+    }
+
+    // ── EAST edge: intent + zone selector ────────────────────────────────────
+    draw_zone_intent(state, mouse_pos, click);
 
     // ── Overlays above the bar ────────────────────────────────────────────────
     draw_clock(state.clock_str);
@@ -188,77 +238,96 @@ bool HUD::draw_slot(const Inventory& inv, const char* slot_id,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Status section — compact body doll + readouts inside the bar
+//  draw_health_panel — right-side floating panel (TG: EAST-1, CENTER)
+//  Contains: body doll sprites + SS13 damage bars + env readout
 // ─────────────────────────────────────────────────────────────────────────────
-void HUD::draw_status_section(const HUDState& s, glm::vec2 bar_tl, float bar_h)
+void HUD::draw_health_panel(const HUDState& s, glm::vec2 origin)
 {
-    const glm::vec2 origin = bar_tl + glm::vec2(BAR_PAD);
-    const float inner_h = bar_h - BAR_PAD * 2.f;
-
     float ratio = (s.health_max > 0.f)
         ? std::clamp(s.health / s.health_max, 0.f, 1.f) : 0.f;
-    bool  crit  = (ratio < 0.25f);
-    float pulse = crit
+    float pulse = (s.in_crit || s.dead)
         ? (0.5f + 0.5f * std::sin(static_cast<float>(SDL_GetTicks()) * 0.008f)) : 0.f;
 
-    glm::vec4 body_col = (ratio > 0.60f)
-        ? glm::vec4{0.12f, 0.78f + pulse * 0.04f, 0.12f, 0.95f}
-        : (ratio > 0.30f ? glm::vec4{0.82f, 0.72f, 0.05f, 0.95f}
-                         : glm::vec4{0.82f + pulse*0.1f, 0.07f, 0.07f, 0.95f});
+    // Semi-transparent panel background
+    const float panel_pad = 5.f;
+    m_ui.rect(origin - glm::vec2(panel_pad),
+              {PANEL_W + panel_pad*2.f, PANEL_H + panel_pad*2.f},
+              {0.04f, 0.05f, 0.07f, 0.82f}, 5.f);
 
-    // ── Compact body doll (fits in ~30×64px) ──────────────────────────────────
-    const glm::vec2 d = origin;
-    m_ui.rect(d + glm::vec2( 8.f, 0.f), {13.f, 12.f}, body_col, 2.f); // head
-    m_ui.rect(d + glm::vec2(11.f,12.f), { 5.f,  3.f}, body_col, 0.f); // neck
-    m_ui.rect(d + glm::vec2( 5.f,15.f), {19.f, 20.f}, body_col, 2.f); // torso
-    m_ui.rect(d + glm::vec2( 0.f,15.f), { 4.f, 16.f}, body_col, 1.f); // l.arm
-    m_ui.rect(d + glm::vec2(25.f,15.f), { 4.f, 16.f}, body_col, 1.f); // r.arm
-    m_ui.rect(d + glm::vec2( 7.f,35.f), {15.f,  7.f}, body_col, 1.f); // groin
-    m_ui.rect(d + glm::vec2( 5.f,42.f), { 9.f, 22.f}, body_col, 2.f); // l.leg
-    m_ui.rect(d + glm::vec2(15.f,42.f), { 9.f, 22.f}, body_col, 2.f); // r.leg
-
-    // ── Readouts right of doll ────────────────────────────────────────────────
-    auto fmt = [](float v, int dec) -> std::string {
-        std::ostringstream o; o << std::fixed << std::setprecision(dec) << v; return o.str();
-    };
-    const glm::vec2 ri = origin + glm::vec2(STATUS_DOLL_W + 6.f, 0.f);
-    const float LS = 12.5f;
-
-    glm::vec4 hpc = crit
-        ? glm::vec4{1.f, 0.22f, 0.12f, 0.9f + pulse*0.08f}
-        : (ratio < 0.6f ? glm::vec4{0.90f,0.75f,0.15f,1.f}
-                        : glm::vec4{0.88f,0.90f,0.88f,1.f});
+    // ── Sprite body doll (64×64) ─────────────────────────────────────────────
     {
-        std::ostringstream hs;
-        hs << std::fixed << std::setprecision(0) << s.health << "/" << s.health_max;
-        m_ui.text(ri,                       "HP", hpc, 9.f);
-        m_ui.text(ri + glm::vec2(16.f,0.f), hs.str(), hpc, 9.f);
+        int lvl = s.dead ? 4 : std::min(4, static_cast<int>((1.f - ratio) * 5.f));
+        float base_alpha = s.dead ? 0.55f : 1.f;
+
+        if (m_living_tex[lvl])
+            m_ui.image(origin, {PANEL_DOLL_SZ, PANEL_DOLL_SZ}, m_living_tex[lvl], base_alpha);
+
+        auto dmg_lvl = [&](float dmg) -> int {
+            float pct = (s.health_max > 0.f) ? dmg / s.health_max : 0.f;
+            if (pct < 0.05f) return 0;
+            if (pct < 0.25f) return 1;
+            if (pct < 0.50f) return 2;
+            if (pct < 0.75f) return 3;
+            return 4;
+        };
+        int bl = dmg_lvl(s.dmg_brute);
+        int fl = dmg_lvl(s.dmg_burn);
+        const int zone_lvl[7] = { std::max(bl,fl), std::max(bl,fl), bl, bl, bl, bl, bl };
+        for (int z = 0; z < 7; ++z)
+            if (m_zone_dmg_tex[z][zone_lvl[z]])
+                m_ui.image(origin, {PANEL_DOLL_SZ, PANEL_DOLL_SZ}, m_zone_dmg_tex[z][zone_lvl[z]]);
     }
 
-    float o2 = s.oxy_sat * 100.f;
-    glm::vec4 o2c = (o2 < 50.f) ? glm::vec4{1.f,0.28f,0.08f,1.f} : glm::vec4{0.38f,0.82f,1.f,1.f};
-    m_ui.text(ri + glm::vec2(0.f,LS),   "O2", o2c, 9.f);
-    m_ui.text(ri + glm::vec2(16.f,LS),  fmt(o2,0)+"%", o2c, 9.f);
+    // ── SS13-style damage bars ────────────────────────────────────────────────
+    const glm::vec2 ri   = origin + glm::vec2(PANEL_DOLL_SZ + 6.f, 2.f);
+    const float bar_row  = 10.f;
+    const float bar_h2   =  6.f;
 
-    glm::vec4 txc = (s.tox_level > 0.5f) ? glm::vec4{1.f,0.48f,0.04f,1.f} : glm::vec4{0.50f,0.82f,0.38f,0.82f};
-    m_ui.text(ri + glm::vec2(0.f,LS*2),  "TOX", txc, 9.f);
-    m_ui.text(ri + glm::vec2(22.f,LS*2), fmt(s.tox_level,1), txc, 9.f);
+    struct DmgBar { const char* lbl; float dmg; glm::vec4 fill; glm::vec4 track; };
+    const DmgBar dbars[] = {
+        { "BRT", s.dmg_brute, {0.82f, 0.12f, 0.12f, 0.92f}, {0.28f, 0.08f, 0.08f, 0.65f} },
+        { "BRN", s.dmg_burn,  {0.92f, 0.42f, 0.05f, 0.92f}, {0.30f, 0.15f, 0.04f, 0.65f} },
+        { "TOX", s.dmg_tox,   {0.18f, 0.82f, 0.18f, 0.92f}, {0.08f, 0.28f, 0.08f, 0.65f} },
+        { "OXY", s.dmg_oxy,   {0.15f, 0.62f, 0.92f, 0.92f}, {0.06f, 0.20f, 0.32f, 0.65f} },
+    };
+    for (int i = 0; i < 4; ++i) {
+        const auto& b = dbars[i];
+        float y = ri.y + static_cast<float>(i) * bar_row;
+        float fill_px = (s.health_max > 0.f)
+                        ? std::clamp(b.dmg / s.health_max, 0.f, 1.f) * PANEL_BAR_W : 0.f;
+        m_ui.text({ri.x, y + 0.5f}, b.lbl,
+                  (b.dmg > 0.5f) ? b.fill : glm::vec4{0.28f, 0.34f, 0.46f, 0.55f}, 8.f);
+        m_ui.rect({ri.x + 22.f, y + 1.f}, {PANEL_BAR_W, bar_h2}, b.track, 2.f);
+        if (fill_px > 0.f)
+            m_ui.rect({ri.x + 22.f, y + 1.f}, {fill_px, bar_h2}, b.fill, 2.f);
+    }
 
-    glm::vec4 pc = (s.suit_pressure_kpa < 20.f  || s.suit_pressure_kpa > 550.f)
-        ? glm::vec4{1.f,0.38f,0.08f,1.f}
-        : (s.suit_pressure_kpa < 70.f  || s.suit_pressure_kpa > 300.f)
-        ? glm::vec4{1.f,0.75f,0.10f,1.f}
-        : glm::vec4{0.65f,1.f,0.65f,0.88f};
-    m_ui.text(ri + glm::vec2(0.f,LS*3),  "KPA", pc, 9.f);
-    m_ui.text(ri + glm::vec2(22.f,LS*3), fmt(s.suit_pressure_kpa,0), pc, 9.f);
+    // ── Suit pressure / temperature readout ──────────────────────────────────
+    {
+        auto fmt = [](float v, int dec) -> std::string {
+            std::ostringstream o; o << std::fixed << std::setprecision(dec) << v; return o.str();
+        };
+        const float bot_y = ri.y + 4.f * bar_row + 3.f;
+        glm::vec4 pc = (s.suit_pressure_kpa < 20.f || s.suit_pressure_kpa > 550.f)
+            ? glm::vec4{1.f, 0.38f, 0.08f, 1.f}
+            : (s.suit_pressure_kpa < 70.f || s.suit_pressure_kpa > 300.f)
+            ? glm::vec4{1.f, 0.75f, 0.10f, 1.f}
+            : glm::vec4{0.55f, 0.90f, 0.55f, 0.80f};
+        m_ui.text({ri.x,        bot_y}, "KPA", pc, 8.f);
+        m_ui.text({ri.x + 22.f, bot_y}, fmt(s.suit_pressure_kpa, 0), pc, 8.f);
+        if (!s.suit_temp_str.empty())
+            m_ui.text({ri.x, bot_y + 10.f}, "T " + s.suit_temp_str,
+                      {0.70f, 0.70f, 0.70f, 0.72f}, 8.f);
+    }
 
-    if (!s.suit_temp_str.empty())
-        m_ui.text(ri + glm::vec2(0.f,LS*4), "T " + s.suit_temp_str,
-                  {0.78f,0.78f,0.78f,0.80f}, 9.f);
-
-    if (crit && pulse > 0.42f)
-        m_ui.text(ri + glm::vec2(0.f, inner_h - 11.f), "CRITICAL",
-                  {1.f, 0.06f, 0.06f, 0.88f + pulse*0.12f}, 9.f);
+    // ── Dead / Critical status flash ──────────────────────────────────────────
+    if (s.dead) {
+        m_ui.text(origin + glm::vec2(PANEL_DOLL_SZ*0.5f - 14.f, PANEL_DOLL_SZ + 2.f),
+                  "DEAD", {0.55f, 0.55f, 0.60f, 0.90f}, 9.f);
+    } else if (s.in_crit && pulse > 0.42f) {
+        m_ui.text(origin + glm::vec2(0.f, PANEL_DOLL_SZ + 2.f),
+                  "CRITICAL", {1.f, 0.06f, 0.06f, 0.88f + pulse * 0.12f}, 9.f);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -378,68 +447,72 @@ void HUD::draw_storage_equip(const Inventory& inv, glm::vec2 origin,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Intent 2×2 + Zone body-part selector — all inside the bar
+//  draw_zone_intent — bottom-right corner, TG positions:
+//    ui_acti    "EAST-3:24, SOUTH:5"  → intent sprite (32×32)
+//    ui_zonesel "EAST-1:28, SOUTH:5"  → zone body doll (32×32)
+//
+//  Intent sprites (help/disarm/grab/harm.png) are 32×32 sheets that already
+//  show all 4 intents with the relevant one highlighted.  No tinting needed.
+//  Clicking cycles Help→Disarm→Grab→Harm→Help.
 // ─────────────────────────────────────────────────────────────────────────────
-void HUD::draw_intent_zone(HUDState& s,
-                            glm::vec2 zone_origin,
-                            glm::vec2 intent_origin,
-                            glm::vec2 mouse, bool click)
+void HUD::draw_zone_intent(HUDState& s, glm::vec2 mouse, bool click)
 {
-    // ── Intent 2×2 ────────────────────────────────────────────────────────────
-    m_ui.text(intent_origin - glm::vec2(0.f, 10.f), "INTENT",
-              {0.40f,0.50f,0.72f,0.70f}, 8.f);
+    const float fb_w  = static_cast<float>(m_ui.fb_width());
+    const float fb_h  = static_cast<float>(m_ui.fb_height());
+    const float bar_y = fb_h - BAR_H;
 
-    static const int k_lay[2][2] = { {0,1},{2,3} };
-    for (int row = 0; row < 2; ++row)
-        for (int col = 0; col < 2; ++col) {
-            int idx = k_lay[row][col];
-            glm::vec2 p = intent_origin + glm::vec2(col*(INTENT_SZ+INTENT_GAP),
-                                                     row*(INTENT_SZ+INTENT_GAP));
-            bool is_act = (static_cast<int>(s.intent) == idx);
-            bool hov = (mouse.x>=p.x && mouse.x<p.x+INTENT_SZ &&
-                        mouse.y>=p.y && mouse.y<p.y+INTENT_SZ);
-            if (click && hov) s.intent = static_cast<Intent>(idx);
+    // TG positions (EAST = right edge, tile = 32 px, extra pixel offset included)
+    // ui_zonesel  "EAST-1:28, SOUTH:5"  → right-most cluster item
+    // ui_acti     "EAST-3:24, SOUTH:5"  → two tiles further left
+    // BYOND EAST-N means N tiles inward from right edge; offset is sub-tile pixels.
+    // In our coordinate system, origin of sprite = fb_w - N*32 - (32 - offset)
+    constexpr float SPRITE_SZ = 32.f;
+    const float zone_x   = fb_w - 1*32 - (32 - 28);   // EAST-1:28
+    const float intent_x = fb_w - 3*32 - (32 - 24);   // EAST-3:24
+    const float sprite_y = bar_y + (BAR_H - SPRITE_SZ) * 0.5f;
 
-            glm::vec4 base = k_intent_col[idx];
-            float b = is_act ? 1.f : (hov ? 0.58f : 0.28f);
-            m_ui.rect(p, {INTENT_SZ,INTENT_SZ}, {base.r*b,base.g*b,base.b*b,0.92f}, 4.f);
-            if (is_act)
-                m_ui.rect(p-glm::vec2(2.f), {INTENT_SZ+4.f,INTENT_SZ+4.f},
-                          {base.r,base.g,base.b,0.85f}, 5.f);
-            float tw = static_cast<float>(strlen(k_intent_label[idx])) * 5.8f;
-            m_ui.text(p + glm::vec2((INTENT_SZ-tw)*0.5f, INTENT_SZ*0.5f-4.f),
-                      k_intent_label[idx],
-                      is_act ? glm::vec4{1,1,1,1} : glm::vec4{0.72f,0.72f,0.72f,0.82f}, 8.f);
-        }
+    // ── Intent button ─────────────────────────────────────────────────────────
+    int idx = static_cast<int>(s.intent);
+    bool hov_intent = (mouse.x >= intent_x && mouse.x < intent_x + SPRITE_SZ &&
+                       mouse.y >= sprite_y  && mouse.y < sprite_y  + SPRITE_SZ);
+    if (click && hov_intent)
+        s.intent = static_cast<Intent>((idx + 1) % 4);
 
-    // ── Zone body-part selector ───────────────────────────────────────────────
+    // Subtle hover highlight behind sprite
+    if (hov_intent)
+        m_ui.rect({intent_x - 1.f, sprite_y - 1.f}, {SPRITE_SZ + 2.f, SPRITE_SZ + 2.f},
+                  {1.f, 1.f, 1.f, 0.12f}, 3.f);
+
+    // Draw the intent sprite as-is — the sprite already shows active state
+    if (m_intent_tex[idx])
+        m_ui.image({intent_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_intent_tex[idx]);
+
+    // ── Zone selector (body doll 32×32) ───────────────────────────────────────
+    // Use living0 as base then overlay the zone highlight sprite
+    if (m_living_tex[0])
+        m_ui.image({zone_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_living_tex[0]);
+
+    int sel_z = static_cast<int>(s.target_zone);
+    if (sel_z < 7 && m_zone_sel_tex[sel_z])
+        m_ui.image({zone_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_zone_sel_tex[sel_z]);
+
+    // Click hit-zones proportionally scaled to 32×32 sprite canvas
+    // (all values halved from the 64-px version)
     struct ZR { BodyZone zone; glm::vec2 tl; glm::vec2 sz; };
     static const ZR k_z[] = {
-        { BodyZone::Head,  {13.f, 0.f}, {16.f,14.f} },
-        { BodyZone::Chest, { 8.f,16.f}, {24.f,18.f} },
-        { BodyZone::LArm,  { 0.f,16.f}, { 7.f,15.f} },
-        { BodyZone::RArm,  {33.f,16.f}, { 7.f,15.f} },
-        { BodyZone::Groin, { 9.f,35.f}, {20.f, 8.f} },
-        { BodyZone::LLeg,  { 7.f,44.f}, {10.f,20.f} },
-        { BodyZone::RLeg,  {21.f,44.f}, {10.f,20.f} },
+        { BodyZone::Head,  {10.f,  1.f}, {12.f,  9.f} },
+        { BodyZone::Chest, { 4.f,  8.f}, {24.f, 11.f} },
+        { BodyZone::LArm,  { 0.f,  7.f}, { 6.f, 13.f} },
+        { BodyZone::RArm,  {26.f,  7.f}, { 6.f, 13.f} },
+        { BodyZone::Groin, { 7.f, 18.f}, {18.f,  7.f} },
+        { BodyZone::LLeg,  { 4.f, 23.f}, {10.f,  9.f} },
+        { BodyZone::RLeg,  {18.f, 23.f}, {10.f,  9.f} },
     };
-    m_ui.text(zone_origin - glm::vec2(0.f, 10.f), "ZONE",
-              {0.40f,0.50f,0.72f,0.70f}, 8.f);
-
     for (const auto& z : k_z) {
-        glm::vec2 p = zone_origin + z.tl;
-        bool is_act = (s.target_zone == z.zone);
-        bool hov = (mouse.x>=p.x && mouse.x<p.x+z.sz.x &&
-                    mouse.y>=p.y && mouse.y<p.y+z.sz.y);
+        glm::vec2 p = glm::vec2{zone_x, sprite_y} + z.tl;
+        bool hov = (mouse.x >= p.x && mouse.x < p.x + z.sz.x &&
+                    mouse.y >= p.y && mouse.y < p.y + z.sz.y);
         if (click && hov) s.target_zone = z.zone;
-
-        glm::vec4 col = is_act
-            ? glm::vec4{0.28f,0.58f,1.00f,0.95f}
-            : (hov ? glm::vec4{0.48f,0.52f,0.62f,0.88f}
-                   : glm::vec4{0.18f,0.22f,0.30f,0.80f});
-        m_ui.rect(p, z.sz, col, 2.f);
-        if (is_act)
-            m_ui.rect(p-glm::vec2(1.f), z.sz+glm::vec2(2.f), {0.42f,0.72f,1.f,0.68f}, 3.f);
     }
 }
 
