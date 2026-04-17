@@ -610,6 +610,7 @@ int main(int argc, char* argv[])
         ai.hair_r    = player_profile.hair_color.r;
         ai.hair_g    = player_profile.hair_color.g;
         ai.hair_b    = player_profile.hair_color.b;
+        ai.is_male   = player_profile.is_male;
         client.set_appearance(ai);
         client.send_appearance_update();
     }
@@ -2159,6 +2160,22 @@ int main(int argc, char* argv[])
         [&](double alpha) {
             client.interpolate(alpha);
 
+            // Re-derive cam_pos from the player's interpolated position so the
+            // camera moves smoothly between ticks rather than stepping at 60 Hz.
+            {
+                EntityID plr_r = client.local_player();
+                if (!third_person && plr_r != NULL_ENTITY) {
+                    auto* tr_r = g_entities.get_component<TransformComponent>(plr_r);
+                    if (tr_r) {
+                        float body_yaw_r2  = glm::radians(player_body_yaw);
+                        glm::vec3 body_fwd2 = { std::sin(body_yaw_r2), 0.f, -std::cos(body_yaw_r2) };
+                        float eye_h2   = glm::mix(0.50f, 0.14f, prone_t);
+                        float fwd_off2 = glm::mix(0.05f, 0.50f, prone_t);
+                        cam_pos = tr_r->pos + glm::vec3(0.f, eye_h2, 0.f) + body_fwd2 * fwd_off2;
+                    }
+                }
+            }
+
             // ── Camera basis + view-projection (mirrors draw_world) ──────────
             float yaw_r   = glm::radians(cam_yaw);
             float pitch_r = glm::radians(cam_pitch);
@@ -2460,16 +2477,34 @@ int main(int argc, char* argv[])
                     });
             }
 
-            renderer.queue_mobs(g_entities, cam_pos, cam_yaw,
-                                 third_person ? NULL_ENTITY : client.local_player());
-            // Append mobs that live inside any vehicle (offset to world space)
-            if (test_vehicle)
-                renderer.queue_mobs(test_vehicle->entities(), cam_pos, cam_yaw,
-                                    NULL_ENTITY, test_vehicle->world_pos_f(),
-                                    /*clear_first=*/false);
             for (const auto& obj : model_objs.objects())
                 renderer.queue_model(obj.name.c_str(), obj.world_pos, obj.yaw, obj.scale);
             renderer.queue_earth_background(cam_pos, cam_yaw, cam_pitch);
+
+            // ── Apply view bob & sway offsets (render only, not physics) ────
+            // Computed here, before begin_frame, so queue_mobs uses the same
+            // camera the GPU will actually render with this frame.
+            glm::vec3 render_cam_pos   = cam_pos;
+            float     render_cam_yaw   = cam_yaw;
+            float     render_cam_pitch = cam_pitch;
+            if (!third_person) {
+                constexpr float BOB_Y_AMP     = 0.022f;
+                constexpr float BOB_PITCH_AMP = 0.45f;
+                constexpr float BOB_YAW_AMP   = 0.28f;
+                float b = bob_blend;
+                render_cam_pos.y    += std::sin(bob_time)        * BOB_Y_AMP     * b;
+                render_cam_pitch    += std::sin(bob_time)        * BOB_PITCH_AMP * b;
+                render_cam_yaw      += std::sin(bob_time * 0.5f) * BOB_YAW_AMP  * b
+                                     + bob_sway;
+            }
+
+            // Queue mobs now so begin_frame can upload them in the same frame.
+            renderer.queue_mobs(g_entities, render_cam_pos, render_cam_yaw,
+                                 third_person ? NULL_ENTITY : client.local_player());
+            if (test_vehicle)
+                renderer.queue_mobs(test_vehicle->entities(), render_cam_pos, render_cam_yaw,
+                                    NULL_ENTITY, test_vehicle->world_pos_f(),
+                                    /*clear_first=*/false);
 
             renderer.begin_frame(alpha);
 
@@ -2555,19 +2590,8 @@ int main(int argc, char* argv[])
             }
 
             // ── Apply view bob & sway offsets (render only, not physics) ────
-            glm::vec3 render_cam_pos   = cam_pos;
-            float     render_cam_yaw   = cam_yaw;
-            float     render_cam_pitch = cam_pitch;
-            if (!third_person) {
-                constexpr float BOB_Y_AMP     = 0.022f;  // ±0.022 m vertical bounce
-                constexpr float BOB_PITCH_AMP = 0.45f;   // ±0.45 deg pitch nudge
-                constexpr float BOB_YAW_AMP   = 0.28f;   // ±0.28 deg yaw oscillation
-                float b = bob_blend;
-                render_cam_pos.y    += std::sin(bob_time)       * BOB_Y_AMP     * b;
-                render_cam_pitch    += std::sin(bob_time)       * BOB_PITCH_AMP * b;
-                render_cam_yaw      += std::sin(bob_time * 0.5f)* BOB_YAW_AMP  * b
-                                     + bob_sway;
-            }
+            // NOTE: render_cam_pos/yaw/pitch were already computed before begin_frame.
+            // This block is preserved for status effects and yshear that follow.
 
             // ── Status-effect camera distortions (render only) ─────────────────
             // Read active status effects on the local player and apply visual-only
@@ -2610,6 +2634,8 @@ int main(int argc, char* argv[])
                 renderer.set_psx_yshear(yshear);
             }
 
+            // Queue mobs using the final render camera (after bob/sway) so the
+            // local player body billboard uses the same yaw the camera renders with.
             renderer.draw_world(g_world, render_cam_pos, render_cam_yaw,
                 render_cam_pitch, render_cam_roll);
             renderer.draw_world_items();

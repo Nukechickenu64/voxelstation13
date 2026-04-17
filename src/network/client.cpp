@@ -352,6 +352,7 @@ void Client::send_appearance_update()
     payload.push_back(m_appearance.hair_r);
     payload.push_back(m_appearance.hair_g);
     payload.push_back(m_appearance.hair_b);
+    payload.push_back(m_appearance.is_male ? 1u : 0u);
 
     // Append slot data
     payload.push_back((uint8_t)std::min(m_equipped_slots.size(), (size_t)255));
@@ -518,7 +519,14 @@ void Client::on_entity_spawn(const void* data, size_t len)
             }
         }
 
-        // Read position
+        // Gender byte (optional, appended after hair)
+        bool is_male = true;
+        {
+            const uint8_t* end = static_cast<const uint8_t*>(data) + len;
+            if (p + 1 + 16 <= end) {  // 1 gender byte + 16 float bytes remain
+                is_male = (*p++ != 0);
+            }
+        }
         float x, y, z, yaw;
         std::memcpy(&x, p, 4); p += 4;
         std::memcpy(&y, p, 4); p += 4;
@@ -542,48 +550,57 @@ void Client::on_entity_spawn(const void* data, size_t len)
         // or a re-broadcast after AppearanceUpdate)
         auto* app_ptr = m_entities->get_component<HumanAppearance>(eid);
         if (app_ptr) {
-            // Update skin tint on the bodypart layer
-            for (auto& ov : app_ptr->layers) {
-                if (ov.kind == HumanOverlayKind::Bodypart)
-                    ov.tint = {tint_r, tint_g, tint_b, tint_a};
+            // Local player layers are managed by main.cpp (rebuild_if_changed).
+            // Only update the skin tint so the server-authoritative colour is
+            // reflected; leave eye/hair/clothing layers untouched.
+            if (eid == m_local_player) {
+                for (auto& ov : app_ptr->layers)
+                    if (ov.kind == HumanOverlayKind::Bodypart)
+                        ov.tint = {tint_r, tint_g, tint_b, tint_a};
+                app_ptr->dirty = true;
+            } else {
+                // Remote player re-broadcast: refresh all appearance layers.
+                for (auto& ov : app_ptr->layers)
+                    if (ov.kind == HumanOverlayKind::Bodypart)
+                        ov.tint = {tint_r, tint_g, tint_b, tint_a};
+                // Replace eye/hair Clothing layers with server-provided values
+                app_ptr->layers.erase(
+                    std::remove_if(app_ptr->layers.begin(), app_ptr->layers.end(),
+                        [](const HumanOverlay& ov) {
+                            return ov.kind == HumanOverlayKind::Clothing &&
+                                   (ov.sprite_dir == "human/human_eyes" ||
+                                    ov.sprite_dir == "human/human_face");
+                        }),
+                    app_ptr->layers.end());
+                for (const char* eye_pfx : { "eyes_glow_l", "eyes_glow_r" }) {
+                    HumanOverlay eye{};
+                    eye.kind       = HumanOverlayKind::Clothing;
+                    eye.sprite_dir = "human/human_eyes";
+                    eye.prefix     = eye_pfx;
+                    eye.tint       = {eye_r, eye_g, eye_b, 255};
+                    app_ptr->layers.push_back(eye);
+                }
+                if (!hair_file.empty()) {
+                    HumanOverlay hair{};
+                    hair.kind       = HumanOverlayKind::Clothing;
+                    hair.sprite_dir = "human/human_face";
+                    hair.prefix     = hair_file;
+                    hair.tint       = {hair_r, hair_g, hair_b, 255};
+                    app_ptr->layers.push_back(hair);
+                }
+                app_ptr->dirty = true;
             }
-            // Refresh eye/hair layers (remove old ones and re-add with new colors)
-            app_ptr->layers.erase(
-                std::remove_if(app_ptr->layers.begin(), app_ptr->layers.end(),
-                    [](const HumanOverlay& ov) {
-                        return ov.kind == HumanOverlayKind::Clothing &&
-                               (ov.sprite_dir == "human/human_eyes" ||
-                                ov.sprite_dir == "human/human_face");
-                    }),
-                app_ptr->layers.end());
-            for (const char* eye_pfx : { "eyes_l", "eyes_r" }) {
-                HumanOverlay eye{};
-                eye.kind       = HumanOverlayKind::Clothing;
-                eye.sprite_dir = "human/human_eyes";
-                eye.prefix     = eye_pfx;
-                eye.tint       = {eye_r, eye_g, eye_b, 255};
-                app_ptr->layers.push_back(eye);
-            }
-            if (!hair_file.empty()) {
-                HumanOverlay hair{};
-                hair.kind       = HumanOverlayKind::Clothing;
-                hair.sprite_dir = "human/human_face";
-                hair.prefix     = hair_file;
-                hair.tint       = {hair_r, hair_g, hair_b, 255};
-                app_ptr->layers.push_back(hair);
-            }
-            app_ptr->dirty = true;
         } else {
             HumanAppearance app{};
             // Base bodypart layer (skin)
             HumanOverlay base_layer{};
             base_layer.sprite_dir = "bodyparts_greyscale";
             base_layer.prefix     = "human";
-            base_layer.gender     = "_m";
+            base_layer.gender     = is_male ? "_m" : "_f";
             base_layer.tint       = {tint_r, tint_g, tint_b, tint_a};
             app.layers.push_back(base_layer);
-            // Eye overlays
-            for (const char* eye_pfx : { "eyes_l", "eyes_r" }) {
+            // Eye overlays (glow variant has more visible pixels than plain eyes_l/r)
+            for (const char* eye_pfx : { "eyes_glow_l", "eyes_glow_r" }) {
                 HumanOverlay eye{};
                 eye.kind       = HumanOverlayKind::Clothing;
                 eye.sprite_dir = "human/human_eyes";
@@ -722,15 +739,21 @@ void Client::on_appearance_state(const void* data, size_t len)
     std::string hair_file(reinterpret_cast<const char*>(p), hlen); p += hlen;
     uint8_t hair_r = p[0], hair_g = p[1], hair_b = p[2]; p += 3;
 
+    // Gender byte (optional)
+    bool is_male = true;
+    if (p < end) is_male = (*p++ != 0);
+
     // Remove all non-Bodypart layers and rebuild from received data
     std::vector<HumanOverlay> new_layers;
     new_layers.reserve(app->layers.size() + 12);
-    for (const auto& ov : app->layers)
-        if (ov.kind == HumanOverlayKind::Bodypart)
+    for (auto ov : app->layers)
+        if (ov.kind == HumanOverlayKind::Bodypart) {
+            ov.gender = is_male ? "_m" : "_f";
             new_layers.push_back(ov);
+        }
 
-    // Eye overlays
-    for (const char* eye_pfx : { "eyes_l", "eyes_r" }) {
+    // Eye overlays (glow variant has more visible pixels)
+    for (const char* eye_pfx : { "eyes_glow_l", "eyes_glow_r" }) {
         HumanOverlay ov;
         ov.kind       = HumanOverlayKind::Clothing;
         ov.sprite_dir = "human/human_eyes";

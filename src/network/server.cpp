@@ -653,6 +653,10 @@ void Server::process_incoming()
             uint8_t hair_r = p[0], hair_g = p[1], hair_b = p[2];
             p += 3;
 
+            // Parse gender byte (optional)
+            bool is_male = true;
+            if (p < end) is_male = (*p++ != 0);
+
             // Parse slot pairs (optional, may not be present for older sends)
             std::vector<std::pair<std::string,std::string>> slots;
             if (p < end) {
@@ -683,6 +687,7 @@ void Server::process_incoming()
                 peer.hair_r        = hair_r;
                 peer.hair_g        = hair_g;
                 peer.hair_b        = hair_b;
+                peer.is_male       = is_male;
                 peer.equipped_slots = slots;
 
                 // Build AppearanceState relay packet:
@@ -697,6 +702,7 @@ void Server::process_incoming()
                 relay.push_back(hlen);
                 relay.insert(relay.end(), hair_file.begin(), hair_file.end());
                 relay.push_back(hair_r); relay.push_back(hair_g); relay.push_back(hair_b);
+                relay.push_back(is_male ? 1u : 0u);
                 // slots
                 relay.push_back((uint8_t)std::min(slots.size(), (size_t)255));
                 for (auto& [sid, iid] : slots) {
@@ -839,12 +845,15 @@ void Server::send_entity_spawn_to(const NetAddress& addr, EntityID eid)
             append(&peer_of_eid->hair_r, 1);
             append(&peer_of_eid->hair_g, 1);
             append(&peer_of_eid->hair_b, 1);
+            uint8_t gender_byte = peer_of_eid->is_male ? 1u : 0u;
+            append(&gender_byte, 1);
         } else {
             // Default appearance for server-side NPCs / loopback players
             uint8_t defaults[] = {30, 100, 190,            // eye color (blue)
                                    10,                      // hair_len
                                    'h','a','i','r','_','m','e','s','s','y',
-                                   89, 60, 30};             // hair color (brown)
+                                   89, 60, 30,               // hair color (brown)
+                                   1};                       // is_male (default true)
             append(defaults, sizeof(defaults));
         }
     } else if (m_entities->has_component<MobComponent>(eid)) {

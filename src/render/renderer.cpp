@@ -2388,27 +2388,34 @@ uint32_t Renderer::get_or_assemble_human(HumanAppearance& app, int dir)
     cache_key += "d" + std::to_string(dir);
 
     // ── Check cache ───────────────────────────────────────────────────────────
-    if (!app.dirty) {
-        auto it = m_assembly_cache.find(cache_key);
-        if (it != m_assembly_cache.end()) return it->second;
+    auto cache_it = m_assembly_cache.find(cache_key);
+    if (!app.dirty && cache_it != m_assembly_cache.end()) {
+        return cache_it->second;
     }
 
     // ── Composite CPU pixels ──────────────────────────────────────────────────
     auto canvas = compose_human_canvas(app, dir);
 
-    // ── Upload to GPU and cache ───────────────────────────────────────────────
-    if (m_assembly_used >= k_max_assembly_layers) {
-        SDL_Log("get_or_assemble_human: assembly cache full (%u layers)", k_max_assembly_layers);
-        return 0;  // fallback
+    // ── Determine GPU slot: reuse existing slot for this key if present ───────
+    uint32_t layer;
+    if (cache_it != m_assembly_cache.end()) {
+        // Same appearance key existed before — re-upload to the same slot
+        // instead of burning a new one.
+        layer = cache_it->second;
+    } else {
+        if (m_assembly_used >= k_max_assembly_layers) {
+            SDL_Log("get_or_assemble_human: assembly cache full (%u layers)", k_max_assembly_layers);
+            return 0;  // fallback
+        }
+        layer = m_assembly_used++;
+        m_assembly_cache[cache_key] = layer;
     }
 
-    uint32_t new_layer = m_assembly_used++;
-    upload_assembly_layer(new_layer, canvas.data());
-    m_assembly_cache[cache_key] = new_layer;
+    upload_assembly_layer(layer, canvas.data());
     app.dirty = false;
 
-    VLOG("get_or_assemble_human: assembled new sprite layer %u (key=%s)", new_layer, cache_key.c_str());
-    return new_layer;
+    VLOG("get_or_assemble_human: assembled sprite layer %u (key=%s)", layer, cache_key.c_str());
+    return layer;
 }
 
 // ── Assembled mob quad upload ─────────────────────────────────────────────────
@@ -2676,13 +2683,19 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
                          float half_w, float height,
                          uint32_t tex_layer,
                          float uv_y_top = 0.0f,
-                         glm::vec3 tint = {1.f, 1.f, 1.f})
+                         glm::vec3 tint = {1.f, 1.f, 1.f},
+                         glm::vec3 right_override = {0.f, 0.f, 0.f})
     {
-        glm::vec3 to_cam_xz = { cam_pos.x - feet.x, 0.f, cam_pos.z - feet.z };
-        float xz_len = glm::length(to_cam_xz);
-        glm::vec3 right = (xz_len > 0.001f)
-            ? glm::cross(glm::vec3{0.f,1.f,0.f}, to_cam_xz / xz_len)
-            : glm::vec3{1.f, 0.f, 0.f};
+        glm::vec3 right;
+        if (glm::length(right_override) > 0.001f) {
+            right = right_override;
+        } else {
+            glm::vec3 to_cam_xz = { cam_pos.x - feet.x, 0.f, cam_pos.z - feet.z };
+            float xz_len = glm::length(to_cam_xz);
+            right = (xz_len > 0.001f)
+                ? glm::cross(glm::vec3{0.f,1.f,0.f}, to_cam_xz / xz_len)
+                : glm::vec3{1.f, 0.f, 0.f};
+        }
 
         glm::vec3 c[4];
         c[0] = feet + (-right) * half_w;
@@ -2776,6 +2789,15 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
             if (eid == local_player_eid) {
                 // Update the HUD mirror with the player's front-facing sprite
                 refresh_player_mirror(app);
+                // For the local player the camera is at the player's eye position,
+                // so feet ≈ cam_pos and the normal billboard right-vector computation
+                // degenerates.  Use tr->yaw (the body's own stable facing direction)
+                // rather than cam_yaw, which includes view-bob sway and would cause
+                // the body billboard to oscillate left/right during walking.
+                float yr = glm::radians(tr->yaw);
+                glm::vec3 player_right = glm::cross(
+                    glm::vec3{0.f, 1.f, 0.f},
+                    glm::vec3{std::sin(yr), 0.f, -std::cos(yr)});
                 if (prone) {
                     // Prone first-person: render flat full sprite (head visible overhead)
                     uint32_t front_layer = get_or_assemble_human(app, 0);
@@ -2784,7 +2806,7 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
                 } else {
                     // First-person standing: render body only (no head)
                     push_quad(m_asm_verts, m_asm_indices, feet, MOB_HALF_W,
-                              k_body_height, layer, k_body_uv_top, mob_tint);
+                              k_body_height, layer, k_body_uv_top, mob_tint, player_right);
                 }
             } else {
                 if (prone) {
@@ -2836,6 +2858,38 @@ void Renderer::queue_mobs(EntityManager& entities, glm::vec3 cam_pos, float cam_
         });
         m_mob_pending = !m_mob_verts.empty();
     }
+
+    // Depth-sort both sprite lists back-to-front so closer mobs composite on top.
+    auto depth_sort_quads = [&](std::vector<ItemVert>& verts, std::vector<uint32_t>& inds) {
+        const size_t n = verts.size() / 4;
+        if (n <= 1) return;
+        struct QuadEntry { std::array<ItemVert, 4> v; float dist_sq; };
+        std::vector<QuadEntry> quads(n);
+        for (size_t i = 0; i < n; ++i) {
+            for (int j = 0; j < 4; ++j) quads[i].v[j] = verts[i * 4 + j];
+            float cx = (quads[i].v[0].x + quads[i].v[1].x +
+                        quads[i].v[2].x + quads[i].v[3].x) * 0.25f;
+            float cz = (quads[i].v[0].z + quads[i].v[1].z +
+                        quads[i].v[2].z + quads[i].v[3].z) * 0.25f;
+            float dx = cx - cam_pos.x, dz = cz - cam_pos.z;
+            quads[i].dist_sq = dx * dx + dz * dz;
+        }
+        std::sort(quads.begin(), quads.end(), [](const QuadEntry& a, const QuadEntry& b) {
+            return a.dist_sq > b.dist_sq;
+        });
+        verts.clear(); inds.clear();
+        for (size_t i = 0; i < n; ++i) {
+            auto base = static_cast<uint32_t>(verts.size());
+            for (int j = 0; j < 4; ++j) verts.push_back(quads[i].v[j]);
+            inds.push_back(base+0); inds.push_back(base+1);
+            inds.push_back(base+2); inds.push_back(base+0);
+            inds.push_back(base+2); inds.push_back(base+3);
+        }
+    };
+    if (m_asm_verts.size() >= 8)
+        depth_sort_quads(m_asm_verts, m_asm_indices);
+    if (m_mob_verts.size() >= 8)
+        depth_sort_quads(m_mob_verts, m_mob_indices);
 
     VLOG("queue_mobs: %d assembled, %d legacy (asm_pending=%d mob_pending=%d)",
          (int)(m_asm_verts.size() / 4), (int)(m_mob_verts.size() / 4),

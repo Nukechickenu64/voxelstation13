@@ -135,6 +135,7 @@ private:
         uint8_t     eye_r = 30, eye_g = 100, eye_b = 190;
         std::string hair_file = "hair_messy";
         uint8_t     hair_r = 89, hair_g = 60, hair_b = 30;
+        bool        is_male = true;
         // Equipped slots: (slot_id, item_def_id) pairs (empty item_id = nothing)
         std::vector<std::pair<std::string,std::string>> equipped_slots;
     };
