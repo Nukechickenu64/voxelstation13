@@ -51,6 +51,8 @@ struct HUDState {
     // TG-specific combat state
     Intent   intent      = Intent::Help;
     BodyZone target_zone = BodyZone::Chest;
+    bool     is_running  = false;   // walk/run toggle (ui_movi)
+    bool     is_pulling  = false;   // currently dragging/pulling something (shows pull.png)
 };
 
 // Draws the always-on TG-style HUD in a unified bottom bar.
@@ -73,20 +75,12 @@ private:
     void draw_health_panel      (const HUDState& s, glm::vec2 origin);
 
     // ── Bottom bar sections ────────────────────────────────────────────────
-    void draw_body_equip        (const Inventory& inv,        // head/suit cluster
-                                 glm::vec2 origin,
-                                 glm::vec2 mouse, bool click,
-                                 std::string& out_click);
     void draw_hand_slots        (const Inventory& inv,        // center
                                  bool left_active,
                                  glm::vec2 origin,
                                  glm::vec2 mouse, bool click,
                                  std::string& out_click);
-    void draw_storage_equip     (const Inventory& inv,        // back/belt/pockets
-                                 glm::vec2 origin,
-                                 glm::vec2 mouse, bool click,
-                                 std::string& out_click);
-    // TG bottom-right: zone selector doll + single cycling intent button
+    // TG bottom-right: zone selector doll + intent + movement intent buttons
     void draw_zone_intent       (HUDState& s,
                                  glm::vec2 mouse, bool click);
     void draw_examine_label     (const std::string& label);
@@ -116,4 +110,8 @@ private:
     SDL_GPUTexture* m_living_tex[5]      = {};
     // Suit pressure sprites (empty=0, low=1, mid=2, high=3)
     SDL_GPUTexture* m_suit_tex[4]        = {};
+    // Generic slot background frame (template.png)
+    SDL_GPUTexture* m_template_tex       = nullptr;
+    // Pull indicator (pull.png) shown in health panel
+    SDL_GPUTexture* m_pull_tex           = nullptr;
 };

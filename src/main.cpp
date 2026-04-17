@@ -1138,6 +1138,7 @@ int main(int argc, char* argv[])
             }
             hud_state.cam_pitch          = cam_pitch;
             hud_state.active_hand_is_left = (player_inv.active_hand_id() == "l_hand");
+            hud_state.is_running          = input.is_held(Action::Sprint);
 
             // ── Prone transition: animate prone_t 0→1 when mob_state != Normal ─
             {

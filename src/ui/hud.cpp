@@ -9,11 +9,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  Layout constants  (all in logical/CSS pixels)
 // ─────────────────────────────────────────────────────────────────────────────
-static constexpr float BAR_H     = 78.f;   // total bar height
+static constexpr float BAR_H     = 68.f;   // total bar height (slots are 56px + 6px padding each side)
 static constexpr float BAR_PAD   =  7.f;   // top/bottom inner padding
 static constexpr float HAND_SZ   = 56.f;   // hand slot square
 static constexpr float HAND_GAP  = 10.f;   // gap between the two hands
-static constexpr float EQUIP_SZ  = 32.f;   // equipment slot (2 rows fit: 2*32+4=68 ≈ inner)
+static constexpr float EQUIP_SZ  = HAND_SZ; // all slots same size as hands
 static constexpr float EQUIP_GAP =  4.f;
 static constexpr float SEC_GAP   = 10.f;   // gap between sections
 
@@ -74,6 +74,11 @@ HUD::HUD(UIRenderer& ui) : m_ui(ui)
     m_suit_tex[1] = L("spacesuit_low.png");
     m_suit_tex[2] = L("spacesuit_mid.png");
     m_suit_tex[3] = L("spacesuit_high.png");
+
+    // Generic slot background frame
+    m_template_tex = L("template.png");
+    // Pull indicator
+    m_pull_tex = L("pull.png");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -155,13 +160,13 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
     draw_hand_slots(inv, state.active_hand_is_left,
                     {lhand_x, hand_y}, mouse_pos, click, clicked);
 
-    // ── Right cluster: pda | storage1 (packed left→right from right hand)
-    // TG: C+1:storage1  C+2:storage2
+    // ── Right cluster: l_pocket | r_pocket (packed left→right from right hand)
+    // TG: C+1:storage1 (l_pocket)  C+2:storage2 (r_pocket)
     {
         struct S { const char* id; const char* lbl; };
         static const S kRight[] = {
-            {"pda",    "PDA" },
             {"l_pocket", "PKT"},
+            {"r_pocket", "PKT"},
         };
         float sx = rhand_end + SEP;
         for (const auto& s : kRight) {
@@ -199,9 +204,12 @@ bool HUD::draw_slot(const Inventory& inv, const char* slot_id,
     if (highlight_active)
         m_ui.rect(pos - glm::vec2(2.f), {sz + 4.f, sz + 4.f}, k_slot_ring, 6.f);
 
+    // Draw solid background first, then the TG template.png border frame on top.
     glm::vec4 bg = highlight_active ? k_slot_act : k_slot_bg;
     if (hov) bg = {bg.r + 0.06f, bg.g + 0.07f, bg.b + 0.10f, bg.a};
     m_ui.rect(pos, {sz, sz}, bg, 4.f);
+    if (m_template_tex)
+        m_ui.image(pos, {sz, sz}, m_template_tex, hov ? 0.85f : 0.65f);
 
     const auto* slot = inv.find_slot(slot_id);
     if (slot && slot->item && slot->item->def) {
@@ -320,6 +328,13 @@ void HUD::draw_health_panel(const HUDState& s, glm::vec2 origin)
                       {0.70f, 0.70f, 0.70f, 0.72f}, 8.f);
     }
 
+    // ── Pull indicator (pull.png) — shown top-right of doll when dragging something ───
+    if (s.is_pulling && m_pull_tex) {
+        constexpr float PULL_SZ = 16.f;
+        m_ui.image(origin + glm::vec2(PANEL_DOLL_SZ - PULL_SZ - 2.f, -PULL_SZ - 2.f),
+                   {PULL_SZ, PULL_SZ}, m_pull_tex);
+    }
+
     // ── Dead / Critical status flash ──────────────────────────────────────────
     if (s.dead) {
         m_ui.text(origin + glm::vec2(PANEL_DOLL_SZ*0.5f - 14.f, PANEL_DOLL_SZ + 2.f),
@@ -328,27 +343,6 @@ void HUD::draw_health_panel(const HUDState& s, glm::vec2 origin)
         m_ui.text(origin + glm::vec2(0.f, PANEL_DOLL_SZ + 2.f),
                   "CRITICAL", {1.f, 0.06f, 0.06f, 0.88f + pulse * 0.12f}, 9.f);
     }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Body-equipment cluster  (4 cols × 2 rows)
-//  Row 0: HEAD  EYES  EARS  MASK
-//  Row 1: SUIT  UNIF  GLVS  BOOT
-// ─────────────────────────────────────────────────────────────────────────────
-void HUD::draw_body_equip(const Inventory& inv, glm::vec2 origin,
-                           glm::vec2 mouse, bool click, std::string& out_click)
-{
-    struct E { const char* id; const char* lbl; };
-    static const E k[2][4] = {
-        { {"head","HEAD"}, {"eyes","EYES"}, {"ears","EARS"}, {"mask","MASK"} },
-        { {"suit","SUIT"}, {"uniform","UNIF"}, {"gloves","GLVS"}, {"boots","BOOT"} },
-    };
-    for (int row = 0; row < 2; ++row)
-        for (int col = 0; col < 4; ++col) {
-            glm::vec2 p = origin + glm::vec2(col*(EQUIP_SZ+EQUIP_GAP), row*(EQUIP_SZ+EQUIP_GAP));
-            if (draw_slot(inv, k[row][col].id, p, EQUIP_SZ, k[row][col].lbl, false, mouse, click))
-                out_click = k[row][col].id;
-        }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -427,24 +421,7 @@ void HUD::draw_hand_slots(const Inventory& inv, bool left_active,
               arr, {0.50f,0.72f,1.f,0.88f}, 12.f);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Storage cluster:  BACK / BELT  (col 0),  ID / PDA  (col 1)
-// ─────────────────────────────────────────────────────────────────────────────
-void HUD::draw_storage_equip(const Inventory& inv, glm::vec2 origin,
-                               glm::vec2 mouse, bool click, std::string& out_click)
-{
-    struct E { const char* id; const char* lbl; };
-    static const E k[2][2] = {
-        { {"back","BACK"}, {"id_card","ID"} },
-        { {"belt","BELT"}, {"pda","PDA"}    },
-    };
-    for (int row = 0; row < 2; ++row)
-        for (int col = 0; col < 2; ++col) {
-            glm::vec2 p = origin + glm::vec2(col*(EQUIP_SZ+EQUIP_GAP), row*(EQUIP_SZ+EQUIP_GAP));
-            if (draw_slot(inv, k[row][col].id, p, EQUIP_SZ, k[row][col].lbl, false, mouse, click))
-                out_click = k[row][col].id;
-        }
-}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  draw_zone_intent — bottom-right corner, TG positions:
@@ -466,10 +443,34 @@ void HUD::draw_zone_intent(HUDState& s, glm::vec2 mouse, bool click)
     // ui_acti     "EAST-3:24, SOUTH:5"  → two tiles further left
     // BYOND EAST-N means N tiles inward from right edge; offset is sub-tile pixels.
     // In our coordinate system, origin of sprite = fb_w - N*32 - (32 - offset)
-    constexpr float SPRITE_SZ = 32.f;
-    const float zone_x   = fb_w - 1*32 - (32 - 28);   // EAST-1:28
-    const float intent_x = fb_w - 3*32 - (32 - 24);   // EAST-3:24
+    const float SPRITE_SZ = HAND_SZ;
+    constexpr float SPRITE_GAP = 4.f;
+    const float zone_x   = fb_w - SPRITE_SZ - 8.f;
+    const float intent_x = zone_x   - SPRITE_SZ - SPRITE_GAP;
+    const float movi_x   = intent_x - SPRITE_SZ - SPRITE_GAP;
     const float sprite_y = bar_y + (BAR_H - SPRITE_SZ) * 0.5f;
+
+    // ── Movement intent button (walk/run toggle) ───────────────────────────────
+    {
+        bool hov_movi = (mouse.x >= movi_x && mouse.x < movi_x + SPRITE_SZ &&
+                         mouse.y >= sprite_y && mouse.y < sprite_y + SPRITE_SZ);
+        if (click && hov_movi)
+            s.is_running = !s.is_running;
+
+        glm::vec4 movi_bg = s.is_running
+            ? glm::vec4{0.14f, 0.52f, 0.14f, 0.90f}    // green = running
+            : glm::vec4{0.18f, 0.30f, 0.55f, 0.90f};   // blue  = walking
+        if (hov_movi) movi_bg.a = 1.f;
+        m_ui.rect({movi_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, movi_bg, 4.f);
+        if (m_template_tex)
+            m_ui.image({movi_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_template_tex, 0.6f);
+        const char* movi_lbl = s.is_running ? "RUN" : "WLK";
+        float tw = static_cast<float>(SDL_strlen(movi_lbl)) * 5.8f;
+        m_ui.text({movi_x + (SPRITE_SZ - tw) * 0.5f, sprite_y + SPRITE_SZ * 0.5f - 5.f},
+                  movi_lbl,
+                  s.is_running ? glm::vec4{0.5f, 1.f, 0.5f, 1.f}
+                               : glm::vec4{0.6f, 0.85f, 1.f, 1.f}, 8.f);
+    }
 
     // ── Intent button ─────────────────────────────────────────────────────────
     int idx = static_cast<int>(s.intent);
@@ -478,17 +479,14 @@ void HUD::draw_zone_intent(HUDState& s, glm::vec2 mouse, bool click)
     if (click && hov_intent)
         s.intent = static_cast<Intent>((idx + 1) % 4);
 
-    // Subtle hover highlight behind sprite
     if (hov_intent)
         m_ui.rect({intent_x - 1.f, sprite_y - 1.f}, {SPRITE_SZ + 2.f, SPRITE_SZ + 2.f},
                   {1.f, 1.f, 1.f, 0.12f}, 3.f);
 
-    // Draw the intent sprite as-is — the sprite already shows active state
     if (m_intent_tex[idx])
         m_ui.image({intent_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_intent_tex[idx]);
 
-    // ── Zone selector (body doll 32×32) ───────────────────────────────────────
-    // Use living0 as base then overlay the zone highlight sprite
+    // ── Zone selector (ui_zonesel) ─────────────────────────────────────────────
     if (m_living_tex[0])
         m_ui.image({zone_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_living_tex[0]);
 

@@ -438,9 +438,11 @@ Inventory make_player_inventory()
     // Boots / shoes
     slots.push_back(make_slot("boots",   "Boots",   C::Equipment, {"shoes","boots"}));
     // ID card
-    slots.push_back(make_slot("id_card", "ID",      C::Equipment, {"id_card"}));
-    // PDA / tablet
-    slots.push_back(make_slot("pda",     "PDA",     C::Equipment, {"pda","tablet"}));
+    slots.push_back(make_slot("id_card",      "ID",          C::Equipment, {"id_card"}));
+    // PDA / tablet (carried in belt/pockets normally, but has dedicated slot)
+    slots.push_back(make_slot("pda",          "PDA",         C::Equipment, {"pda","tablet"}));
+    // Suit storage (small pocket built into outer suits, e.g. syringe, grenade)
+    slots.push_back(make_slot("suit_storage", "Suit Storage",C::Equipment, {"small","syringe","grenade"}));
 
     // ── Hand slots ────────────────────────────────────────────────────────────
     slots.push_back(make_slot("l_hand",   "L.Hand",  C::General,   {"*"}));
