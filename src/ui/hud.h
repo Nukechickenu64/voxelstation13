@@ -55,6 +55,7 @@ struct HUDState {
     bool     is_running  = false;   // walk/run toggle (ui_movi)
     bool     is_pulling  = false;   // currently dragging/pulling something (shows pull.png)
     bool     inv_open    = false;   // body-slot panel expanded
+    int      mood_level  = 4;       // 0-8, maps to mood1-9.png (4 = neutral)
 };
 
 // Draws the always-on TG-style HUD in a unified bottom bar.
@@ -72,7 +73,7 @@ public:
 
 private:
     // ── Right-side floating health doll panel (TG: EAST-1, CENTER) ────────
-    void draw_health_panel      (const HUDState& s, glm::vec2 origin);
+    void draw_health_panel      (const HUDState& s);
 
     // ── Bottom bar sections ────────────────────────────────────────────────
     void draw_hand_slots        (const Inventory& inv,        // center
@@ -109,6 +110,12 @@ private:
     SDL_GPUTexture* m_zone_dmg_tex[7][5] = {};
     // Overall health-state background sprites [level 0-4]
     SDL_GPUTexture* m_living_tex[5]      = {};
+    // Health indicator icons (ui_health): health0=full … health7=dead
+    SDL_GPUTexture* m_health_tex[8]      = {};
+    // Mood sprites: mood1-9.png indexed 0-8 (ui_mood)
+    SDL_GPUTexture* m_mood_tex[9]        = {};
+    // Internal O2 indicator: internal0=ok, internal1=low, internal2=crit
+    SDL_GPUTexture* m_internal_tex[3]    = {};
     // Suit pressure sprites (empty=0, low=1, mid=2, high=3)
     SDL_GPUTexture* m_suit_tex[4]        = {};
     // Body-doll outline (zone_sel.png from screen_midnight) used by both dolls
@@ -131,8 +138,7 @@ private:
     SDL_GPUTexture* m_toggle_tex          = nullptr;
     SDL_GPUTexture* m_toggle_active_tex   = nullptr;
     // Action buttons (screen_midnight)
-    SDL_GPUTexture* m_act_swap_tex        = nullptr;
-    SDL_GPUTexture* m_act_drop_tex        = nullptr;
+
     // Per-slot empty-state icons keyed by slot_id (screen_midnight)
     std::unordered_map<std::string, SDL_GPUTexture*> m_slot_icon_tex;
 };

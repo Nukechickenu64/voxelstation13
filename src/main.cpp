@@ -1599,7 +1599,7 @@ int main(int argc, char* argv[])
                                     // Door panels are now solid — trigger an immediate zone
                                     // split so the sealed side stops losing gas to space
                                     // even before the closing animation completes.
-                                    active_atmos->on_door_changed(fhit.voxel);
+                                    if (active_atmos) active_atmos->on_door_changed(fhit.voxel);
                                     DoorGroup dg;
                                     dg.voxels  = std::move(grp_voxels);
                                     dg.frame   = renderer.door_anim_frame_count() - 1;

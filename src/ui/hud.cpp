@@ -9,21 +9,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  Layout constants  (all in logical/CSS pixels)
 // ─────────────────────────────────────────────────────────────────────────────
-static constexpr float BAR_H     = 96.f;   // 32px swap strip + 64px slot area
+static constexpr float BAR_H     = 64.f;   // single-row slot area
 static constexpr float BAR_PAD   =  7.f;   // top/bottom inner padding
-static constexpr float SWAP_H    = 32.f;   // height of the swap strip above the hands
+static constexpr float SWAP_H    =  0.f;   // no swap strip
 static constexpr float HAND_SZ   = 56.f;   // hand slot square
 static constexpr float HAND_GAP  =  4.f;   // gap between left and right hand slots
 static constexpr float EQUIP_SZ  = HAND_SZ; // all slots same size as hands
 static constexpr float EQUIP_GAP =  4.f;
 static constexpr float SEC_GAP   = 10.f;   // gap between sections
 
-// Right-side health panel constants
-static constexpr float PANEL_DOLL_SZ = 64.f;  // health doll sprite size
-static constexpr float PANEL_BAR_W   = 80.f;  // damage bar width
-static constexpr float PANEL_W       = PANEL_DOLL_SZ + 6.f + PANEL_BAR_W + 6.f;
-static constexpr float PANEL_H       = 90.f;  // enough for doll + bar rows
-static constexpr float PANEL_RIGHT   = 8.f;   // margin from right edge
+// Right-side panel margin from screen edge
+static constexpr float PANEL_X_MARGIN = 8.f;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Colour constants
@@ -74,6 +70,19 @@ HUD::HUD(UIRenderer& ui) : m_ui(ui)
     for (int i = 0; i < 5; ++i)
         m_living_tex[i] = L("living" + std::to_string(i) + ".png");
 
+    // Health-state indicator icons (ui_health: health0=full … health7=dead)
+    for (int i = 0; i < 8; ++i)
+        m_health_tex[i] = L("health" + std::to_string(i) + ".gif");
+
+    // Mood sprites (ui_mood: mood1-9.png)
+    for (int i = 0; i < 9; ++i)
+        m_mood_tex[i] = L("mood" + std::to_string(i + 1) + ".png");
+
+    // Internal O2 indicator (ui_internal)
+    m_internal_tex[0] = L("internal0.png");
+    m_internal_tex[1] = L("internal1.png");
+    m_internal_tex[2] = L("internal2.gif");
+
     // Doll outline shared by both the damage doll and target doll
     m_doll_base_tex = LM("zone_sel.png");
 
@@ -101,8 +110,7 @@ HUD::HUD(UIRenderer& ui) : m_ui(ui)
 
     // INV toggle sprites (screen_midnight)
     m_toggle_tex        = LM("toggle.png");
-    m_toggle_active_tex = LM("toggle_active.png");    m_act_swap_tex        = LM("act_swap.png");
-    m_act_drop_tex        = LM("act_drop.png");
+    m_toggle_active_tex = LM("toggle_active.png");
     // Per-slot empty icons (screen_midnight) — drawn when slot is empty
     m_slot_icon_tex["head"]         = LM("head.png");
     m_slot_icon_tex["eyes"]         = LM("glasses.png");
@@ -147,12 +155,8 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
     const float rhand_end = lhand_x + HAND_SZ + HAND_GAP + HAND_SZ;  // right edge of r_hand
     constexpr float SEP = 4.f;   // gap between adjacent slots
 
-    // ── Right-side floating health panel (TG: ui_healthdoll EAST-1:28, CENTER) ─
-    {
-        const float panel_x = fb_w - PANEL_W - PANEL_RIGHT;
-        const float panel_y = fb_h * 0.5f - PANEL_H * 0.5f;
-        draw_health_panel(state, {panel_x, panel_y});
-    }
+    // ── Right-side health panel (TG: EAST-1:28 column, CENTER-4 to CENTER-1) ─
+    draw_health_panel(state);
 
     // ── Full-width bottom bar background ──────────────────────────────────────
     m_ui.rect({0.f, bar_y}, {fb_w, BAR_H}, k_bar_bg,  0.f);
@@ -199,22 +203,6 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
         }
     }
 
-    // ── Swap strip: act_swap.png spanning both hand slots, above them ──────────
-    {
-        const float strip_w = HAND_SZ + HAND_GAP + HAND_SZ;  // width of both hands combined
-        const float strip_x = lhand_x;
-        const float strip_y = bar_y + 1.f;
-        bool hov_swap = (mouse_pos.x >= strip_x && mouse_pos.x < strip_x + strip_w &&
-                         mouse_pos.y >= strip_y && mouse_pos.y < strip_y + SWAP_H);
-        // Background strip the full width of both hands
-        m_ui.rect({strip_x, strip_y}, {strip_w, SWAP_H}, {0.07f, 0.08f, 0.12f, 0.00f}, 3.f);
-        // Sprite stretched to fill the full strip
-        if (m_act_swap_tex)
-            m_ui.image({strip_x, strip_y}, {strip_w, SWAP_H}, m_act_swap_tex, hov_swap ? 1.0f : 0.80f);
-        if (hov_swap && click)
-            clicked = "swap_hand";
-    }
-
     // ── Hands (center) ────────────────────────────────────────────────────────
     draw_hand_slots(inv, state.active_hand_is_left,
                     {lhand_x, hand_y}, mouse_pos, click, clicked);
@@ -235,7 +223,7 @@ std::string HUD::draw(HUDState& state, const Inventory& inv,
         }
     }
 
-    // ── EAST edge: intent + zone selector ────────────────────────────────────
+    // ── EAST edge: intent + zone selector ────────────────────────────────
     draw_zone_intent(state, mouse_pos, click);
 
     // ── Body-slot panel (shown above bar when inv_open) ───────────────────────
@@ -323,30 +311,69 @@ bool HUD::draw_slot(const Inventory& inv, const char* slot_id,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  draw_health_panel — right-side floating panel (TG: EAST-1, CENTER)
-//  Contains: body doll sprites + SS13 damage bars + env readout
+//  draw_health_panel — right-side column, TG screen_loc positions scaled
+//  from 32px tiles to EQUIP_SZ (56px).
+//
+//  TG Y formula (top-down):  top_y = fb_h/2 + N*32 - O - 32  for CENTER-N:O
+//  Scaled (×SZ/32):          top_y = fb_h/2 + N*SZ - O*(SZ/32) - SZ
+//
+//  Elements rendered (top→bottom):
+//   ui_mood       CENTER:21    → mood sprite (mood1-9)
+//   ui_health     CENTER-1:19  → health state sprite (health0-7)
+//   ui_healthdoll CENTER-2:17  → body doll (living + zone damage overlays)
+//   ui_internal   below doll   → O2 tank indicator (internal0-2)
+//   ui_spacesuit  CENTER-4:14  → suit pressure sprite
 // ─────────────────────────────────────────────────────────────────────────────
-void HUD::draw_health_panel(const HUDState& s, glm::vec2 origin)
+void HUD::draw_health_panel(const HUDState& s)
 {
+    const float fb_w  = static_cast<float>(m_ui.fb_width());
+    const float fb_h  = static_cast<float>(m_ui.fb_height());
+
+    constexpr float SZ    = EQUIP_SZ;           // 56px
+    const float     sc    = SZ / 32.f;          // scale factor 1.75
+    const float     col_x = fb_w - SZ - PANEL_X_MARGIN;
+
+    // Y positions (top of sprite, scaled from TG 32px tiles)
+    // CENTER+N:O → top_y = fb_h/2 - N*SZ - O*sc - SZ
+    // CENTER-N:O → top_y = fb_h/2 + N*SZ - O*sc - SZ
+    const float y_mood     = fb_h * 0.5f + 0.f*SZ - 21.f*sc - SZ; // CENTER:21
+    const float y_health   = fb_h * 0.5f + 1.f*SZ - 19.f*sc - SZ; // CENTER-1:19
+    const float y_doll     = fb_h * 0.5f + 2.f*SZ - 17.f*sc - SZ; // CENTER-2:17
+    const float y_internal = y_doll + SZ + EQUIP_GAP;               // below doll
+    const float y_suit     = fb_h * 0.5f + 4.f*SZ - 14.f*sc - SZ; // CENTER-4:14
+
     float ratio = (s.health_max > 0.f)
         ? std::clamp(s.health / s.health_max, 0.f, 1.f) : 0.f;
-    float pulse = (s.in_crit || s.dead)
-        ? (0.5f + 0.5f * std::sin(static_cast<float>(SDL_GetTicks()) * 0.008f)) : 0.f;
 
-    // Semi-transparent panel background
-    const float panel_pad = 5.f;
-    m_ui.rect(origin - glm::vec2(panel_pad),
-              {PANEL_W + panel_pad*2.f, PANEL_H + panel_pad*2.f},
-              {0.04f, 0.05f, 0.07f, 0.00f}, 5.f);
 
-    // ── Sprite body doll (64×64) ─────────────────────────────────────────────
+    // ── ui_mood: mood sprite ─────────────────────────────────────────────────
+    {
+        int idx = std::clamp(s.mood_level, 0, 8);
+        if (m_mood_tex[idx])
+            m_ui.image({col_x, y_mood}, {SZ, SZ}, m_mood_tex[idx]);
+    }
+
+    // ── ui_health: health state sprite ──────────────────────────────────────
+    {
+        int lvl = s.dead ? 7 : std::min(6, static_cast<int>((1.f - ratio) * 7.f));
+        if (m_health_tex[lvl])
+            m_ui.image({col_x, y_health}, {SZ, SZ}, m_health_tex[lvl]);
+        else {
+            glm::vec4 hcol = ratio > 0.7f ? glm::vec4{0.10f, 0.80f, 0.10f, 0.9f}
+                           : ratio > 0.3f ? glm::vec4{0.90f, 0.70f, 0.10f, 0.9f}
+                                          : glm::vec4{0.90f, 0.10f, 0.10f, 0.9f};
+            m_ui.rect({col_x, y_health}, {SZ, SZ}, {0.1f, 0.1f, 0.1f, 0.7f}, 3.f);
+            std::string hs = std::to_string(static_cast<int>(std::max(0.f, s.health)));
+            m_ui.text({col_x + SZ * 0.5f - static_cast<float>(hs.size()) * 3.5f,
+                        y_health + SZ * 0.5f - 6.f}, hs, hcol, 10.f);
+        }
+    }
+
+    // ── ui_healthdoll: body doll with zone damage overlays ───────────────────
     {
         int lvl = s.dead ? 4 : std::min(4, static_cast<int>((1.f - ratio) * 5.f));
-        float base_alpha = s.dead ? 0.55f : 1.f;
-
-        // living1-4 add injury overlays; living0 is just a solid-colour placeholder so skip it
         if (lvl > 0 && m_living_tex[lvl])
-            m_ui.image(origin, {PANEL_DOLL_SZ, PANEL_DOLL_SZ}, m_living_tex[lvl], base_alpha);
+            m_ui.image({col_x, y_doll}, {SZ, SZ}, m_living_tex[lvl]);
 
         auto dmg_lvl = [&](float dmg) -> int {
             float pct = (s.health_max > 0.f) ? dmg / s.health_max : 0.f;
@@ -361,65 +388,42 @@ void HUD::draw_health_panel(const HUDState& s, glm::vec2 origin)
         const int zone_lvl[7] = { std::max(bl,fl), std::max(bl,fl), bl, bl, bl, bl, bl };
         for (int z = 0; z < 7; ++z)
             if (m_zone_dmg_tex[z][zone_lvl[z]])
-                m_ui.image(origin, {PANEL_DOLL_SZ, PANEL_DOLL_SZ}, m_zone_dmg_tex[z][zone_lvl[z]]);
+                m_ui.image({col_x, y_doll}, {SZ, SZ}, m_zone_dmg_tex[z][zone_lvl[z]]);
+
+        if (s.is_pulling && m_pull_tex) {
+            constexpr float PULL_SZ = 14.f;
+            m_ui.image({col_x + SZ - PULL_SZ - 2.f, y_doll - PULL_SZ - 2.f},
+                       {PULL_SZ, PULL_SZ}, m_pull_tex);
+        }
     }
 
-    // ── SS13-style damage bars ────────────────────────────────────────────────
-    const glm::vec2 ri   = origin + glm::vec2(PANEL_DOLL_SZ + 6.f, 2.f);
-    const float bar_row  = 10.f;
-    const float bar_h2   =  6.f;
-
-    struct DmgBar { const char* lbl; float dmg; glm::vec4 fill; glm::vec4 track; };
-    const DmgBar dbars[] = {
-        { "BRT", s.dmg_brute, {0.82f, 0.12f, 0.12f, 0.92f}, {0.28f, 0.08f, 0.08f, 0.65f} },
-        { "BRN", s.dmg_burn,  {0.92f, 0.42f, 0.05f, 0.92f}, {0.30f, 0.15f, 0.04f, 0.65f} },
-        { "TOX", s.dmg_tox,   {0.18f, 0.82f, 0.18f, 0.92f}, {0.08f, 0.28f, 0.08f, 0.65f} },
-        { "OXY", s.dmg_oxy,   {0.15f, 0.62f, 0.92f, 0.92f}, {0.06f, 0.20f, 0.32f, 0.65f} },
-    };
-    for (int i = 0; i < 4; ++i) {
-        const auto& b = dbars[i];
-        float y = ri.y + static_cast<float>(i) * bar_row;
-        float fill_px = (s.health_max > 0.f)
-                        ? std::clamp(b.dmg / s.health_max, 0.f, 1.f) * PANEL_BAR_W : 0.f;
-        m_ui.text({ri.x, y + 0.5f}, b.lbl,
-                  (b.dmg > 0.5f) ? b.fill : glm::vec4{0.28f, 0.34f, 0.46f, 0.55f}, 8.f);
-        m_ui.rect({ri.x + 22.f, y + 1.f}, {PANEL_BAR_W, bar_h2}, b.track, 2.f);
-        if (fill_px > 0.f)
-            m_ui.rect({ri.x + 22.f, y + 1.f}, {fill_px, bar_h2}, b.fill, 2.f);
-    }
-
-    // ── Suit pressure / temperature readout ──────────────────────────────────
+    // ── ui_internal: O2 tank indicator ──────────────────────────────────────
     {
-        auto fmt = [](float v, int dec) -> std::string {
-            std::ostringstream o; o << std::fixed << std::setprecision(dec) << v; return o.str();
-        };
-        const float bot_y = ri.y + 4.f * bar_row + 3.f;
-        glm::vec4 pc = (s.suit_pressure_kpa < 20.f || s.suit_pressure_kpa > 550.f)
-            ? glm::vec4{1.f, 0.38f, 0.08f, 1.f}
-            : (s.suit_pressure_kpa < 70.f || s.suit_pressure_kpa > 300.f)
-            ? glm::vec4{1.f, 0.75f, 0.10f, 1.f}
-            : glm::vec4{0.55f, 0.90f, 0.55f, 0.80f};
-        m_ui.text({ri.x,        bot_y}, "KPA", pc, 8.f);
-        m_ui.text({ri.x + 22.f, bot_y}, fmt(s.suit_pressure_kpa, 0), pc, 8.f);
-        if (!s.suit_temp_str.empty())
-            m_ui.text({ri.x, bot_y + 10.f}, "T " + s.suit_temp_str,
-                      {0.70f, 0.70f, 0.70f, 0.72f}, 8.f);
+        int lvl = s.oxy_sat > 0.90f ? 0
+                : s.oxy_sat > 0.50f ? 1 : 2;
+        if (m_internal_tex[lvl])
+            m_ui.image({col_x, y_internal}, {SZ, SZ}, m_internal_tex[lvl]);
     }
 
-    // ── Pull indicator (pull.png) — shown top-right of doll when dragging something ───
-    if (s.is_pulling && m_pull_tex) {
-        constexpr float PULL_SZ = 16.f;
-        m_ui.image(origin + glm::vec2(PANEL_DOLL_SZ - PULL_SZ - 2.f, -PULL_SZ - 2.f),
-                   {PULL_SZ, PULL_SZ}, m_pull_tex);
+    // ── ui_spacesuit: suit pressure sprite ──────────────────────────────────
+    {
+        int suit_lvl = 3; // ok (hidden)
+        if      (s.suit_pressure_kpa < 20.f)  suit_lvl = 0;
+        else if (s.suit_pressure_kpa < 70.f)  suit_lvl = 1;
+        else if (s.suit_pressure_kpa < 120.f) suit_lvl = 2;
+        if (suit_lvl < 3 && m_suit_tex[suit_lvl])
+            m_ui.image({col_x, y_suit}, {SZ, SZ}, m_suit_tex[suit_lvl]);
     }
 
-    // ── Dead / Critical status flash ──────────────────────────────────────────
+    // ── Dead / Critical overlay ──────────────────────────────────────────────
+    float pulse = (s.in_crit || s.dead)
+        ? (0.5f + 0.5f * std::sin(static_cast<float>(SDL_GetTicks()) * 0.008f)) : 0.f;
     if (s.dead) {
-        m_ui.text(origin + glm::vec2(PANEL_DOLL_SZ*0.5f - 14.f, PANEL_DOLL_SZ + 2.f),
+        m_ui.text({col_x + 4.f, y_doll + SZ * 0.5f - 5.f},
                   "DEAD", {0.55f, 0.55f, 0.60f, 0.90f}, 9.f);
     } else if (s.in_crit && pulse > 0.42f) {
-        m_ui.text(origin + glm::vec2(0.f, PANEL_DOLL_SZ + 2.f),
-                  "CRITICAL", {1.f, 0.06f, 0.06f, 0.88f + pulse * 0.12f}, 9.f);
+        m_ui.text({col_x + 4.f, y_doll + SZ * 0.5f - 5.f},
+                  "CRIT", {1.f, 0.06f, 0.06f, 0.88f + pulse * 0.12f}, 9.f);
     }
 }
 
@@ -543,13 +547,10 @@ void HUD::draw_body_equip(const Inventory& inv, glm::vec2 panel_tl,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  draw_zone_intent — bottom-right corner, TG positions:
-//    ui_acti    "EAST-3:24, SOUTH:5"  → intent sprite (32×32)
-//    ui_zonesel "EAST-1:28, SOUTH:5"  → zone body doll (32×32)
+//  draw_zone_intent — bottom-right cluster: intent | movi | zone_sel
 //
-//  Intent sprites (help/disarm/grab/harm.png) are 32×32 sheets that already
-//  show all 4 intents with the relevant one highlighted.  No tinting needed.
-//  Clicking cycles Help→Disarm→Grab→Harm→Help.
+//  Button size = EQUIP_SZ (56px), gap = EQUIP_GAP (4px) — same as every other slot.
+//  Row aligns with slot_y inside the bar (swap strip + centred in remaining space).
 // ─────────────────────────────────────────────────────────────────────────────
 void HUD::draw_zone_intent(HUDState& s, glm::vec2 mouse, bool click)
 {
@@ -557,85 +558,87 @@ void HUD::draw_zone_intent(HUDState& s, glm::vec2 mouse, bool click)
     const float fb_h  = static_cast<float>(m_ui.fb_height());
     const float bar_y = fb_h - BAR_H;
 
-    // TG positions (EAST = right edge, tile = 32 px, extra pixel offset included)
-    // ui_zonesel  "EAST-1:28, SOUTH:5"  → right-most cluster item
-    // ui_acti     "EAST-3:24, SOUTH:5"  → two tiles further left
-    // BYOND EAST-N means N tiles inward from right edge; offset is sub-tile pixels.
-    // In our coordinate system, origin of sprite = fb_w - N*32 - (32 - offset)
-    const float SPRITE_SZ = HAND_SZ;
-    constexpr float SPRITE_GAP = 4.f;
-    const float zone_x   = fb_w - SPRITE_SZ - 8.f;
-    const float intent_x = zone_x   - SPRITE_SZ - SPRITE_GAP;
-    const float movi_x   = intent_x - SPRITE_SZ - SPRITE_GAP;
-    const float sprite_y = bar_y + (BAR_H - SPRITE_SZ) * 0.5f;
+    constexpr float BTN = EQUIP_SZ;   // 56px — same as hand/equip slots
+    constexpr float SEP = EQUIP_GAP;  //  4px gap
 
-    // ── Movement intent button (walk/run toggle) ───────────────────────────────
+    // 3 columns packed right→left with 8px right margin (mirrors 6px left margin)
+    const float col_zone_x   = fb_w - BTN - 8.f;
+    const float col_movi_x   = col_zone_x   - BTN - SEP;
+    const float col_intent_x = col_movi_x   - BTN - SEP;
+
+    // Row: same vertical centre as all other bar slots
+    const float row_main_y = bar_y + SWAP_H + (BAR_H - SWAP_H - BTN) * 0.5f;
+
+    // ── intent | movi | zone_sel ─────────────────────────────────────────────
+
+    // Intent (col_intent, SOUTH) — cycles Help→Disarm→Grab→Harm
     {
-        bool hov_movi = (mouse.x >= movi_x && mouse.x < movi_x + SPRITE_SZ &&
-                         mouse.y >= sprite_y && mouse.y < sprite_y + SPRITE_SZ);
-        if (click && hov_movi)
-            s.is_running = !s.is_running;
-
-        glm::vec4 movi_bg = s.is_running
-            ? glm::vec4{0.14f, 0.52f, 0.14f, 0.90f}    // green = running
-            : glm::vec4{0.18f, 0.30f, 0.55f, 0.90f};   // blue  = walking
-        if (hov_movi) movi_bg.a = 1.f;
-        SDL_GPUTexture* movi_sprite = s.is_running ? m_running_tex : m_walking_tex;
-        if (movi_sprite)
-            m_ui.image({movi_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, movi_sprite,
-                       hov_movi ? 1.0f : 0.85f);
+        glm::vec2 p = {col_intent_x, row_main_y};
+        int idx = static_cast<int>(s.intent);
+        bool hov = (mouse.x >= p.x && mouse.x < p.x + BTN &&
+                    mouse.y >= p.y && mouse.y < p.y + BTN);
+        if (click && hov)
+            s.intent = static_cast<Intent>((idx + 1) % 4);
+        if (hov)
+            m_ui.rect({p.x - 1.f, p.y - 1.f}, {BTN + 2.f, BTN + 2.f},
+                      {1.f, 1.f, 1.f, 0.12f}, 3.f);
+        if (m_intent_tex[idx])
+            m_ui.image(p, {BTN, BTN}, m_intent_tex[idx]);
         else {
-            m_ui.rect({movi_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, movi_bg, 4.f);
-            const char* movi_lbl = s.is_running ? "RUN" : "WLK";
-            float tw = static_cast<float>(SDL_strlen(movi_lbl)) * 5.8f;
-            m_ui.text({movi_x + (SPRITE_SZ - tw) * 0.5f, sprite_y + SPRITE_SZ * 0.5f - 5.f},
-                      movi_lbl,
-                      s.is_running ? glm::vec4{0.5f, 1.f, 0.5f, 1.f}
-                                   : glm::vec4{0.6f, 0.85f, 1.f, 1.f}, 8.f);
+            m_ui.rect(p, {BTN, BTN}, k_intent_col[idx], 3.f);
+            m_ui.text({p.x + 8.f, p.y + BTN * 0.5f - 5.f}, k_intent_label[idx], {1.f, 1.f, 1.f, 1.f}, 10.f);
         }
     }
 
-    // ── Intent button ─────────────────────────────────────────────────────────
-    int idx = static_cast<int>(s.intent);
-    bool hov_intent = (mouse.x >= intent_x && mouse.x < intent_x + SPRITE_SZ &&
-                       mouse.y >= sprite_y  && mouse.y < sprite_y  + SPRITE_SZ);
-    if (click && hov_intent)
-        s.intent = static_cast<Intent>((idx + 1) % 4);
+    // Movement intent (col_movi, SOUTH) — walk/run toggle
+    {
+        glm::vec2 p = {col_movi_x, row_main_y};
+        bool hov = (mouse.x >= p.x && mouse.x < p.x + BTN &&
+                    mouse.y >= p.y && mouse.y < p.y + BTN);
+        if (click && hov)
+            s.is_running = !s.is_running;
+        SDL_GPUTexture* tex = s.is_running ? m_running_tex : m_walking_tex;
+        if (tex)
+            m_ui.image(p, {BTN, BTN}, tex, hov ? 1.0f : 0.85f);
+        else {
+            glm::vec4 col = s.is_running
+                ? glm::vec4{0.14f, 0.52f, 0.14f, 0.90f}
+                : glm::vec4{0.18f, 0.30f, 0.55f, 0.90f};
+            m_ui.rect(p, {BTN, BTN}, col, 3.f);
+            const char* lbl = s.is_running ? "RUN" : "WLK";
+            m_ui.text({p.x + 12.f, p.y + BTN * 0.5f - 5.f}, lbl, {1.f, 1.f, 1.f, 1.f}, 10.f);
+        }
+    }
 
-    if (hov_intent)
-        m_ui.rect({intent_x - 1.f, sprite_y - 1.f}, {SPRITE_SZ + 2.f, SPRITE_SZ + 2.f},
-                  {1.f, 1.f, 1.f, 0.12f}, 3.f);
+    // Zone selector (col_zone, SOUTH) — click body zones to target
+    {
+        glm::vec2 p = {col_zone_x, row_main_y};
+        if (m_doll_base_tex)
+            m_ui.image(p, {BTN, BTN}, m_doll_base_tex);
+        const int sel_z = static_cast<int>(s.target_zone);
+        if (sel_z < 7 && m_zone_sel_tex[sel_z])
+            m_ui.image(p, {BTN, BTN}, m_zone_sel_tex[sel_z]);
 
-    if (m_intent_tex[idx])
-        m_ui.image({intent_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_intent_tex[idx]);
-
-    // ── Zone selector (ui_zonesel) ─────────────────────────────────────────────
-    // Click hit-zones — coordinates defined on a 32×32 canvas, scaled to SPRITE_SZ
-    struct ZR { BodyZone zone; glm::vec2 tl; glm::vec2 sz; };
-    static const ZR k_z[] = {
-        { BodyZone::Head,  {10.f,  1.f}, {12.f,  9.f} },
-        { BodyZone::Chest, { 4.f,  8.f}, {24.f, 11.f} },
-        { BodyZone::LArm,  { 0.f,  7.f}, { 6.f, 13.f} },
-        { BodyZone::RArm,  {26.f,  7.f}, { 6.f, 13.f} },
-        { BodyZone::Groin, { 7.f, 18.f}, {18.f,  7.f} },
-        { BodyZone::LLeg,  { 4.f, 23.f}, {10.f,  9.f} },
-        { BodyZone::RLeg,  {18.f, 23.f}, {10.f,  9.f} },
-    };
-    const float scale = SPRITE_SZ / 32.f;
-    const int sel_z = static_cast<int>(s.target_zone);
-
-    if (m_doll_base_tex)
-        m_ui.image({zone_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_doll_base_tex);
-    if (sel_z < 7 && m_zone_sel_tex[sel_z])
-        m_ui.image({zone_x, sprite_y}, {SPRITE_SZ, SPRITE_SZ}, m_zone_sel_tex[sel_z]);
-
-    for (int i = 0; i < 7; ++i) {
-        const auto& z = k_z[i];
-        glm::vec2 p  = glm::vec2{zone_x, sprite_y} + z.tl * scale;
-        glm::vec2 sz = z.sz * scale;
-        bool hov = (mouse.x >= p.x && mouse.x < p.x + sz.x &&
-                    mouse.y >= p.y && mouse.y < p.y + sz.y);
-        if (click && hov) s.target_zone = z.zone;
+        // Hit zones defined on 32×32 canvas, scaled to BTN (56px)
+        struct ZR { BodyZone zone; glm::vec2 tl; glm::vec2 sz; };
+        static const ZR k_z[] = {
+            { BodyZone::Head,  {10.f,  1.f}, {12.f,  9.f} },
+            { BodyZone::Chest, { 4.f,  8.f}, {24.f, 11.f} },
+            { BodyZone::LArm,  { 0.f,  7.f}, { 6.f, 13.f} },
+            { BodyZone::RArm,  {26.f,  7.f}, { 6.f, 13.f} },
+            { BodyZone::Groin, { 7.f, 18.f}, {18.f,  7.f} },
+            { BodyZone::LLeg,  { 4.f, 23.f}, {10.f,  9.f} },
+            { BodyZone::RLeg,  {18.f, 23.f}, {10.f,  9.f} },
+        };
+        const float scale = BTN / 32.f;
+        for (const auto& z : k_z) {
+            glm::vec2 hp  = p + z.tl * scale;
+            glm::vec2 hsz = z.sz * scale;
+            bool hov = (mouse.x >= hp.x && mouse.x < hp.x + hsz.x &&
+                        mouse.y >= hp.y && mouse.y < hp.y + hsz.y);
+            if (click && hov)
+                s.target_zone = z.zone;
+        }
     }
 }
 
