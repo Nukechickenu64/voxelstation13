@@ -6,6 +6,7 @@
 #include "simulation/power.h"
 #include "simulation/pipes.h"
 #include "simulation/physics.h"
+#include "simulation/world_items.h"
 #include "simulation/model_objects.h"
 #include <cstdint>
 #include <string>
@@ -77,7 +78,8 @@ public:
 
     World&           world()   { return *m_world; }
     EntityManager&   entities(){ return *m_entities; }
-    PhysicsSystem&   physics() { return *m_physics; }
+    PhysicsSystem&   physics()    { return *m_physics; }
+    WorldItemSystem& world_items() { return *m_world_items; }
     AtmosSimulator&  atmos()   { return *m_atmos; }
     LiquidSimulator& liquids() { return *m_liquids; }
 
@@ -116,6 +118,7 @@ private:
     std::unique_ptr<PowerGrid>       m_power;
     std::unique_ptr<PipeNetwork>     m_pipes;
     std::unique_ptr<PhysicsSystem>   m_physics;
+    std::unique_ptr<WorldItemSystem>  m_world_items;
 
     MobSpeciesRegistry* m_species_reg = nullptr;
 

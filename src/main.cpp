@@ -2743,7 +2743,7 @@ int main(int argc, char* argv[])
                 glm::vec2 hud_mouse = cursor_free
                     ? (alt_mode.active() ? alt_mode.cursor_pos() : input.mouse_pos())
                     : glm::vec2{-9999.f, -9999.f};
-                bool hud_click = cursor_free && input.is_pressed(Action::PrimaryInteract);
+                bool hud_click = cursor_free && input.consume_press(Action::PrimaryInteract);
                 {
                     std::string hud_clicked = hud.draw(hud_state, player_inv, hud_mouse, hud_click);
                     if (!hud_clicked.empty()) {
@@ -3040,16 +3040,16 @@ int main(int argc, char* argv[])
                     ? glm::vec2{-9999.f, -9999.f}
                     : input.mouse_pos();
                 bool dismiss = fps_ctx_rclick
-                    ? input.is_pressed(Action::Escape)
-                    : (suppress ? false : input.is_pressed(Action::SecondaryInteract));
+                    ? input.consume_press(Action::Escape)
+                    : (suppress ? false : input.consume_press(Action::SecondaryInteract));
                 // Clamp scroll to ±1 step per frame so the menu doesn't fly past entries
                 float raw_scroll = frame_scroll;
                 float clamped_scroll = (raw_scroll > 0.f) ? 1.f : (raw_scroll < 0.f) ? -1.f : 0.f;
                 ctx_menu.draw(
                     ctx_cursor,
-                    (fps_ctx_rclick || suppress) ? false : input.is_pressed(Action::PrimaryInteract),
+                    (fps_ctx_rclick || suppress) ? false : input.consume_press(Action::PrimaryInteract),
                     clamped_scroll,
-                    suppress ? false : input.is_pressed(Action::PickUp),  // E = confirm
+                    suppress ? false : input.consume_press(Action::PickUp),  // E = confirm
                     dismiss);
                 if (fps_ctx_rclick && was_ctx_open && !ctx_menu.is_open()) {
                     fps_ctx_rclick = false;

@@ -129,7 +129,9 @@ Client::~Client() { disconnect(); }
 bool Client::connect(const char* host, uint16_t port)
 {
     m_world    = std::make_unique<World>();
-    m_entities = std::make_unique<EntityManager>();
+    // Client-local entity IDs start at 0x80000000 so they never collide with
+    // server-replicated IDs (which start at 1 and increment sequentially).
+    m_entities = std::make_unique<EntityManager>(0x80000000u);
 
     if (!cli_net_init()) { SDL_Log("Client: network init failed"); return false; }
 

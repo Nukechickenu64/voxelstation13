@@ -58,6 +58,11 @@ struct VerbContext {
     const ItemDef*   item_def   = nullptr;        // def of the item in context
     ItemStack*       item_stack = nullptr;        // pointer to the item stack
 
+    // Inventory slot that owns the item (empty if the item is a world entity).
+    // Set this when the verb is triggered from the inventory panel so handlers
+    // such as verb_open can call Inventory::open_container(slot_id).
+    std::string      slot_id;
+
     // Voxel target — set when the verb was triggered by RMB on a voxel face.
     glm::ivec3       target_voxel    {};
     bool             has_target_voxel = false;

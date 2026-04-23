@@ -66,6 +66,11 @@ public:
     // Call once per simulation tick after PhysicsSystem::tick().
     void tick(double dt);
 
+    // Client-side standalone tick: applies gravity, moves floating items, then
+    // settles them onto the floor.  Use this instead of tick() when no
+    // server-side PhysicsSystem is available (i.e. in the main client loop).
+    void tick_standalone(double dt);
+
     // Remove and return the item from the entity; entity is destroyed.
     // Returns std::nullopt if entity has no WorldItemComponent.
     std::optional<ItemStack> pick_up(EntityID id);

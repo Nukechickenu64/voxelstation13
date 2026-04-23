@@ -531,9 +531,7 @@ void HUD::draw_body_equip(const Inventory& inv, glm::vec2 panel_tl,
     const float inner_h = ROWS * EQUIP_SZ + (ROWS - 1) * SEP;
     const glm::vec2 bg_tl = panel_tl - glm::vec2(PAD, PAD);
     const glm::vec2 bg_sz = {inner_w + 2.f * PAD, inner_h + 2.f * PAD};
-    m_ui.rect(bg_tl, bg_sz, {0.04f, 0.05f, 0.07f, 0.00f}, 6.f);
-    // Top accent line (matches bar top line colour)
-    m_ui.rect(bg_tl, {bg_sz.x, 2.f}, k_bar_top, 0.f);
+
 
     for (int row = 0; row < ROWS; ++row)
         for (int col = 0; col < COLS; ++col) {
@@ -619,16 +617,17 @@ void HUD::draw_zone_intent(HUDState& s, glm::vec2 mouse, bool click)
         if (sel_z < 7 && m_zone_sel_tex[sel_z])
             m_ui.image(p, {BTN, BTN}, m_zone_sel_tex[sel_z]);
 
-        // Hit zones defined on 32×32 canvas, scaled to BTN (56px)
+        // Listed from most-specific to least-specific so "first match wins" gives correct
+        // priority where AABBs overlap (e.g. arm over chest, legs over groin).
         struct ZR { BodyZone zone; glm::vec2 tl; glm::vec2 sz; };
         static const ZR k_z[] = {
-            { BodyZone::Head,  {10.f,  1.f}, {12.f,  9.f} },
-            { BodyZone::Chest, { 4.f,  8.f}, {24.f, 11.f} },
-            { BodyZone::LArm,  { 0.f,  7.f}, { 6.f, 13.f} },
+            { BodyZone::Head,  {10.f,  1.f}, {12.f,  9.f} },  // head (top, small)
+            { BodyZone::LArm,  { 0.f,  7.f}, { 6.f, 13.f} },  // narrow arms before chest
             { BodyZone::RArm,  {26.f,  7.f}, { 6.f, 13.f} },
-            { BodyZone::Groin, { 7.f, 18.f}, {18.f,  7.f} },
-            { BodyZone::LLeg,  { 4.f, 23.f}, {10.f,  9.f} },
+            { BodyZone::LLeg,  { 4.f, 23.f}, {10.f,  9.f} },  // legs before groin
             { BodyZone::RLeg,  {18.f, 23.f}, {10.f,  9.f} },
+            { BodyZone::Groin, { 7.f, 18.f}, {18.f,  7.f} },  // groin before chest
+            { BodyZone::Chest, { 4.f,  8.f}, {24.f, 11.f} },  // chest last (large catch-all)
         };
         const float scale = BTN / 32.f;
         for (const auto& z : k_z) {
@@ -636,8 +635,10 @@ void HUD::draw_zone_intent(HUDState& s, glm::vec2 mouse, bool click)
             glm::vec2 hsz = z.sz * scale;
             bool hov = (mouse.x >= hp.x && mouse.x < hp.x + hsz.x &&
                         mouse.y >= hp.y && mouse.y < hp.y + hsz.y);
-            if (click && hov)
+            if (click && hov) {
                 s.target_zone = z.zone;
+                break; // first match wins; more specific zones are listed earlier
+            }
         }
     }
 }

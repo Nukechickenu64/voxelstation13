@@ -11,6 +11,12 @@
 
 class EntityManager {
 public:
+    // first_local_id: the first ID used by create(). Set to a high value on
+    // the client so locally-created entities (dropped items, etc.) never
+    // share IDs with server-replicated entities (which start at 1).
+    explicit EntityManager(EntityID first_local_id = 1)
+        : m_next_id(first_local_id) {}
+
     EntityID create();
     void     destroy(EntityID id);
     bool     alive(EntityID id) const;
@@ -18,7 +24,8 @@ public:
     // Adopt an externally-created entity ID as alive in this manager.
     // Used when transferring entities between grids (vehicle ↔ map) to
     // preserve the ID while moving components across EntityManagers.
-    void adopt(EntityID id) { m_alive[id] = true; }
+    // Advances m_next_id so future create() calls never collide with this ID.
+    void adopt(EntityID id) { m_alive[id] = true; if (id >= m_next_id) m_next_id = id + 1; }
 
     template<typename T>
     T& add_component(EntityID id, T component = {}) {

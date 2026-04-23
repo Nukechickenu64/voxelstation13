@@ -69,8 +69,7 @@ EntityID WorldItemSystem::spawn(glm::ivec3 face_voxel, FaceDir face, ItemStack i
 
     // TransformComponent so the entity participates in render queries
     auto& tr = m_entities.add_component<TransformComponent>(id);
-    tr.pos      = pos;
-    tr.prev_pos = pos;
+    tr.pos = tr.prev_pos = tr.net_pos = pos;
     tr.yaw = tr.pitch = 0.f;
 
     WorldItemComponent wic;
@@ -100,7 +99,7 @@ EntityID WorldItemSystem::spawn_floating(glm::vec3 pos, ItemStack item,
     EntityID id = m_entities.create();
 
     auto& tr = m_entities.add_component<TransformComponent>(id);
-    tr.pos = pos; tr.prev_pos = pos;
+    tr.pos = tr.prev_pos = tr.net_pos = pos;
     tr.yaw = tr.pitch = 0.f;
 
     // Velocity component so PhysicsSystem applies gravity and collisions
@@ -181,8 +180,76 @@ void WorldItemSystem::tick(double /*dt*/)
         wic.face_offset = off;
 
         glm::vec3 settled = face_offset_pos(floor_voxel, FaceDir::PosY, off);
-        tr->pos      = settled;
-        tr->prev_pos = settled;
+        tr->pos = tr->prev_pos = tr->net_pos = settled;
+    });
+}
+
+void WorldItemSystem::tick_standalone(double dt)
+{
+    // Gravity constant (m/s²) — matches PhysicsSystem
+    constexpr float GRAVITY         = -9.8f;
+    constexpr float TERMINAL_VEL    = -50.f;
+    constexpr float SETTLE_SPEED_SQ = 0.005f * 0.005f;
+    constexpr float ITEM_RADIUS     = 0.15f;
+    const float fdt = static_cast<float>(dt);
+
+    m_entities.each<WorldItemComponent>([&](EntityID id, WorldItemComponent& wic) {
+        if (wic.is_resting) return;
+
+        auto* vel = m_entities.get_component<VelocityComponent>(id);
+        auto* tr  = m_entities.get_component<TransformComponent>(id);
+        if (!vel || !tr) return;
+
+        // Apply gravity, clamp to terminal velocity
+        vel->linear.y += GRAVITY * fdt;
+        if (vel->linear.y < TERMINAL_VEL) vel->linear.y = TERMINAL_VEL;
+
+        // Move item
+        tr->pos += vel->linear * fdt;
+
+        // Scan the voxels immediately below for a solid floor
+        using std::floor;
+        glm::vec3 below_min = tr->pos + glm::vec3(-ITEM_RADIUS, -0.15f, -ITEM_RADIUS);
+        glm::vec3 below_max = tr->pos + glm::vec3( ITEM_RADIUS,  0.0f,   ITEM_RADIUS);
+        glm::ivec3 imin{ (int)floor(below_min.x), (int)floor(below_min.y), (int)floor(below_min.z) };
+        glm::ivec3 imax{ (int)floor(below_max.x), (int)floor(below_max.y), (int)floor(below_max.z) };
+
+        bool       found = false;
+        glm::ivec3 floor_voxel{};
+        for (int z = imin.z; z <= imax.z && !found; ++z)
+        for (int y = imin.y; y <= imax.y && !found; ++y)
+        for (int x = imin.x; x <= imax.x && !found; ++x) {
+            if (m_world.get_voxel({x, y, z}).flags & VFLAG_SOLID) {
+                found = true;
+                floor_voxel = {x, y, z};
+            }
+        }
+
+        if (found) {
+            // Stop downward motion when touching the floor
+            if (vel->linear.y < 0.f) vel->linear.y = 0.f;
+
+            float speed_sq = glm::dot(vel->linear, vel->linear);
+            if (speed_sq <= SETTLE_SPEED_SQ) {
+                // Settle onto the floor face
+                vel->linear = {};
+                wic.is_resting = true;
+                wic.rest_face  = FaceDir::PosY;
+                wic.rest_voxel = floor_voxel;
+                glm::vec2 off{
+                    glm::clamp(tr->pos.x - (floor_voxel.x + 0.5f), -0.38f, 0.38f),
+                    glm::clamp(tr->pos.z - (floor_voxel.z + 0.5f), -0.38f, 0.38f)
+                };
+                wic.face_offset = off;
+                glm::vec3 settled = face_offset_pos(floor_voxel, FaceDir::PosY, off);
+                tr->pos = tr->prev_pos = tr->net_pos = settled;
+                return;
+            }
+        }
+
+        // Keep net_pos and prev_pos in sync so client interpolation is a no-op
+        tr->net_pos  = tr->pos;
+        tr->prev_pos = tr->pos;
     });
 }
 

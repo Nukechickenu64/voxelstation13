@@ -65,7 +65,8 @@ bool Server::start(uint16_t port)
     m_liquids  = std::make_unique<LiquidSimulator>(*m_world, m_entities.get());
     m_power    = std::make_unique<PowerGrid>(*m_world);
     m_pipes    = std::make_unique<PipeNetwork>(*m_world);
-    m_physics  = std::make_unique<PhysicsSystem>(*m_world, *m_entities);
+    m_physics     = std::make_unique<PhysicsSystem>(*m_world, *m_entities);
+    m_world_items = std::make_unique<WorldItemSystem>(*m_world, *m_entities);
     m_port     = port;
     m_running  = true;
 
@@ -213,6 +214,7 @@ void Server::tick(double dt)
     });
 
     m_physics->tick(dt);
+    m_world_items->tick(dt);  // settle floating items after physics
 
     // Atmos runs at a fixed 20 Hz to keep simulation stable regardless of
     // the main loop frame rate.  We accumulate elapsed time and drain it in
