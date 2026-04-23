@@ -68,7 +68,7 @@
     "id":       "stun_baton",
     "name":     "Stun Baton",
     "icon":     "items/stun_baton",
-    "tags":     ["weapon"],
+    "tags":     ["weapon", "force:5", "stam:80", "shock"],
     "weight":   0.7,
     "volume":   2.5,
     "stack_max":1,

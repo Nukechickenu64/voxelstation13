@@ -1,0 +1,29 @@
+[server] Starting on port 7778
+MobSpeciesRegistry: loaded species 'drone'
+MobSpeciesRegistry: loaded species 'human'
+MobSpeciesRegistry: loaded species 'mouse'
+Server: UDP socket bound to 0.0.0.0:7778
+[server] Listening on UDP port 7778 — press Ctrl+C to stop
+Server: spawned NPC 'Security Officer' (species: human) at (3.0,1.0,3.0)
+Server: spawned NPC 'Scientist' (species: human) at (-4.0,1.0,-2.0)
+Server: spawned NPC 'Space Rat' (species: mouse) at (2.0,1.0,5.0)
+Server: spawned NPC 'Maintenance Drone' (species: drone) at (-5.0,1.0,0.0)
+Server: broadcast_entity_spawns - 4 entities to broadcast, 0 peers
+Server: spawn_player — applied species 'human' stats (hp=100 spd=2.2)
+Server: spawned player entity 8 (species: human)
+Server: client 127.0.0.1:51612 connected → entity 8
+Server: sent SpawnInfo to client 127.0.0.1:51612 (entity 8)
+Server: sent 6 chunks to new client
+Server: sent 7 entities to new client
+Server: broadcasting 1 entity spawns to 1 peers
+Server: skipping entity 8 for peer 127.0.0.1:51612 (own entity)
+Server: spawn_player — applied species 'human' stats (hp=100 spd=2.2)
+Server: spawned player entity 9 (species: human)
+Server: client 127.0.0.1:49865 connected → entity 9
+Server: sent SpawnInfo to client 127.0.0.1:49865 (entity 9)
+Server: sent 6 chunks to new client
+Server: sent 8 entities to new client
+Server: notified peer (entity 8) about new player (entity 9)
+Server: broadcasting 1 entity spawns to 2 peers
+Server: sending entity 9 spawn to peer 127.0.0.1:51612
+Server: skipping entity 9 for peer 127.0.0.1:49865 (own entity)

@@ -341,12 +341,12 @@ void Server::tick(double dt)
     m_spawned_since_last_tick.clear();
 }
 
-EntityID Server::spawn_player(const std::string& species)
+EntityID Server::spawn_player(const std::string& species, glm::vec3 pos)
 {
     EntityID id = m_entities->create();
     // Spawn above the floor (y=0 is the floor tile; y=1 is standing height).
     TransformComponent spawn_tr{};
-    spawn_tr.pos = {0.f, 1.f, 0.f};
+    spawn_tr.pos = pos;
     m_entities->add_component<TransformComponent>(id, spawn_tr);
     m_entities->add_component<VelocityComponent>(id);
 
@@ -572,7 +572,11 @@ void Server::process_incoming()
             if (!already) {
                 Peer peer;
                 peer.addr          = sender;
-                peer.player_entity = spawn_player("human");
+                // Spawn each new player further along +Z so they face existing
+                // players with the default camera yaw (facing -Z).
+                // Player 0: Z=0, Player 1: Z=3 (sees Player 0 ahead), etc.
+                float spawn_z = static_cast<float>(m_peers.size()) * 3.f;
+                peer.player_entity = spawn_player("human", {0.f, 1.f, spawn_z});
 
                 // Parse optional appearance payload:
                 // [eye_r:1][eye_g:1][eye_b:1][hair_len:1][hair:N][hair_r:1][hair_g:1][hair_b:1]

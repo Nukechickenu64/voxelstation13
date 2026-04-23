@@ -674,6 +674,188 @@ int main(int argc, char* argv[])
                 ? "[Open] You open the "  + ctx.item_def->name + "."
                 : "[Close] You close the " + ctx.item_def->name + ".");
         });
+
+        // verb_stun: stun baton – feedback message only; real stamina/stun damage is
+        // applied by attack_chain via the "stam:80" and "force:5" tags on the item.
+        vd.register_handler("verb_stun", [](const VerbContext& ctx) {
+            ctx.log("[Stun Baton] You swing the stun baton.");
+        });
+
+        // verb_apply_bandage: gauze roll — heals brute damage on self or target mob.
+        // ctx.target_ent may be a mob entity when triggered from the mob context menu.
+        vd.register_handler("verb_apply_bandage",
+            [&g_entities, &player_inv, &client](const VerbContext& ctx) {
+                // Determine target: explicit entity (mob) or actor (self)
+                EntityID target = (ctx.target_ent != NULL_ENTITY)
+                                      ? ctx.target_ent
+                                      : ctx.actor;
+                auto* hp = g_entities.get_component<HealthComponent>(target);
+                if (!hp) { ctx.log("[Bandage] No valid target."); return; }
+                if (hp->brute <= 0.f) {
+                    ctx.log("[Bandage] No brute injuries to treat."); return;
+                }
+
+                constexpr float BRUTE_HEAL = 15.f;
+                hp->heal_type("brute", BRUTE_HEAL);
+
+                // Consume one from the stack via inventory
+                Inventory* inv = &player_inv;
+                auto* hand = inv->active_hand();
+                if (hand && hand->item && hand->item->def
+                        && hand->item->def->id == "gauze") {
+                    hand->item->count -= 1;
+                    if (hand->item->count <= 0)
+                        hand->item = std::nullopt;
+                }
+
+                const bool is_self = (target == ctx.actor);
+                char buf[128];
+                if (is_self)
+                    std::snprintf(buf, sizeof(buf),
+                        "[Bandage] You dress your wounds. (brute now %.0f)", hp->brute);
+                else {
+                    auto* nc = g_entities.get_component<NameComponent>(target);
+                    std::string tname = nc ? nc->name : "them";
+                    std::snprintf(buf, sizeof(buf),
+                        "[Bandage] You bandage %s. (brute now %.0f)",
+                        tname.c_str(), hp->brute);
+                }
+                ctx.log(buf);
+            });
+
+        // verb_take_pill: consume a pill from the active hand to heal all damage types.
+        vd.register_handler("verb_take_pill",
+            [&player_inv, &client, &g_entities](const VerbContext& ctx) {
+                EntityID actor = ctx.actor;
+                if (actor == NULL_ENTITY) actor = client.local_player();
+                auto* hp = g_entities.get_component<HealthComponent>(actor);
+                if (!hp || hp->dead) { ctx.log("[Pill] Can't take that now."); return; }
+
+                constexpr float PILL_HEAL = 10.f;
+                hp->heal(PILL_HEAL);
+
+                auto* hand = player_inv.active_hand();
+                if (hand && hand->item && hand->item->def
+                        && hand->item->def->id == "pill") {
+                    hand->item->count -= 1;
+                    if (hand->item->count <= 0)
+                        hand->item = std::nullopt;
+                }
+
+                char buf[96];
+                std::snprintf(buf, sizeof(buf),
+                    "[Pill] You swallow a pill. (hp %.0f/%.0f)",
+                    hp->current(), hp->health_max);
+                ctx.log(buf);
+            });
+
+        // verb_transfuse: blood pack — heals oxy damage on self or a target mob.
+        vd.register_handler("verb_transfuse",
+            [&g_entities, &player_inv, &client](const VerbContext& ctx) {
+                EntityID target = (ctx.target_ent != NULL_ENTITY)
+                                      ? ctx.target_ent
+                                      : ctx.actor;
+                auto* hp = g_entities.get_component<HealthComponent>(target);
+                if (!hp) { ctx.log("[Blood Pack] No valid target."); return; }
+
+                constexpr float OXY_HEAL = 25.f;
+                hp->heal_type("oxy", OXY_HEAL);
+
+                auto* hand = player_inv.active_hand();
+                if (hand && hand->item && hand->item->def
+                        && hand->item->def->id == "blood_pack") {
+                    hand->item->count -= 1;
+                    if (hand->item->count <= 0)
+                        hand->item = std::nullopt;
+                }
+
+                const bool is_self = (target == ctx.actor);
+                char buf[128];
+                if (is_self)
+                    std::snprintf(buf, sizeof(buf),
+                        "[Blood Pack] You administer a blood transfusion. (oxy now %.0f)",
+                        hp->oxy);
+                else {
+                    auto* nc = g_entities.get_component<NameComponent>(target);
+                    std::string tname = nc ? nc->name : "them";
+                    std::snprintf(buf, sizeof(buf),
+                        "[Blood Pack] You transfuse blood into %s. (oxy now %.0f)",
+                        tname.c_str(), hp->oxy);
+                }
+                ctx.log(buf);
+            });
+
+        // verb_defib: defibrillator — revive a dead mob if still revivable.
+        vd.register_handler("verb_defib",
+            [&g_entities](const VerbContext& ctx) {
+                EntityID target = ctx.target_ent;
+                if (target == NULL_ENTITY) {
+                    ctx.log("[Defib] No target in range."); return;
+                }
+                auto* hp = g_entities.get_component<HealthComponent>(target);
+                if (!hp || !hp->dead) {
+                    ctx.log("[Defib] Target is not dead."); return;
+                }
+                auto* co = g_entities.get_component<CorpseComponent>(target);
+                if (co && !co->can_be_revived) {
+                    ctx.log("[Defib] Too much time has passed — revival impossible.");
+                    return;
+                }
+
+                // Heal enough damage to bring health above 0 and put in softcrit
+                hp->heal_type("oxy",   std::max(0.f, hp->oxy   - hp->health_max * 0.4f));
+                hp->heal_type("brute", std::max(0.f, hp->brute - hp->health_max * 0.6f));
+                hp->heal_type("burn",  std::max(0.f, hp->burn  - hp->health_max * 0.6f));
+                // Ensure health is at least 1 above zero for the revive
+                if (hp->current() <= 0.f) {
+                    hp->heal_type("brute", -hp->current() + 1.f);
+                }
+                hp->dead = false;
+                hp->recalculate();
+
+                g_entities.remove_component<CorpseComponent>(target);
+                auto* cc_r = g_entities.get_component<CharacterControllerComponent>(target);
+                if (cc_r) cc_r->mob_state = MobState::Softcrit;
+                signals().send_signal(target, COMSIG_MOB_LIVING_REVIVE, SigDeath{});
+
+                auto* nc = g_entities.get_component<NameComponent>(target);
+                std::string tname = nc ? nc->name : "them";
+                char buf[128];
+                std::snprintf(buf, sizeof(buf),
+                    "[Defib] %s has been revived! (hp %.0f/%.0f)",
+                    tname.c_str(), hp->current(), hp->health_max);
+                ctx.log(buf);
+            });
+
+        // verb_inject / verb_fill_syringe: chemistry stubs (reagent system not yet wired)
+        vd.register_handler("verb_inject", [](const VerbContext& ctx) {
+            ctx.log("[Syringe] The reagent system is not yet connected.");
+        });
+        vd.register_handler("verb_fill_syringe", [](const VerbContext& ctx) {
+            ctx.log("[Syringe] Nothing to fill from here.");
+        });
+        // verb_pour: chemistry stub
+        vd.register_handler("verb_pour", [](const VerbContext& ctx) {
+            ctx.log("[Beaker] The chemistry system is not yet connected.");
+        });
+        // verb_seal: stasis bag stub
+        vd.register_handler("verb_seal", [](const VerbContext& ctx) {
+            ctx.log("[Stasis Bag] Not yet implemented.");
+        });
+        // verb_close: close container (mirrors verb_open toggle)
+        vd.register_handler("verb_close", [](const VerbContext& ctx) {
+            if (!ctx.item_stack) return;
+            ctx.item_stack->container_open = false;
+            ctx.log("[Close] You close the "
+                + (ctx.item_def ? ctx.item_def->name : "container") + ".");
+        });
+        // verb_incise / verb_stab: surgery stubs
+        vd.register_handler("verb_incise", [](const VerbContext& ctx) {
+            ctx.log("[Scalpel] Surgery system not yet implemented.");
+        });
+        vd.register_handler("verb_stab", [](const VerbContext& ctx) {
+            ctx.log("[Scalpel] You stab with the scalpel.");
+        });
     }
 
     GameLoop loop(1.0 / 60.0);
@@ -1481,6 +1663,43 @@ int main(int argc, char* argv[])
                     // ── Attack chain (LMB on mob) ──────────────────────────────
                     if (fps_lmb && mob_target != NULL_ENTITY
                         && (item_ent == NULL_ENTITY || mob_target_dist < item_dist)) {
+
+                        // ── Medical item use-on-mob (overrides attack) ─────────
+                        // Holding a medical item + looking at a mob → apply it
+                        // rather than attacking.  Intent "Help" is assumed when
+                        // the item has the "medical" tag and the target is alive
+                        // or revivable.
+                        bool used_as_medicine = false;
+                        if (!hand_empty && active_slot->item->def) {
+                            const ItemDef* held_def = active_slot->item->def;
+                            bool has_medical_tag = false;
+                            for (const auto& t : held_def->tags)
+                                if (t == "medical") { has_medical_tag = true; break; }
+
+                            if (has_medical_tag && !held_def->verbs.empty()) {
+                                // Find the primary action verb (first non-Examine verb)
+                                const std::string* primary_handler = nullptr;
+                                for (const auto& v : held_def->verbs) {
+                                    if (v.handler != "verb_examine") {
+                                        primary_handler = &v.handler;
+                                        break;
+                                    }
+                                }
+                                if (primary_handler && verb_dispatch().has(*primary_handler)) {
+                                    VerbContext vctx;
+                                    vctx.actor      = player;
+                                    vctx.actor_pos  = cam_pos;
+                                    vctx.target_ent = mob_target;
+                                    vctx.item_def   = active_slot->item->def;
+                                    vctx.item_stack = &(*active_slot->item);
+                                    vctx.hud_log    = &hud_state.radio_log;
+                                    verb_dispatch().invoke(*primary_handler, vctx);
+                                    used_as_medicine = true;
+                                }
+                            }
+                        }
+
+                        if (!used_as_medicine) {
                         // Build attack context
                         AttackContext ctx;
                         ctx.attacker  = player;
@@ -1507,6 +1726,7 @@ int main(int argc, char* argv[])
                             mob_target, ctx.damage_dealt, result_str);
                         if (ctx.hit)
                             audio.play("click", cam_pos);
+                        } // end !used_as_medicine
                     } else if (item_ent != NULL_ENTITY) {
                         if (hand_empty || e_press) {
                             // Pick up — auto_equip tries all slots; re-spawn if no room
@@ -1725,6 +1945,45 @@ int main(int argc, char* argv[])
                                 hud_state.radio_log.pop_front();
                             hud_state.radio_log.push_back(buf);
                         }});
+
+                    // ── Use held medical item on mob ──────────────────────────
+                    {
+                        auto* hand_slot_ctx = player_inv.active_hand();
+                        bool  hand_has_item = hand_slot_ctx && hand_slot_ctx->item
+                                              && hand_slot_ctx->item->def;
+                        if (hand_has_item) {
+                            const ItemDef* hdef = hand_slot_ctx->item->def;
+                            bool is_med = false;
+                            for (const auto& t : hdef->tags)
+                                if (t == "medical") { is_med = true; break; }
+                            if (is_med && !hdef->verbs.empty()) {
+                                // Primary verb (first non-Examine)
+                                const ItemVerb* pverb = nullptr;
+                                for (const auto& v : hdef->verbs)
+                                    if (v.handler != "verb_examine") { pverb = &v; break; }
+                                if (pverb && verb_dispatch().has(pverb->handler)) {
+                                    std::string vhnd    = pverb->handler;
+                                    std::string vlabel  = "Use " + hdef->name;
+                                    entries.push_back({"", false, true, nullptr}); // separator
+                                    entries.push_back({vlabel, true, false,
+                                        [vhnd, rmb_mob_id, player, &cam_pos,
+                                         &player_inv, &hud_state, &g_entities]() {
+                                            auto* hs = player_inv.active_hand();
+                                            VerbContext vctx;
+                                            vctx.actor      = player;
+                                            vctx.actor_pos  = cam_pos;
+                                            vctx.target_ent = rmb_mob_id;
+                                            if (hs && hs->item) {
+                                                vctx.item_def   = hs->item->def;
+                                                vctx.item_stack = &(*hs->item);
+                                            }
+                                            vctx.hud_log = &hud_state.radio_log;
+                                            verb_dispatch().invoke(vhnd, vctx);
+                                        }});
+                                }
+                            }
+                        }
+                    }
 
                     // ── Grab / Upgrade Grab ────────────────────────────────────
                     if (!is_dead) {

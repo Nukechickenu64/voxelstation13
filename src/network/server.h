@@ -67,7 +67,8 @@ public:
     void set_species_registry(MobSpeciesRegistry* reg) { m_species_reg = reg; }
 
     // Add a bot/local player
-    EntityID spawn_player(const std::string& species = "human");
+    EntityID spawn_player(const std::string& species = "human",
+                             glm::vec3 pos = {0.f, 1.f, 0.f});
     void     remove_player(EntityID id);
 
     // Spawn an autonomous NPC mob at the given world position.
