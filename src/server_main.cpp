@@ -78,6 +78,7 @@ int main(int argc, char* argv[])
     Server server;
     server.set_species_registry(&mob_species_reg);
     server.set_item_registry(&item_reg);
+    server.set_voxel_registry(&voxel_reg);
 
     // ── Start network listener (also creates World/EntityManager/etc.) ────────
     if (!server.start(port)) {

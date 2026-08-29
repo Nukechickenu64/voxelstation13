@@ -400,6 +400,9 @@ int main(int argc, char* argv[])
         World*           ctx_world  = nullptr;
         AtmosSimulator*  ctx_atmos  = nullptr;
         ChunkMesher*     ctx_mesher = nullptr;
+        // Deferred InteractFace: sent to server when animation completes.
+        glm::ivec3 seed_pos{};
+        bool       send_interact = false;
     };
     std::vector<DoorGroup> animating_doors;
 
@@ -1723,6 +1726,9 @@ int main(int argc, char* argv[])
                             // Door is now gas-passable — notify atmos so zones merge.
                             if (!grp.voxels.empty() && grp_atmos_p)
                                 grp_atmos_p->on_door_changed(grp.voxels.front());
+                            // Tell the server to open the door now that the animation finished.
+                            if (grp.send_interact)
+                                client.send_interact_face(grp.seed_pos);
                             it = animating_doors.erase(it);
                             continue;
                         }
@@ -1747,6 +1753,9 @@ int main(int argc, char* argv[])
                             // Door is now fully sealed — notify atmos to finalise zone split.
                             if (!grp.voxels.empty() && grp_atmos_p)
                                 grp_atmos_p->on_door_changed(grp.voxels.front());
+                            // Tell the server to close the door now that the animation finished.
+                            if (grp.send_interact)
+                                client.send_interact_face(grp.seed_pos);
                             it = animating_doors.erase(it);
                             continue;
                         }
@@ -2011,6 +2020,12 @@ int main(int argc, char* argv[])
                                     dg.ctx_atmos  = active_atmos;
                                     dg.ctx_mesher = active_mesher;
                                 }
+                                if (renderer.door_anim_frame_count() > 0) {
+                                    dg.send_interact = true;
+                                    dg.seed_pos      = fhit.voxel;
+                                } else {
+                                    client.send_interact_face(fhit.voxel);
+                                }
                                 animating_doors.push_back(std::move(dg));
                                 audio.play("click", glm::vec3(fhit.voxel) + glm::vec3(0.5f));
                                 SDL_Log("Door: opening at (%d,%d,%d)",
@@ -2063,6 +2078,12 @@ int main(int argc, char* argv[])
                                         dg.ctx_world  = active_world;
                                         dg.ctx_atmos  = active_atmos;
                                         dg.ctx_mesher = active_mesher;
+                                    }
+                                    if (renderer.door_anim_frame_count() > 0) {
+                                        dg.send_interact = true;
+                                        dg.seed_pos      = fhit.voxel;
+                                    } else {
+                                        client.send_interact_face(fhit.voxel);
                                     }
                                     animating_doors.push_back(std::move(dg));
                                     audio.play("click", glm::vec3(fhit.voxel) + glm::vec3(0.5f));

@@ -1145,6 +1145,95 @@ void AtmosSimulator::on_voxel_changed(glm::ivec3 pos)
     }
 }
 
+// ── on_cells_changed ──────────────────────────────────────────────────────────
+// Batch version of on_voxel_changed for a group of cells (e.g. a door group).
+// Processes all positions together so each cell doesn't mistake its unprocessed
+// siblings for open-space voids in check_is_space.
+void AtmosSimulator::on_cells_changed(const std::vector<glm::ivec3>& positions)
+{
+    static constexpr glm::ivec3 k6[6] = {
+        { 1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}
+    };
+
+    // Step 1: strip old zones and door-links for every position in the group.
+    for (const auto& pos : positions) {
+        remove_cell(pos);
+        m_door_links.erase(
+            std::remove_if(m_door_links.begin(), m_door_links.end(),
+                [&](const DoorLink& lnk) {
+                    for (const auto& dv : lnk.door_voxels)
+                        if (dv == pos) return true;
+                    return false;
+                }),
+            m_door_links.end());
+    }
+
+    // Step 2: create zones for all passable positions without calling
+    // check_is_space — neighbouring group cells are not in m_cell_zone yet
+    // so check_is_space would falsely label them as open-space voids.
+    // Door cells are always enclosed (they sit inside the station hull), so
+    // skipping the space-check here is safe.
+    for (const auto& pos : positions) {
+        if (!voxel_is_passable(pos)) continue;
+
+        AtmosZoneID new_id = m_next_zone_id++;
+        AtmosZone z;
+        z.id = new_id;
+        z.cell_count = 1;
+        z.cell_pos   = pos;
+
+        // Seed gas from already-tracked neighbours (room / airlock sides).
+        GasMixture acc{};
+        acc.temperature = 0.f;
+        float w = 0.f;
+        for (const auto& d : k6) {
+            auto nit = m_cell_zone.find(pos + d);
+            if (nit == m_cell_zone.end()) continue;
+            auto zit = m_zones.find(nit->second);
+            if (zit == m_zones.end()) continue;
+            const GasMixture& ng = zit->second.gas;
+            acc.o2 += ng.o2; acc.n2 += ng.n2; acc.co2 += ng.co2;
+            acc.plasma += ng.plasma; acc.n2o += ng.n2o;
+            acc.bz += ng.bz; acc.tritium += ng.tritium;
+            acc.temperature += ng.temperature;
+            w += 1.f;
+        }
+        if (w > 0.f) {
+            float inv = 1.f / w;
+            z.gas.o2  = acc.o2*inv;  z.gas.n2  = acc.n2*inv;
+            z.gas.co2 = acc.co2*inv; z.gas.plasma = acc.plasma*inv;
+            z.gas.n2o = acc.n2o*inv; z.gas.bz = acc.bz*inv;
+            z.gas.tritium = acc.tritium*inv;
+            z.gas.temperature = std::max(2.73f, acc.temperature*inv);
+        } else {
+            z.gas.o2  = 21.0f; z.gas.n2 = 80.0f;
+            z.gas.temperature = 293.15f;
+        }
+        m_zones[new_id] = std::move(z);
+        m_cell_zone[pos] = new_id;
+    }
+
+    // Step 3: rebuild edges for every new cell and each of their neighbours.
+    std::unordered_set<glm::ivec3> to_rebuild;
+    for (const auto& pos : positions) {
+        to_rebuild.insert(pos);
+        for (const auto& d : k6) to_rebuild.insert(pos + d);
+    }
+    for (const auto& pos : to_rebuild) {
+        auto cit = m_cell_zone.find(pos);
+        if (cit == m_cell_zone.end()) continue;
+        AtmosZoneID id = cit->second;
+        m_open_edges.erase(std::remove_if(m_open_edges.begin(), m_open_edges.end(),
+            [&](const CellEdge& e){ return e.za == id || e.zb == id; }),
+            m_open_edges.end());
+        m_door_links.erase(std::remove_if(m_door_links.begin(), m_door_links.end(),
+            [&](const DoorLink& lnk){ return lnk.zone_a == id || lnk.zone_b == id; }),
+            m_door_links.end());
+        m_zones[id].adjacent_zones.clear();
+        rebuild_cell_edges(pos);
+    }
+}
+
 // ── on_door_changed ───────────────────────────────────────────────────────────
 // A door voxel opened or closed.  The DoorLink conductance is recalculated
 // in tick() by checking voxel_is_passable on door_voxels, so we only need

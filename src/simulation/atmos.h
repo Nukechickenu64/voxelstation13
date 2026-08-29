@@ -91,6 +91,7 @@ public:
     void tick(double dt);
 
     void on_voxel_changed(glm::ivec3 pos);
+    void on_cells_changed(const std::vector<glm::ivec3>& positions);
     void on_door_changed (glm::ivec3 pos);
 
     AtmosZone*       zone(AtmosZoneID id);

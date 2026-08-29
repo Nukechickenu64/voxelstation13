@@ -81,6 +81,9 @@ public:
     // Admin commands
     void send_admin_cmd(AdminCmdType cmd);
 
+    // Notify server that the player interacted with a voxel face (e.g. door).
+    void send_interact_face(glm::ivec3 pos);
+
 private:
     void process_incoming();
     void on_chunk_data      (const void* data, size_t len);

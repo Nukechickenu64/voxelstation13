@@ -135,7 +135,7 @@
     "id":    "door_anim",
     "name":  "Airlock Door (Animating)",
     "icon":  "specialtile/public/glass/closed",
-    "overlay_icon": "specialtile/public/overlays/glass_closed",
+    "overlay_icon": "specialtile/public/overlays/glass_anim",
     "flags": ["SOLID", "VERT_PLANE_Z"],
     "health": 200,
     "material": "steel"

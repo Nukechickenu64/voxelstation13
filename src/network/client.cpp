@@ -348,6 +348,19 @@ void Client::send_admin_cmd(AdminCmdType cmd)
     cli_send_packet(fd, srv, PacketType::AdminCmd, &payload, 1);
 }
 
+void Client::send_interact_face(glm::ivec3 pos)
+{
+    sock_t fd = cli_to_sock(m_socket);
+    if (fd == k_bad_sock || !m_connected) return;
+    sockaddr_in srv{};
+    srv.sin_family      = AF_INET;
+    srv.sin_addr.s_addr = m_server_ip;
+    srv.sin_port        = htons(m_server_port);
+    struct WireInteract { int32_t x, y, z; };
+    WireInteract wi{ pos.x, pos.y, pos.z };
+    cli_send_packet(fd, srv, PacketType::InteractFace, &wi, sizeof(wi));
+}
+
 void Client::send_appearance_update()
 {
     sock_t fd = cli_to_sock(m_socket);

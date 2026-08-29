@@ -16,6 +16,7 @@
 #include <unordered_map>
 
 class MobSpeciesRegistry;  // forward declaration
+class VoxelRegistry;
 
 // Packet types, AdminCmdType and NetAddress are defined in
 // network/input_snapshot.h and shared between client and server.
@@ -43,6 +44,7 @@ public:
     // Provide species stat data (call before spawn_player if available).
     void set_species_registry(MobSpeciesRegistry* reg) { m_species_reg = reg; }
     void set_item_registry(const ItemRegistry* reg) { m_item_registry = reg; }
+    void set_voxel_registry(const VoxelRegistry* reg) { m_voxel_registry = reg; }
 
     // Add a bot/local player
     EntityID spawn_player(const std::string& species = "human",
@@ -99,8 +101,9 @@ private:
     std::unique_ptr<PhysicsSystem>   m_physics;
     std::unique_ptr<WorldItemSystem>  m_world_items;
 
-    MobSpeciesRegistry* m_species_reg = nullptr;
-    const ItemRegistry* m_item_registry = nullptr;
+    MobSpeciesRegistry*  m_species_reg     = nullptr;
+    const ItemRegistry*  m_item_registry   = nullptr;
+    const VoxelRegistry* m_voxel_registry  = nullptr;
 
     std::unordered_map<EntityID, PlayerInput> m_pending_inputs;
 
@@ -136,4 +139,7 @@ private:
 
     // Send the full voxel data for one chunk to a specific peer.
     void send_chunk_to(const NetAddress& addr, glm::ivec3 cp, const Chunk& chunk);
+
+    // Toggle a door group (door↔door_open) starting at seed.
+    void toggle_door(glm::ivec3 seed);
 };

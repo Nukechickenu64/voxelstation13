@@ -2,6 +2,7 @@
 #include "simulation/liquids.h"
 #include "simulation/world_items.h"
 #include "data/mob_species_registry.h"
+#include "data/voxel_registry.h"
 #include "simulation/mob_system.h"
 #include "simulation/status_effects.h"
 #include "simulation/attack_chain.h"
@@ -15,6 +16,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <unordered_set>
 #include <vector>
 
 // ── Platform UDP socket abstraction ──────────────────────────────────────
@@ -754,6 +756,15 @@ void Server::process_incoming()
             }
             break;
         }
+        // ── Voxel face interaction (e.g. open/close door) ─────────────────
+        case PacketType::InteractFace: {
+            struct WireInteract { int32_t x, y, z; };
+            if (payload_len < sizeof(WireInteract)) break;
+            WireInteract wi;
+            std::memcpy(&wi, payload, sizeof(wi));
+            toggle_door({wi.x, wi.y, wi.z});
+            break;
+        }
         // ── Player movement input ──────────────────────────────────────────
         case PacketType::InputState: {
             struct WireInput { float dx, dy, dz; float yaw; uint8_t sprint, grab; };
@@ -1091,6 +1102,61 @@ void Server::move_player(EntityID id, glm::vec3 wish_dir,
 {
     if (!m_running || !m_physics) return;
     m_physics->move_character(id, wish_dir, sprint, grab_wall, dt);
+}
+
+void Server::toggle_door(glm::ivec3 seed)
+{
+    if (!m_voxel_registry) return;
+
+    const uint16_t door_id      = m_voxel_registry->id_of("door");
+    const uint16_t door_anim_id = m_voxel_registry->id_of("door_anim");
+    const uint16_t door_open_id = m_voxel_registry->id_of("door_open");
+    if (door_id == 0 || door_open_id == 0) return;
+
+    const Voxel seed_v = m_world->get_voxel(seed);
+    // Accept door, door_anim (mid-animation), or door_open
+    const bool opening = (seed_v.type_id == door_id || seed_v.type_id == door_anim_id);
+    const bool closing = (seed_v.type_id == door_open_id);
+    if (!opening && !closing) return;
+
+    const uint16_t target_type = opening ? door_id : door_open_id;
+    const uint16_t result_type = opening ? door_open_id : door_id;
+
+    const VoxelTypeDef* result_def = m_voxel_registry->get(result_type);
+    const uint16_t result_flags = result_def ? result_def->default_flags
+                                             : static_cast<uint16_t>(VFLAG_VERT_PLANE_Z);
+
+    // Flood-fill the door group (same Z-plane, same type or anim variant)
+    std::vector<glm::ivec3> group;
+    std::unordered_set<glm::ivec3> visited;
+    std::vector<glm::ivec3> queue;
+    queue.push_back(seed);
+    visited.insert(seed);
+    while (!queue.empty()) {
+        glm::ivec3 cur = queue.back(); queue.pop_back();
+        group.push_back(cur);
+        static constexpr glm::ivec3 k4[4] = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0}};
+        for (const auto& d : k4) {
+            glm::ivec3 nb = cur + d;
+            if (nb.z != seed.z) continue;
+            if (!visited.insert(nb).second) continue;
+            const uint16_t nb_t = m_world->get_voxel(nb).type_id;
+            if (nb_t == target_type || nb_t == door_anim_id)
+                queue.push_back(nb);
+        }
+    }
+
+    Voxel result_v{};
+    result_v.type_id = result_type;
+    result_v.flags   = result_flags;
+    for (const auto& p : group)
+        m_world->set_voxel(p, result_v);
+
+    // Notify atmos for every panel so opened cells get proper zones (not zero-pressure voids).
+    m_atmos->on_cells_changed(group);
+    SDL_Log("Server: door %s at (%d,%d,%d) (%d panels)",
+            opening ? "opened" : "closed", seed.x, seed.y, seed.z,
+            static_cast<int>(group.size()));
 }
 
 void Server::broadcast_dirty_chunks()
