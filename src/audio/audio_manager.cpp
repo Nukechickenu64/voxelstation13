@@ -129,7 +129,7 @@ void AudioManager::update(float /*dt*/)
 
         // Attenuate harder in low-pressure (vacuum) — linear ramp to 0 at <5 kPa
         float pressure_factor = std::min(m_local_pressure / 20.f, 1.f);
-        float final_vol = s.base_vol * atten * pressure_factor;
+        float final_vol = s.base_vol * atten * pressure_factor * m_master_volume * m_sfx_volume;
         if (s.stream)
             SDL_SetAudioStreamGain(s.stream, final_vol);
     }

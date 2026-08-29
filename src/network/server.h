@@ -1,5 +1,6 @@
 #pragma once
 #include "core/world.h"
+#include "network/input_snapshot.h"
 #include "core/entity_manager.h"
 #include "simulation/atmos.h"
 #include "simulation/liquids.h"
@@ -16,32 +17,8 @@
 
 class MobSpeciesRegistry;  // forward declaration
 
-// ── Packet types (shared server/client) ──────────────────────────────────────
-enum class PacketType : uint16_t {
-    // Server → Client
-    ChunkData,
-    ChunkDelta,
-    EntityState,
-    EntitySpawn,   // new entity spawned in world (type info + position)
-    AtmosDelta,
-    ChatMessage,
-    RoundState,
-    SpawnInfo,     // tell the new client its entity ID + spawn pos
-    // Server → Client (cont.)
-    AppearanceState,  // relayed appearance + equipment for a remote player
-    // Client → Server
-    InputState,
-    InteractFace,
-    InventoryAction,
-    ChatSend,
-    Connect,          // initial handshake from client
-    AppearanceUpdate, // client sends appearance/equipment whenever it changes
-};
-
-struct NetAddress {
-    uint32_t ip   = 0;
-    uint16_t port = 0;
-};
+// Packet types, AdminCmdType and NetAddress are defined in
+// network/input_snapshot.h and shared between client and server.
 
 // Per-player movement input submitted each frame.
 // !! DO NOT ADD a jump field here. There is no jumping in this game unless it
@@ -65,6 +42,7 @@ public:
 
     // Provide species stat data (call before spawn_player if available).
     void set_species_registry(MobSpeciesRegistry* reg) { m_species_reg = reg; }
+    void set_item_registry(const ItemRegistry* reg) { m_item_registry = reg; }
 
     // Add a bot/local player
     EntityID spawn_player(const std::string& species = "human",
@@ -122,6 +100,7 @@ private:
     std::unique_ptr<WorldItemSystem>  m_world_items;
 
     MobSpeciesRegistry* m_species_reg = nullptr;
+    const ItemRegistry* m_item_registry = nullptr;
 
     std::unordered_map<EntityID, PlayerInput> m_pending_inputs;
 
@@ -142,6 +121,12 @@ private:
         bool        is_male = true;
         // Equipped slots: (slot_id, item_def_id) pairs (empty item_id = nothing)
         std::vector<std::pair<std::string,std::string>> equipped_slots;
+        // Per-peer dev-tool flags applied each server tick
+        bool dev_auto_heal      = false;
+        bool dev_zerog_override = false;
+        bool dev_infinite_oxy   = false;
+            // Is this peer authorized to run admin/dev commands?
+            bool is_admin           = false;
     };
     std::vector<Peer> m_peers;
 

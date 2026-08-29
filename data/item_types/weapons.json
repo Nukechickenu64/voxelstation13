@@ -1,0 +1,228 @@
+[
+  {
+    "id":         "telescopic_baton",
+    "name":       "Telescopic Baton",
+    "icon":       "items/telescopic_baton",
+    "tags":       ["weapon", "melee", "baton", "force:10", "stam:40", "small"],
+    "weight":     0.5,
+    "volume":     1.5,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Hit",     "range": 1.2, "handler": "verb_stun"    },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "classic_baton",
+    "name":       "Classic Baton",
+    "icon":       "items/classic_baton",
+    "tags":       ["weapon", "melee", "baton", "force:10", "stam:20"],
+    "weight":     0.6,
+    "volume":     2.0,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Hit",     "range": 1.2, "handler": "verb_stun"    },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "fireaxe",
+    "name":       "Fire Axe",
+    "icon":       "items/fireaxe",
+    "tags":       ["weapon", "melee", "axe", "force:20"],
+    "weight":     2.0,
+    "volume":     5.0,
+    "stack_max":  1,
+    "two_handed": true,
+    "verbs": [
+      { "name": "Swing",   "range": 1.5, "handler": "verb_melee"   },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "claymore",
+    "name":       "Claymore",
+    "icon":       "items/claymore",
+    "tags":       ["weapon", "melee", "sword", "force:20", "sharp"],
+    "weight":     2.5,
+    "volume":     5.0,
+    "stack_max":  1,
+    "two_handed": true,
+    "verbs": [
+      { "name": "Slash",   "range": 1.5, "handler": "verb_melee"   },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "katana",
+    "name":       "Katana",
+    "icon":       "items/katana",
+    "tags":       ["weapon", "melee", "sword", "force:15", "sharp"],
+    "weight":     1.2,
+    "volume":     3.5,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Slash",   "range": 1.4, "handler": "verb_melee"   },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "combat_knife",
+    "name":       "Combat Knife",
+    "icon":       "items/combat_knife",
+    "tags":       ["weapon", "melee", "knife", "force:10", "sharp", "small"],
+    "weight":     0.3,
+    "volume":     1.0,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Stab",    "range": 1.0, "handler": "verb_melee"   },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "survival_knife",
+    "name":       "Survival Knife",
+    "icon":       "items/survival_knife",
+    "tags":       ["weapon", "melee", "knife", "force:10", "sharp", "small"],
+    "weight":     0.3,
+    "volume":     1.0,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Stab",    "range": 1.0, "handler": "verb_melee"   },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "hunting_knife",
+    "name":       "Hunting Knife",
+    "icon":       "items/hunting_knife",
+    "tags":       ["weapon", "melee", "knife", "force:10", "sharp", "small"],
+    "weight":     0.3,
+    "volume":     1.0,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Stab",    "range": 1.0, "handler": "verb_melee"   },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "baseball_bat",
+    "name":       "Baseball Bat",
+    "icon":       "items/baseball_bat",
+    "tags":       ["weapon", "melee", "bat", "force:10", "knockdown:2", "stam:20"],
+    "weight":     0.9,
+    "volume":     3.0,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Swing",   "range": 1.3, "handler": "verb_melee"   },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "spear",
+    "name":       "Spear",
+    "icon":       "items/spear",
+    "tags":       ["weapon", "melee", "spear", "force:15", "sharp"],
+    "weight":     1.5,
+    "volume":     4.0,
+    "stack_max":  1,
+    "two_handed": true,
+    "verbs": [
+      { "name": "Thrust",  "range": 2.0, "handler": "verb_melee"   },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "energy_sword",
+    "name":       "Energy Sword",
+    "icon":       "items/energy_sword",
+    "tags":       ["weapon", "melee", "sword", "force:20", "burn", "sharp"],
+    "weight":     1.0,
+    "volume":     2.5,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Slash",   "range": 1.4, "handler": "verb_melee"   },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "riot_shield",
+    "name":       "Riot Shield",
+    "icon":       "items/riot_shield",
+    "tags":       ["weapon", "melee", "shield", "force:5", "shield_block:0.5"],
+    "weight":     2.0,
+    "volume":     4.0,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Bash",    "range": 1.2, "handler": "verb_melee"   },
+      { "name": "Throw",   "range": 0.0, "handler": "verb_throw"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "pickaxe",
+    "name":       "Pickaxe",
+    "icon":       "items/pickaxe",
+    "tags":       ["weapon", "melee", "pickaxe", "tool", "force:12", "sharp"],
+    "weight":     1.8,
+    "volume":     4.0,
+    "stack_max":  1,
+    "two_handed": true,
+    "verbs": [
+      { "name": "Strike",  "range": 1.5, "handler": "verb_melee"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "shovel",
+    "name":       "Shovel",
+    "icon":       "items/shovel",
+    "tags":       ["weapon", "melee", "shovel", "tool", "force:10"],
+    "weight":     1.5,
+    "volume":     3.5,
+    "stack_max":  1,
+    "two_handed": true,
+    "verbs": [
+      { "name": "Swing",   "range": 1.4, "handler": "verb_melee"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "boxcutter",
+    "name":       "Boxcutter",
+    "icon":       "items/boxcutter",
+    "tags":       ["weapon", "melee", "knife", "force:5", "sharp", "small"],
+    "weight":     0.1,
+    "volume":     0.4,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Slash",   "range": 0.8, "handler": "verb_melee"   },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "bow",
+    "name":       "Bow",
+    "icon":       "items/bow",
+    "tags":       ["weapon", "ranged", "bow", "force:15", "proj_dmg:15", "proj_type:arrow", "proj_speed:25"],
+    "weight":     0.8,
+    "volume":     3.0,
+    "stack_max":  1,
+    "two_handed": true,
+    "verbs": [
+      { "name": "Fire",    "range": 0.0, "handler": "verb_fire"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  }
+]

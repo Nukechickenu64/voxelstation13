@@ -77,6 +77,17 @@ struct ItemStack {
     std::string    custom_name;
     float          integrity = 1.f;  // 0-1
 
+    // Gun ammo tracking for energy weapons.
+    // -1 = uninitialized (lazy-init from energy_max tag on first fire).
+    //  0 = empty / not an energy gun.
+    // >0 = charges remaining.
+    int            ammo_remaining = -1;
+
+    // Hidden magazine slot for ballistic guns (max 1 element).
+    // Loaded via verb_reload; ejected via verb_eject_mag.
+    // Not exposed through the normal container UI.
+    std::vector<ItemStack> magazine_slot;
+
     // Container state — only meaningful when def->is_container == true
     bool                   container_open = false;
     std::vector<ItemStack> contents;       // items stored inside this container

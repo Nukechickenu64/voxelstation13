@@ -3,6 +3,7 @@
 #include "core/entity_manager.h"
 #include "core/world.h"
 #include "inventory/inventory.h"
+#include "inventory/item_registry.h"
 #include <glm/glm.hpp>
 #include <optional>
 #include <vector>
@@ -43,7 +44,7 @@ struct WorldItemLabel {
 // Manages creation, querying, and removal of in-world item entities.
 class WorldItemSystem {
 public:
-    WorldItemSystem(World& world, EntityManager& entities);
+    WorldItemSystem(World& world, EntityManager& entities, const ItemRegistry* item_reg = nullptr);
 
     // Spawn an item resting on a voxel face.
     // Returns the new entity ID.
@@ -110,10 +111,14 @@ public:
     // Compute the world-space centre of an item's rest position.
     static glm::vec3 item_world_pos(const WorldItemComponent& wic);
 
+    // Spawn by item id at world position (uses optional ItemRegistry if set).
+    EntityID spawn_by_id(const std::string& id, glm::vec3 pos);
+
 private:
     // Returns a deterministic tint colour for a given item id string.
     static glm::vec4 tint_for_item(const std::string& item_id);
 
     World&         m_world;
     EntityManager& m_entities;
+    const ItemRegistry* m_item_registry = nullptr;
 };

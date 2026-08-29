@@ -336,6 +336,18 @@ void Client::send_chat(const std::string& msg)
     cli_send_packet(fd, srv, PacketType::ChatSend, msg.data(), msg.size());
 }
 
+void Client::send_admin_cmd(AdminCmdType cmd)
+{
+    sock_t fd = cli_to_sock(m_socket);
+    if (fd == k_bad_sock || !m_connected) return;
+    sockaddr_in srv{};
+    srv.sin_family      = AF_INET;
+    srv.sin_addr.s_addr = m_server_ip;
+    srv.sin_port        = htons(m_server_port);
+    uint8_t payload = static_cast<uint8_t>(cmd);
+    cli_send_packet(fd, srv, PacketType::AdminCmd, &payload, 1);
+}
+
 void Client::send_appearance_update()
 {
     sock_t fd = cli_to_sock(m_socket);

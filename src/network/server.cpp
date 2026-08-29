@@ -66,7 +66,7 @@ bool Server::start(uint16_t port)
     m_power    = std::make_unique<PowerGrid>(*m_world);
     m_pipes    = std::make_unique<PipeNetwork>(*m_world);
     m_physics     = std::make_unique<PhysicsSystem>(*m_world, *m_entities);
-    m_world_items = std::make_unique<WorldItemSystem>(*m_world, *m_entities);
+    m_world_items = std::make_unique<WorldItemSystem>(*m_world, *m_entities, m_item_registry);
     m_port     = port;
     m_running  = true;
 
@@ -335,6 +335,26 @@ void Server::tick(double dt)
     // Fires process() for all registered entities in SS13 subsystem order.
     master_controller().tick(dt);
 
+    // ── Per-peer dev-tool effects ─────────────────────────────────────────────
+    for (auto& peer : m_peers) {
+        EntityID eid = peer.player_entity;
+        auto* hp = m_entities->get_component<HealthComponent>(eid);
+        auto* cc = m_entities->get_component<CharacterControllerComponent>(eid);
+        if (peer.dev_auto_heal && hp) {
+            hp->brute = hp->burn = hp->tox = hp->oxy = hp->clone = 0.f;
+            hp->stam_damage = 0.f;
+            hp->stam_ko = false;
+            hp->dead    = false;
+            hp->recalculate();
+        } else if (peer.dev_infinite_oxy && hp) {
+            hp->oxy = 0.f;
+            hp->recalculate();
+        }
+        if (peer.dev_zerog_override && cc) {
+            cc->zero_g = true;
+        }
+    }
+
     broadcast_entity_spawns();
     broadcast_entity_states();
     broadcast_dirty_chunks();
@@ -596,7 +616,13 @@ void Server::process_incoming()
                     }
                 }
 
+                // Mark local loopback connections as admin by default.
+                // This ensures server-side authorization for dev commands.
+                // sender.ip is in network byte order; compare against htonl(INADDR_LOOPBACK).
+                peer.is_admin = (sender.ip == htonl(INADDR_LOOPBACK));
                 m_peers.push_back(peer);
+                if (peer.is_admin) SDL_Log("Server: granted admin to client %s:%u",
+                                           inet_str(from.sin_addr), sender.port);
                 SDL_Log("Server: client %s:%u connected → entity %u",
                         inet_str(from.sin_addr), sender.port, peer.player_entity);
 
@@ -744,6 +770,127 @@ void Server::process_incoming()
                     queue_player_input(p.player_entity, pi);
                     break;
                 }
+            }
+            break;
+        }
+        // ── Admin / dev-tool command ───────────────────────────────────────
+        case PacketType::AdminCmd: {
+            if (payload_len < 1) break;
+            auto cmd = static_cast<AdminCmdType>(payload[0]);
+            for (auto& p : m_peers) {
+                if (p.addr.ip != sender.ip || p.addr.port != sender.port) continue;
+                if (!p.is_admin) {
+                    struct in_addr a; a.s_addr = p.addr.ip;
+                    SDL_Log("Server: denied admin cmd %u from non-admin %s:%u",
+                            static_cast<uint32_t>(cmd), inet_str(a), p.addr.port);
+                    break;
+                }
+                EntityID eid = p.player_entity;
+                switch (cmd) {
+                case AdminCmdType::ToggleNoclip: {
+                    auto* cc = m_entities->get_component<CharacterControllerComponent>(eid);
+                    if (cc) {
+                        cc->noclip = !cc->noclip;
+                        SDL_Log("Server: noclip %s for entity %u", cc->noclip ? "ON" : "OFF", eid);
+                    }
+                    break;
+                }
+                case AdminCmdType::ToggleGodmode: {
+                    auto* hp = m_entities->get_component<HealthComponent>(eid);
+                    if (hp) {
+                        hp->godmode = !hp->godmode;
+                        SDL_Log("Server: godmode %s for entity %u", hp->godmode ? "ON" : "OFF", eid);
+                    }
+                    break;
+                }
+                case AdminCmdType::ActionFullHeal: {
+                    auto* hp = m_entities->get_component<HealthComponent>(eid);
+                    if (hp) {
+                        hp->brute = hp->burn = hp->tox = hp->oxy = hp->clone = 0.f;
+                        hp->stam_damage = 0.f;
+                        hp->stam_ko = false;
+                        hp->dead = false;
+                        hp->recalculate();
+                        SDL_Log("Server: full heal for entity %u", eid);
+                    }
+                    break;
+                }
+                case AdminCmdType::ActionKillPlayer: {
+                    auto* hp = m_entities->get_component<HealthComponent>(eid);
+                    if (hp) {
+                        bool was_god = hp->godmode;
+                        hp->godmode = false;
+                        hp->apply("brute", hp->health_max * 2.f);
+                        hp->godmode = was_god;
+                        SDL_Log("Server: kill player for entity %u", eid);
+                    }
+                    break;
+                }
+                case AdminCmdType::ActionTeleportOrigin: {
+                    auto* tr = m_entities->get_component<TransformComponent>(eid);
+                    if (tr) {
+                        bool found = false;
+                        for (int sy = 1; sy <= 128 && !found; ++sy) {
+                            Voxel b = m_world->get_voxel({0, sy,     0});
+                            Voxel t = m_world->get_voxel({0, sy + 1, 0});
+                            if (!(b.flags & VFLAG_SOLID) && !(t.flags & VFLAG_SOLID)) {
+                                tr->pos = {0.5f, static_cast<float>(sy), 0.5f};
+                                auto* vel = m_entities->get_component<VelocityComponent>(eid);
+                                if (vel) vel->linear = {};
+                                found = true;
+                            }
+                        }
+                        if (!found) {
+                            tr->pos = {0.5f, 5.f, 0.5f};
+                            auto* vel = m_entities->get_component<VelocityComponent>(eid);
+                            if (vel) vel->linear = {};
+                        }
+                        SDL_Log("Server: teleport origin for entity %u → (%.1f,%.1f,%.1f)",
+                                eid, tr->pos.x, tr->pos.y, tr->pos.z);
+                    }
+                    break;
+                }
+                case AdminCmdType::ActionForceAtmos: {
+                    m_atmos->rebuild_zones();
+                    SDL_Log("Server: atmos zones rebuilt");
+                    break;
+                }
+                case AdminCmdType::ActionSpawnItems: {
+                    auto* tr = m_entities->get_component<TransformComponent>(eid);
+                    if (tr && m_world_items) {
+                        static const char* s_items[] = {
+                            "wrench","screwdriver","crowbar","wirecutters",
+                            "stun_baton","fire_extinguisher","id_card","flashlight"
+                        };
+                        for (int i = 0; i < 8; ++i) {
+                            float ox = (static_cast<float>(std::rand() % 100) / 100.f - 0.5f) * 2.4f;
+                            float oz = (static_cast<float>(std::rand() % 100) / 100.f - 0.5f) * 2.4f;
+                            m_world_items->spawn_by_id(s_items[i],
+                                tr->pos + glm::vec3(ox, 0.1f, oz));
+                        }
+                        SDL_Log("Server: spawned test items at entity %u position", eid);
+                    }
+                    break;
+                }
+                case AdminCmdType::ToggleAutoHeal: {
+                    p.dev_auto_heal = !p.dev_auto_heal;
+                    SDL_Log("Server: auto_heal %s for entity %u", p.dev_auto_heal ? "ON" : "OFF", eid);
+                    break;
+                }
+                case AdminCmdType::ToggleZeroGOverride: {
+                    p.dev_zerog_override = !p.dev_zerog_override;
+                    SDL_Log("Server: zerog_override %s for entity %u",
+                            p.dev_zerog_override ? "ON" : "OFF", eid);
+                    break;
+                }
+                case AdminCmdType::ToggleInfiniteOxy: {
+                    p.dev_infinite_oxy = !p.dev_infinite_oxy;
+                    SDL_Log("Server: infinite_oxy %s for entity %u",
+                            p.dev_infinite_oxy ? "ON" : "OFF", eid);
+                    break;
+                }
+                }
+                break;
             }
             break;
         }

@@ -1,0 +1,161 @@
+﻿[
+  {
+    "id":         "sec_pistol",
+    "name":       "Security Pistol",
+    "icon":       "items/sec_pistol",
+    "tags":       ["weapon", "gun", "ballistic", "mag_size:8", "proj_dmg:20", "proj_type:bullet", "proj_speed:35", "ammo_type:pistol_mag"],
+    "weight":     0.9,
+    "volume":     2.5,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Fire",           "range": 0.0, "handler": "verb_fire"       },
+      { "name": "Reload",         "range": 0.0, "handler": "verb_reload"     },
+      { "name": "Eject Magazine", "range": 0.0, "handler": "verb_eject_mag"  },
+      { "name": "Examine",        "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":         "m1911",
+    "name":       "M1911 Pistol",
+    "icon":       "items/m1911",
+    "tags":       ["weapon", "gun", "ballistic", "mag_size:7", "proj_dmg:35", "proj_type:bullet", "proj_speed:35", "ammo_type:m1911_mag"],
+    "weight":     1.1,
+    "volume":     2.8,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Fire",           "range": 0.0, "handler": "verb_fire"       },
+      { "name": "Reload",         "range": 0.0, "handler": "verb_reload"     },
+      { "name": "Eject Magazine", "range": 0.0, "handler": "verb_eject_mag"  },
+      { "name": "Examine",        "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":         "revolver",
+    "name":       "Revolver",
+    "icon":       "items/revolver",
+    "tags":       ["weapon", "gun", "ballistic", "mag_size:6", "proj_dmg:45", "proj_type:bullet", "proj_speed:35", "ammo_type:revolver_ammo"],
+    "weight":     1.2,
+    "volume":     3.0,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Fire",           "range": 0.0, "handler": "verb_fire"       },
+      { "name": "Reload",         "range": 0.0, "handler": "verb_reload"     },
+      { "name": "Eject Magazine", "range": 0.0, "handler": "verb_eject_mag"  },
+      { "name": "Examine",        "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":         "c38_revolver",
+    "name":       "C-38 Revolver",
+    "icon":       "items/c38_revolver",
+    "tags":       ["weapon", "gun", "ballistic", "mag_size:6", "proj_dmg:45", "proj_type:bullet", "proj_speed:35", "ammo_type:revolver_ammo"],
+    "weight":     1.2,
+    "volume":     3.0,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Fire",           "range": 0.0, "handler": "verb_fire"       },
+      { "name": "Reload",         "range": 0.0, "handler": "verb_reload"     },
+      { "name": "Eject Magazine", "range": 0.0, "handler": "verb_eject_mag"  },
+      { "name": "Examine",        "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":         "shotgun",
+    "name":       "Shotgun",
+    "icon":       "items/shotgun",
+    "tags":       ["weapon", "gun", "ballistic", "mag_size:6", "proj_dmg:60", "proj_type:shot", "proj_speed:30", "ammo_type:shotgun_shell"],
+    "weight":     3.5,
+    "volume":     7.0,
+    "stack_max":  1,
+    "two_handed": true,
+    "verbs": [
+      { "name": "Fire",           "range": 0.0, "handler": "verb_fire"       },
+      { "name": "Reload",         "range": 0.0, "handler": "verb_reload"     },
+      { "name": "Eject Magazine", "range": 0.0, "handler": "verb_eject_mag"  },
+      { "name": "Examine",        "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":         "c20r_smg",
+    "name":       "C-20r SMG",
+    "icon":       "items/c20r_smg",
+    "tags":       ["weapon", "gun", "ballistic", "mag_size:20", "proj_dmg:20", "proj_type:bullet", "proj_speed:38", "ammo_type:smg_mag"],
+    "weight":     2.0,
+    "volume":     4.5,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Fire",           "range": 0.0, "handler": "verb_fire"       },
+      { "name": "Reload",         "range": 0.0, "handler": "verb_reload"     },
+      { "name": "Eject Magazine", "range": 0.0, "handler": "verb_eject_mag"  },
+      { "name": "Examine",        "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":         "sniper_rifle",
+    "name":       "Sniper Rifle",
+    "icon":       "items/sniper_rifle",
+    "tags":       ["weapon", "gun", "ballistic", "mag_size:4", "proj_dmg:75", "proj_type:bullet", "proj_speed:60", "ammo_type:sniper_mag"],
+    "weight":     5.0,
+    "volume":     9.0,
+    "stack_max":  1,
+    "two_handed": true,
+    "verbs": [
+      { "name": "Fire",           "range": 0.0, "handler": "verb_fire"       },
+      { "name": "Reload",         "range": 0.0, "handler": "verb_reload"     },
+      { "name": "Eject Magazine", "range": 0.0, "handler": "verb_eject_mag"  },
+      { "name": "Examine",        "range": 99,  "handler": "verb_examine"    }
+    ]
+  },
+  {
+    "id":         "laser_gun",
+    "name":       "Laser Gun",
+    "icon":       "items/laser_gun",
+    "tags":       ["weapon", "gun", "energy", "energy_max:10", "proj_dmg:20", "proj_type:laser", "proj_speed:50", "burn"],
+    "weight":     1.5,
+    "volume":     3.5,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Fire",    "range": 0.0, "handler": "verb_fire"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "laser_pistol",
+    "name":       "Laser Pistol",
+    "icon":       "items/laser_pistol",
+    "tags":       ["weapon", "gun", "energy", "energy_max:12", "proj_dmg:15", "proj_type:laser", "proj_speed:50", "burn"],
+    "weight":     0.9,
+    "volume":     2.5,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Fire",    "range": 0.0, "handler": "verb_fire"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "taser",
+    "name":       "Taser",
+    "icon":       "items/taser",
+    "tags":       ["weapon", "gun", "energy", "energy_max:3", "proj_dmg:5", "proj_type:taser", "proj_speed:25", "proj_stun:5", "proj_stam:100", "burn"],
+    "weight":     0.8,
+    "volume":     2.0,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Fire",    "range": 0.0, "handler": "verb_fire"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "disabler",
+    "name":       "Disabler",
+    "icon":       "items/disabler",
+    "tags":       ["weapon", "gun", "energy", "energy_max:8", "proj_dmg:5", "proj_type:disabler", "proj_speed:30", "proj_stam:60", "burn"],
+    "weight":     0.9,
+    "volume":     2.2,
+    "stack_max":  1,
+    "verbs": [
+      { "name": "Fire",    "range": 0.0, "handler": "verb_fire"    },
+      { "name": "Examine", "range": 99,  "handler": "verb_examine" }
+    ]
+  }
+]

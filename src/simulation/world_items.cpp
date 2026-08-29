@@ -32,9 +32,10 @@ static float rand_11()
 
 // ── WorldItemSystem ───────────────────────────────────────────────────────────
 
-WorldItemSystem::WorldItemSystem(World& world, EntityManager& entities)
+WorldItemSystem::WorldItemSystem(World& world, EntityManager& entities, const ItemRegistry* item_reg)
     : m_world(world)
     , m_entities(entities)
+    , m_item_registry(item_reg)
 {}
 
 /*static*/ glm::vec3 WorldItemSystem::item_world_pos(const WorldItemComponent& wic)
@@ -444,4 +445,17 @@ std::vector<WorldItemLabel> WorldItemSystem::build_labels(
         });
 
     return out;
+}
+
+EntityID WorldItemSystem::spawn_by_id(const std::string& id, glm::vec3 pos)
+{
+    ItemStack st;
+    st.count = 1;
+    if (m_item_registry && m_item_registry->has(id)) {
+        st.def = m_item_registry->get(id);
+    } else {
+        st.def = nullptr;
+        st.custom_name = id;
+    }
+    return spawn_floating(pos, std::move(st));
 }

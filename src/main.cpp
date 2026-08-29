@@ -15,6 +15,7 @@
 #include "simulation/mob_system.h"
 #include "simulation/status_effects.h"
 #include "simulation/attack_chain.h"
+#include "simulation/projectile_system.h"
 #include "simulation/enclosure.h"
 #include "simulation/vehicle.h"
 #include "simulation/vehicle_manager.h"
@@ -299,6 +300,9 @@ int main(int argc, char* argv[])
 
     // ── 11b. World item system ────────────────────────────────────────────────
     WorldItemSystem world_items(g_world, g_entities);
+
+    // ── 11b2. Projectile system ───────────────────────────────────────────────
+    ProjectileSystem projectile_sys(g_world, g_entities);
 
     // ── 11c. Static model objects ─────────────────────────────────────────────
     ModelObjectManager model_objs;
@@ -618,6 +622,29 @@ int main(int argc, char* argv[])
     // Capture cursor now that the player has entered the game.
     input.capture_cursor(renderer.window(), true);
 
+    // ── Spawn test guns and ammo near player start ────────────────────────────
+    {
+        auto spawn_item = [&](const char* item_id, glm::vec3 pos) {
+            const ItemDef* def = item_reg.get(item_id);
+            if (!def) return;
+            ItemStack st; st.def = def; st.count = 1; st.integrity = 1.f;
+            world_items.spawn_floating(pos, std::move(st));
+        };
+        spawn_item("sec_pistol",   { 2.f, 1.f,  0.f });
+        spawn_item("pistol_mag",   { 2.f, 1.f,  0.5f});
+        spawn_item("pistol_mag",   { 2.f, 1.f,  1.0f});
+        spawn_item("revolver",     { 3.f, 1.f,  0.f });
+        spawn_item("revolver_ammo",{ 3.f, 1.f,  0.5f});
+        spawn_item("revolver_ammo",{ 3.f, 1.f,  1.0f});
+        spawn_item("shotgun",      { 4.f, 1.f,  0.f });
+        spawn_item("shotgun_shell",{ 4.f, 1.f,  0.5f});
+        spawn_item("shotgun_shell",{ 4.f, 1.f,  1.0f});
+        spawn_item("c20r_smg",     { 5.f, 1.f,  0.f });
+        spawn_item("smg_mag",      { 5.f, 1.f,  0.5f});
+        spawn_item("laser_gun",    { 6.f, 1.f,  0.f });
+        spawn_item("laser_pistol", { 6.f, 1.f,  0.5f});
+    }
+
     // ── 16. Game loop ─────────────────────────────────────────────────────────
 
     // ── Register game-specific verb handlers (override stubs from init) ───────
@@ -855,6 +882,209 @@ int main(int argc, char* argv[])
         });
         vd.register_handler("verb_stab", [](const VerbContext& ctx) {
             ctx.log("[Scalpel] You stab with the scalpel.");
+        });
+
+        // verb_melee: generic melee swing — feedback only.
+        // Real damage is applied by attack_chain when the player left-clicks a mob
+        // while holding the weapon (force:<N> tag drives the damage).
+        vd.register_handler("verb_melee", [](const VerbContext& ctx) {
+            const char* wname = (ctx.item_def ? ctx.item_def->name.c_str() : "weapon");
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "[Melee] You swing the %s.", wname);
+            ctx.log(buf);
+        });
+
+        // verb_fire: fire a ranged weapon (gun, energy gun, bow, etc.)
+        // Spawns a ProjectileComponent entity in the aimed direction.
+        // Energy weapons use energy_max tag as ammo pool.
+        // Ballistic guns (ammo_type: tag) require a physical magazine in magazine_slot.
+        vd.register_handler("verb_fire",
+            [&player_inv, &cam_pos, &cam_yaw, &cam_pitch,
+             &projectile_sys](const VerbContext& ctx) {
+
+            auto* hand = player_inv.active_hand();
+            if (!hand || !hand->item || !hand->item->def) {
+                ctx.log("[Fire] Nothing in hand."); return;
+            }
+            ItemStack&     gun = *hand->item;
+            const ItemDef* def  = gun.def;
+
+            // Must have the "gun" tag
+            bool is_gun = false;
+            for (const auto& t : def->tags) if (t == "gun") { is_gun = true; break; }
+            if (!is_gun) { ctx.log("[Fire] That's not a firearm."); return; }
+
+            // Determine ammo source: ballistic (magazine_slot) vs energy (ammo_remaining)
+            std::string required_ammo_type;
+            for (const auto& t : def->tags)
+                if (t.rfind("ammo_type:", 0) == 0) { required_ammo_type = t.substr(10); break; }
+
+            if (!required_ammo_type.empty()) {
+                // ── Ballistic gun: requires a loaded physical magazine ────────
+                if (gun.magazine_slot.empty()) {
+                    ctx.log("[Fire] *click* No magazine loaded."); return;
+                }
+                ItemStack& mag = gun.magazine_slot[0];
+                if (mag.ammo_remaining <= 0) {
+                    ctx.log("[Fire] *click* Magazine empty. Eject and reload."); return;
+                }
+                mag.ammo_remaining--;
+                // fall through to spawn projectile; log at end using mag.ammo_remaining
+            } else {
+                // ── Energy gun: lazy-init and decrement ammo_remaining ────────
+                if (gun.ammo_remaining < 0) {
+                    gun.ammo_remaining = 0;
+                    for (const auto& t : def->tags) {
+                        if (t.rfind("energy_max:", 0) == 0) {
+                            try { gun.ammo_remaining = std::stoi(t.substr(11)); } catch (...) {}
+                            break;
+                        }
+                    }
+                }
+                if (gun.ammo_remaining == 0) {
+                    ctx.log("[Fire] *click* Out of energy."); return;
+                }
+                gun.ammo_remaining--;
+            }
+
+            // Parse projectile properties from tags
+            float       proj_dmg   = 20.f;
+            float       proj_speed = 30.f;
+            float       proj_stun  = 0.f;
+            float       proj_stam  = 0.f;
+            std::string proj_type  = "bullet";
+            for (const auto& t : def->tags) {
+                if (t.rfind("proj_dmg:",   0) == 0) { try { proj_dmg   = std::stof(t.substr(9));  } catch (...) {} }
+                if (t.rfind("proj_speed:", 0) == 0) { try { proj_speed = std::stof(t.substr(11)); } catch (...) {} }
+                if (t.rfind("proj_stun:",  0) == 0) { try { proj_stun  = std::stof(t.substr(10)); } catch (...) {} }
+                if (t.rfind("proj_stam:",  0) == 0) { try { proj_stam  = std::stof(t.substr(10)); } catch (...) {} }
+                if (t.rfind("proj_type:",  0) == 0) { proj_type = t.substr(10); }
+            }
+
+            // Energy projectiles deal burn; bullets deal brute
+            std::string dmg_type = (proj_type == "laser"    ||
+                                    proj_type == "taser"    ||
+                                    proj_type == "disabler") ? "burn" : "brute";
+
+            // Build aim direction from current camera angles
+            const float yr = glm::radians(cam_yaw);
+            const float pr = glm::radians(cam_pitch);
+            glm::vec3 dir{
+                std::cos(pr) * std::sin(yr),
+                std::sin(pr),
+               -std::cos(pr) * std::cos(yr)
+            };
+
+            // Spawn projectile slightly in front of the muzzle (0.6 m)
+            ProjectileComponent pc{};
+            pc.direction   = glm::normalize(dir);
+            pc.speed       = proj_speed;
+            pc.damage      = proj_dmg;
+            pc.damage_type = dmg_type;
+            pc.owner       = ctx.actor;
+            pc.stun_dur    = proj_stun;
+            pc.stam_damage = proj_stam;
+            projectile_sys.spawn(cam_pos + dir * 0.6f, pc);
+
+            char buf[128];
+            int ammo_left = required_ammo_type.empty()
+                ? gun.ammo_remaining
+                : (gun.magazine_slot.empty() ? 0 : gun.magazine_slot[0].ammo_remaining);
+            std::snprintf(buf, sizeof(buf), "[Fire] You fire the %s. (%d rounds left)",
+                def->name.c_str(), ammo_left);
+            ctx.log(buf);
+        });
+
+        // verb_reload: insert a compatible magazine from the other hand into the gun.
+        vd.register_handler("verb_reload",
+            [&player_inv, &world_items, &cam_pos](const VerbContext& ctx) {
+
+            auto* hand = player_inv.active_hand();
+            if (!hand || !hand->item || !hand->item->def) {
+                ctx.log("[Reload] Nothing in active hand."); return;
+            }
+            ItemStack&     gun = *hand->item;
+            const ItemDef* def = gun.def;
+
+            // Find the required ammo_type from the gun's tags
+            std::string required_ammo_type;
+            for (const auto& t : def->tags)
+                if (t.rfind("ammo_type:", 0) == 0) { required_ammo_type = t.substr(10); break; }
+            if (required_ammo_type.empty()) {
+                ctx.log("[Reload] This weapon doesn't use magazines."); return;
+            }
+
+            if (!gun.magazine_slot.empty()) {
+                ctx.log("[Reload] Magazine already loaded. Eject it first."); return;
+            }
+
+            // Find compatible magazine in the other hand
+            const std::string& active_id = player_inv.active_hand_id();
+            const char* other_id = (active_id == "l_hand") ? "r_hand" : "l_hand";
+            auto* other_hand = player_inv.find_slot(other_id);
+            if (!other_hand || !other_hand->item || !other_hand->item->def) {
+                ctx.log("[Reload] Other hand is empty."); return;
+            }
+
+            ItemStack& mag_item = *other_hand->item;
+            bool compatible = false;
+            int  ammo_count = 0;
+            for (const auto& t : mag_item.def->tags) {
+                if (t == ("ammo_type:" + required_ammo_type)) compatible = true;
+                if (t.rfind("ammo_count:", 0) == 0)
+                    try { ammo_count = std::stoi(t.substr(11)); } catch (...) {}
+            }
+            if (!compatible) {
+                ctx.log("[Reload] Wrong magazine type for this weapon."); return;
+            }
+
+            // Lazy-init ammo in the magazine if never set
+            if (mag_item.ammo_remaining < 0)
+                mag_item.ammo_remaining = ammo_count;
+
+            gun.magazine_slot.push_back(std::move(mag_item));
+            other_hand->item.reset();
+
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "[Reload] Magazine loaded. (%d/%d rounds)",
+                gun.magazine_slot[0].ammo_remaining, ammo_count);
+            ctx.log(buf);
+        });
+
+        // verb_eject_mag: remove the loaded magazine from the gun into the other hand
+        // (or spawn at feet if the other hand is occupied).
+        vd.register_handler("verb_eject_mag",
+            [&player_inv, &world_items, &cam_pos](const VerbContext& ctx) {
+
+            auto* hand = player_inv.active_hand();
+            if (!hand || !hand->item || !hand->item->def) {
+                ctx.log("[Eject] Nothing in active hand."); return;
+            }
+            ItemStack& gun = *hand->item;
+
+            if (gun.magazine_slot.empty()) {
+                ctx.log("[Eject] No magazine loaded."); return;
+            }
+
+            ItemStack mag = std::move(gun.magazine_slot[0]);
+            gun.magazine_slot.clear();
+
+            // Try to place in the other hand first, then any slot
+            const std::string& active_id = player_inv.active_hand_id();
+            const char* other_id = (active_id == "l_hand") ? "r_hand" : "l_hand";
+            auto* other_hand = player_inv.find_slot(other_id);
+            if (other_hand && !other_hand->item) {
+                other_hand->item = std::move(mag);
+                ctx.log("[Eject] Magazine ejected to other hand.");
+            } else {
+                auto leftover = player_inv.auto_equip(std::move(mag));
+                if (leftover) {
+                    world_items.spawn_floating(cam_pos, std::move(*leftover));
+                    ctx.log("[Eject] Magazine ejected — no free slot, dropped to ground.");
+                } else {
+                    ctx.log("[Eject] Magazine ejected.");
+                }
+            }
         });
     }
 
@@ -1114,6 +1344,9 @@ int main(int argc, char* argv[])
                 double eff_dt = slow_motion ? dt * 0.1 : dt;
                 client.tick(eff_dt);
 
+                // Tick projectile system (client-side prediction: visual only)
+                projectile_sys.tick(eff_dt, signals());
+
                 // Enqueue chunks dirtied by incoming network data and update
                 // lighting.  Full rebuild only on the first batch (initial
                 // world load); subsequent changes use the incremental path.
@@ -1295,6 +1528,8 @@ int main(int argc, char* argv[])
                                std::sin(glm::radians(cam_pitch)),
                               -std::cos(glm::radians(cam_yaw))};
             audio.set_listener(cam_pos, glm::normalize(fwd3), {0,1,0});
+            audio.set_master_volume(game_settings.master_volume);
+            audio.set_sfx_volume(game_settings.sfx_volume);
             // Read actual gas pressure at player position for audio
             {
                 glm::ivec3 atmos_cell = {
@@ -2327,6 +2562,38 @@ int main(int argc, char* argv[])
                                 fhit2.voxel, FaceDir::PosY, std::move(ps));
                         }
                         hud_log("[Wrench] You remove the pipe section.");
+                    }
+                } else {
+                    // ── Held item verb menu (nothing in world was targeted) ───
+                    auto* hand_slot_h = player_inv.active_hand();
+                    if (hand_slot_h && hand_slot_h->item && hand_slot_h->item->def
+                        && !hand_slot_h->item->def->verbs.empty()
+                        && !ctx_menu.is_open()) {
+                        std::vector<ContextEntry> entries;
+                        for (const auto& verb : hand_slot_h->item->def->verbs) {
+                            std::string vhnd = verb.handler;
+                            entries.push_back({verb.name, true, false,
+                                [vhnd, &player_inv, &cam_pos, &hud_state, &client]() {
+                                    auto* hs = player_inv.active_hand();
+                                    VerbContext vctx;
+                                    vctx.actor      = client.local_player();
+                                    vctx.actor_pos  = cam_pos;
+                                    vctx.target_ent = NULL_ENTITY;
+                                    if (hs && hs->item) {
+                                        vctx.item_def   = hs->item->def;
+                                        vctx.item_stack = &(*hs->item);
+                                    }
+                                    vctx.hud_log = &hud_state.radio_log;
+                                    verb_dispatch().invoke(vhnd, vctx);
+                                }});
+                        }
+                        glm::vec2 menu_pos = {
+                            renderer.width()  * 0.5f - 86.f,
+                            renderer.height() * 0.5f - 20.f
+                        };
+                        ctx_menu.open(menu_pos, std::move(entries));
+                        fps_ctx_rclick      = true;
+                        fps_ctx_just_opened = true;
                     }
                 }
             }
@@ -3371,24 +3638,22 @@ int main(int argc, char* argv[])
                                           adm_state);
 
                 if (ar.toggle_noclip) {
+                    // Toggle noclip on client entity for immediate UI feedback,
+                    // then send to server so physics honours it.
                     EntityID plr = client.local_player();
                     if (plr != NULL_ENTITY) {
                         auto* cc = g_entities.get_component<CharacterControllerComponent>(plr);
-                        if (cc) {
-                            cc->noclip = !cc->noclip;
-                            SDL_Log("Noclip: %s", cc->noclip ? "ON" : "OFF");
-                        }
+                        if (cc) cc->noclip = !cc->noclip;
                     }
+                    client.send_admin_cmd(AdminCmdType::ToggleNoclip);
                 }
                 if (ar.toggle_godmode) {
                     EntityID plr = client.local_player();
                     if (plr != NULL_ENTITY) {
                         auto* hp = g_entities.get_component<HealthComponent>(plr);
-                        if (hp) {
-                            hp->godmode = !hp->godmode;
-                            SDL_Log("God Mode: %s", hp->godmode ? "ON" : "OFF");
-                        }
+                        if (hp) hp->godmode = !hp->godmode;
                     }
+                    client.send_admin_cmd(AdminCmdType::ToggleGodmode);
                 }
                 if (ar.toggle_build_mode) {
                     build_mode = !build_mode;
@@ -3421,100 +3686,43 @@ int main(int argc, char* argv[])
                     renderer.set_wireframe(!renderer.wireframe());
                     SDL_Log("Wireframe: %s", renderer.wireframe() ? "ON" : "OFF");
                 }
-                // ── New simulation / dev-tool toggles ──────────────────────
+                // ── Simulation / dev-tool toggles ──────────────────────────
+                // freeze_sim and slow_motion are client-side (affect client tick rate).
                 if (ar.toggle_freeze_sim) {
                     freeze_sim = !freeze_sim;
-                    SDL_Log("Freeze Simulation: %s", freeze_sim ? "ON" : "OFF");
+                    SDL_Log("Freeze Simulation (client): %s", freeze_sim ? "ON" : "OFF");
                 }
                 if (ar.toggle_slow_motion) {
                     slow_motion = !slow_motion;
-                    SDL_Log("Slow Motion: %s", slow_motion ? "ON" : "OFF");
+                    SDL_Log("Slow Motion (client): %s", slow_motion ? "ON" : "OFF");
                 }
+                // auto_heal, zerog_override, infinite_oxy are applied server-side.
                 if (ar.toggle_auto_heal) {
                     auto_heal = !auto_heal;
+                    client.send_admin_cmd(AdminCmdType::ToggleAutoHeal);
                     SDL_Log("Auto-Heal: %s", auto_heal ? "ON" : "OFF");
                 }
                 if (ar.toggle_zerog_override) {
                     zerog_override = !zerog_override;
+                    client.send_admin_cmd(AdminCmdType::ToggleZeroGOverride);
                     SDL_Log("Zero-G Override: %s", zerog_override ? "ON" : "OFF");
                 }
                 if (ar.toggle_infinite_oxy) {
                     infinite_oxy = !infinite_oxy;
+                    client.send_admin_cmd(AdminCmdType::ToggleInfiniteOxy);
                     SDL_Log("Infinite Oxygen: %s", infinite_oxy ? "ON" : "OFF");
                 }
                 // ── One-shot actions ────────────────────────────────────────
-                if (ar.action_full_heal) {
-                    EntityID plr = client.local_player();
-                    if (plr != NULL_ENTITY) {
-                        auto* hp = g_entities.get_component<HealthComponent>(plr);
-                        if (hp) {
-                            hp->brute = hp->burn = hp->tox = hp->oxy = 0.f;
-                            hp->dead  = false;
-                            SDL_Log("Dev: full heal applied");
-                        }
-                    }
-                }
-                if (ar.action_kill_player) {
-                    EntityID plr = client.local_player();
-                    if (plr != NULL_ENTITY) {
-                        auto* hp = g_entities.get_component<HealthComponent>(plr);
-                        if (hp) {
-                            bool was_god = hp->godmode;
-                            hp->godmode = false;
-                            hp->apply("brute", hp->health_max * 2.f);
-                            hp->godmode = was_god;
-                            SDL_Log("Dev: kill player");
-                        }
-                    }
-                }
-                if (ar.action_teleport_origin) {
-                    EntityID plr = client.local_player();
-                    if (plr != NULL_ENTITY) {
-                        auto* tr_pl = g_entities.get_component<TransformComponent>(plr);
-                        auto* vel_pl = g_entities.get_component<VelocityComponent>(plr);
-                        if (tr_pl) {
-                            // Find first open Y at (0, 0)
-                            bool found_y = false;
-                            for (int sy = 1; sy <= 128 && !found_y; ++sy) {
-                                Voxel bot = g_world.get_voxel({0, sy,     0});
-                                Voxel top = g_world.get_voxel({0, sy + 1, 0});
-                                if (!(bot.flags & VFLAG_SOLID) && !(top.flags & VFLAG_SOLID)) {
-                                    tr_pl->pos = {0.5f, static_cast<float>(sy), 0.5f};
-                                    found_y = true;
-                                }
-                            }
-                            if (!found_y) tr_pl->pos = {0.5f, 5.f, 0.5f};
-                            if (vel_pl) vel_pl->linear = {};
-                            SDL_Log("Dev: teleported to origin (%.1f,%.1f,%.1f)",
-                                    tr_pl->pos.x, tr_pl->pos.y, tr_pl->pos.z);
-                        }
-                    }
-                }
-                if (ar.action_force_atmos) {
-                    if (g_atmos) g_atmos->rebuild_zones();
-                    SDL_Log("Dev: atmos zones rebuilt");
-                }
-                if (ar.action_spawn_items) {
-                    // Scatter up to 8 items from the registry at the player's feet
-                    EntityID plr = client.local_player();
-                    glm::vec3 drop_pos = glm::vec3{0.5f, 1.f, 0.5f};
-                    if (plr != NULL_ENTITY) {
-                        auto* tr = g_entities.get_component<TransformComponent>(plr);
-                        if (tr) drop_pos = tr->pos;
-                    }
-                    RayHit drop_floor  = g_world.raycast(drop_pos, {0.f,-1.f,0.f}, 4.f);
-                    int spawned = 0;
-                    for (const auto& [id, def] : item_reg.all()) {
-                        if (spawned >= 8) break;
-                        ItemStack st; st.def = &def; st.count = 1; st.integrity = 1.f;
-                        if (drop_floor.valid)
-                            world_items.spawn_scattered(drop_floor.voxel, drop_floor.face, std::move(st));
-                        else
-                            world_items.spawn_floating(drop_pos, std::move(st));
-                        ++spawned;
-                    }
-                    SDL_Log("Dev: spawned %d test items", spawned);
-                }
+                if (ar.action_full_heal)
+                    client.send_admin_cmd(AdminCmdType::ActionFullHeal);
+                if (ar.action_kill_player)
+                    client.send_admin_cmd(AdminCmdType::ActionKillPlayer);
+                if (ar.action_teleport_origin)
+                    client.send_admin_cmd(AdminCmdType::ActionTeleportOrigin);
+                if (ar.action_force_atmos)
+                    client.send_admin_cmd(AdminCmdType::ActionForceAtmos);
+                if (ar.action_spawn_items)
+                    client.send_admin_cmd(AdminCmdType::ActionSpawnItems);
                 if (ar.close_requested && !alt_mode.active() &&
                     !creative_menu.is_open() && !map_editor.is_open())
                     input.capture_cursor(renderer.window(), true);

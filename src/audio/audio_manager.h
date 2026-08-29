@@ -39,6 +39,10 @@ public:
     void stop(SoundHandle handle);
     void set_volume(SoundHandle handle, float vol);
 
+    // Master and SFX volume multipliers — applied to all streams each update.
+    void set_master_volume(float v) { m_master_volume = v; }
+    void set_sfx_volume(float v)    { m_sfx_volume    = v; }
+
     // Called each frame — updates pan/volume for active spatial sounds
     void update(float dt);
 
@@ -58,8 +62,10 @@ private:
     };
 
     glm::vec3 m_listener_pos{};
-    glm::vec3 m_listener_fwd{0,0,-1};
-    float     m_local_pressure = 101.325f; // standard atm kPa
+    glm::vec3 m_listener_fwd{0.f, 0.f, -1.f};
+    float     m_local_pressure = 101.325f;
+    float     m_master_volume  = 1.0f;
+    float     m_sfx_volume     = 1.0f;
 
     std::unordered_map<std::string, SoundEvent> m_events;
     std::unordered_map<SoundHandle, ActiveSound> m_active;

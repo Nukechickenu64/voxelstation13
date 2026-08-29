@@ -491,6 +491,52 @@ void HUD::draw_hand_slots(const Inventory& inv, bool left_active,
                 m_ui.rect({px+2.f,hy+HAND_SZ-3.f}, {HAND_SZ-4.f,2.f}, {0.12f,0.12f,0.12f,0.7f},0.f);
                 m_ui.rect({px+2.f,hy+HAND_SZ-3.f}, {fil,2.f}, ic, 0.f);
             }
+
+            // ── Ammo overlay for guns ──────────────────────────────────────
+            {
+                // Ballistic gun with a loaded magazine
+                std::string ammo_type;
+                int energy_max = 0;
+                for (const auto& t : def.tags) {
+                    if (t.rfind("ammo_type:", 0) == 0)   ammo_type  = t.substr(10);
+                    if (t.rfind("energy_max:", 0) == 0)
+                        try { energy_max = std::stoi(t.substr(11)); } catch (...) {}
+                }
+                if (!ammo_type.empty()) {
+                    std::string ammo_str;
+                    glm::vec4 col;
+                    if (!slot->item->magazine_slot.empty()) {
+                        int cur = slot->item->magazine_slot[0].ammo_remaining;
+                        // read max from magazine's ammo_count tag
+                        int mx = 0;
+                        if (slot->item->magazine_slot[0].def)
+                            for (const auto& t : slot->item->magazine_slot[0].def->tags)
+                                if (t.rfind("ammo_count:", 0) == 0)
+                                    try { mx = std::stoi(t.substr(11)); } catch (...) {}
+                        ammo_str = std::to_string(cur) + "/" + std::to_string(mx);
+                        col = cur > mx / 3
+                            ? glm::vec4{1.f, 1.f, 1.f, 0.95f}
+                            : cur > 0
+                                ? glm::vec4{1.f, 0.70f, 0.10f, 0.95f}
+                                : glm::vec4{1.f, 0.20f, 0.20f, 0.95f};
+                    } else {
+                        ammo_str = "--";
+                        col = {0.55f, 0.20f, 0.20f, 0.90f};
+                    }
+                    float tw = static_cast<float>(ammo_str.size()) * 5.8f;
+                    m_ui.text({px + HAND_SZ - tw - 2.f, hy + 3.f}, ammo_str, col, 8.f);
+                } else if (energy_max > 0 && slot->item->ammo_remaining >= 0) {
+                    int cur = slot->item->ammo_remaining;
+                    std::string ammo_str = std::to_string(cur) + "/" + std::to_string(energy_max);
+                    glm::vec4 col = cur > energy_max / 3
+                        ? glm::vec4{0.30f, 0.80f, 1.00f, 0.95f}
+                        : cur > 0
+                            ? glm::vec4{1.f, 0.70f, 0.10f, 0.95f}
+                            : glm::vec4{1.f, 0.20f, 0.20f, 0.95f};
+                    float tw = static_cast<float>(ammo_str.size()) * 5.8f;
+                    m_ui.text({px + HAND_SZ - tw - 2.f, hy + 3.f}, ammo_str, col, 8.f);
+                }
+            }
         }
         if (hov && click) out_click = sid;
     };
@@ -622,10 +668,10 @@ void HUD::draw_zone_intent(HUDState& s, glm::vec2 mouse, bool click)
         struct ZR { BodyZone zone; glm::vec2 tl; glm::vec2 sz; };
         static const ZR k_z[] = {
             { BodyZone::Head,  {10.f,  1.f}, {12.f,  9.f} },  // head (top, small)
-            { BodyZone::LArm,  { 0.f,  7.f}, { 6.f, 13.f} },  // narrow arms before chest
-            { BodyZone::RArm,  {26.f,  7.f}, { 6.f, 13.f} },
-            { BodyZone::LLeg,  { 4.f, 23.f}, {10.f,  9.f} },  // legs before groin
-            { BodyZone::RLeg,  {18.f, 23.f}, {10.f,  9.f} },
+            { BodyZone::RArm,  { 0.f,  7.f}, { 6.f, 13.f} },  // doll faces viewer: image-left = character's right
+            { BodyZone::LArm,  {26.f,  7.f}, { 6.f, 13.f} },
+            { BodyZone::RLeg,  { 4.f, 23.f}, {10.f,  9.f} },  // same mirror convention for legs
+            { BodyZone::LLeg,  {18.f, 23.f}, {10.f,  9.f} },
             { BodyZone::Groin, { 7.f, 18.f}, {18.f,  7.f} },  // groin before chest
             { BodyZone::Chest, { 4.f,  8.f}, {24.f, 11.f} },  // chest last (large catch-all)
         };

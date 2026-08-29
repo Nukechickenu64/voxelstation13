@@ -78,6 +78,9 @@ public:
     void      send_chat(const std::string& msg);
     const std::vector<std::string>& chat_log() const { return m_chat_log; }
 
+    // Admin commands
+    void send_admin_cmd(AdminCmdType cmd);
+
 private:
     void process_incoming();
     void on_chunk_data      (const void* data, size_t len);

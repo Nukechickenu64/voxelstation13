@@ -88,6 +88,7 @@ set(SRC_SIM
     src/simulation/reagents.cpp
     src/simulation/vehicle.cpp
     src/simulation/vehicle_manager.cpp
+    src/simulation/projectile_system.cpp
 )
 
 set(SRC_INPUT
@@ -140,6 +141,7 @@ set(SRC_SIM_CLIENT
     src/simulation/model_objects.cpp    # static model collision geometry
     src/simulation/atmos.cpp            # AtmosSimulator (client reads zone info)
     src/simulation/enclosure.cpp        # EnclosureDetector (client reads enclosure)
+    src/simulation/projectile_system.cpp
 )
 
 add_executable(vs13

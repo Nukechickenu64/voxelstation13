@@ -1,0 +1,74 @@
+[
+  {
+    "id":         "pistol_mag",
+    "name":       "Pistol Magazine",
+    "icon":       "items/pistol_mag",
+    "tags":       ["ammo", "ammo_type:pistol_mag", "ammo_count:8", "small"],
+    "weight":     0.2,
+    "volume":     0.5,
+    "stack_max":  4,
+    "verbs": [
+      { "name": "Examine", "range": 99, "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "m1911_mag",
+    "name":       "M1911 Magazine",
+    "icon":       "items/m1911_mag",
+    "tags":       ["ammo", "ammo_type:m1911_mag", "ammo_count:7", "small"],
+    "weight":     0.25,
+    "volume":     0.5,
+    "stack_max":  4,
+    "verbs": [
+      { "name": "Examine", "range": 99, "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "revolver_ammo",
+    "name":       "Speedloader (.38)",
+    "icon":       "items/revolver_ammo",
+    "tags":       ["ammo", "ammo_type:revolver_ammo", "ammo_count:6", "small"],
+    "weight":     0.15,
+    "volume":     0.4,
+    "stack_max":  6,
+    "verbs": [
+      { "name": "Examine", "range": 99, "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "shotgun_shell",
+    "name":       "Shotgun Shell",
+    "icon":       "items/shotgun_shell",
+    "tags":       ["ammo", "ammo_type:shotgun_shell", "ammo_count:1", "small"],
+    "weight":     0.1,
+    "volume":     0.3,
+    "stack_max":  16,
+    "verbs": [
+      { "name": "Examine", "range": 99, "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "smg_mag",
+    "name":       "SMG Magazine",
+    "icon":       "items/smg_mag",
+    "tags":       ["ammo", "ammo_type:smg_mag", "ammo_count:20", "small"],
+    "weight":     0.3,
+    "volume":     0.8,
+    "stack_max":  3,
+    "verbs": [
+      { "name": "Examine", "range": 99, "handler": "verb_examine" }
+    ]
+  },
+  {
+    "id":         "sniper_mag",
+    "name":       "Sniper Magazine",
+    "icon":       "items/sniper_mag",
+    "tags":       ["ammo", "ammo_type:sniper_mag", "ammo_count:4", "small"],
+    "weight":     0.4,
+    "volume":     1.0,
+    "stack_max":  3,
+    "verbs": [
+      { "name": "Examine", "range": 99, "handler": "verb_examine" }
+    ]
+  }
+]

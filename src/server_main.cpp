@@ -15,6 +15,7 @@
 #include "simulation/atmos.h"
 #include "simulation/physics.h"
 #include "simulation/world_items.h"
+#include "simulation/projectile_system.h"
 #include "simulation/reagents.h"
 #include "simulation/model_objects.h"
 #include "data/voxel_registry.h"
@@ -76,6 +77,7 @@ int main(int argc, char* argv[])
     // ── Server setup ──────────────────────────────────────────────────────────
     Server server;
     server.set_species_registry(&mob_species_reg);
+    server.set_item_registry(&item_reg);
 
     // ── Start network listener (also creates World/EntityManager/etc.) ────────
     if (!server.start(port)) {
@@ -85,8 +87,8 @@ int main(int argc, char* argv[])
     }
     SDL_Log("[server] Listening on UDP port %u — press Ctrl+C to stop", (unsigned)port);
 
-    // ── World item system ─────────────────────────────────────────────────────
-    WorldItemSystem world_items(server.world(), server.entities());
+    // ── Projectile system ─────────────────────────────────────────────────────
+    ProjectileSystem projectile_sys(server.world(), server.entities());
 
     // ── Static model objects ──────────────────────────────────────────────────
     ModelObjectManager model_objs;
@@ -244,7 +246,7 @@ int main(int argc, char* argv[])
             const ItemDef* def = item_reg.get(item_id);
             if (!def) return;
             ItemStack stack; stack.def = def; stack.count = 1;
-            world_items.spawn_scattered({x, 0, z}, FaceDir::PosY, std::move(stack));
+            server.world_items().spawn_scattered({x, 0, z}, FaceDir::PosY, std::move(stack));
         };
         spawn_test_item("wrench",      2,  0);
         spawn_test_item("screwdriver", 2,  2);
@@ -280,6 +282,7 @@ int main(int argc, char* argv[])
         prev_ticks  = now;
 
         server.tick(static_cast<float>(dt));
+        projectile_sys.tick(dt, signals());
 
         // Sleep to target ~60 Hz without busy-spinning.
         Uint64 elapsed = SDL_GetTicks() - now;
